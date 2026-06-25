@@ -1,0 +1,12 @@
+---
+id: shen
+name: 沈砚
+color: #e76f51
+gradient: linear-gradient(135deg, #e76f51, #9d4edd)
+group: 旧案相关
+markers: [主角, 中立]
+x: 34
+y: 30
+events: [2, 4, 7]
+---
+沉默的海事律师，正在追查十五年前失踪船队的赔偿案。

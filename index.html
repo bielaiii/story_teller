@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>小说剧情记录器</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css?v=character-markers-right" />
+  </head>
+  <body>
+    <canvas id="ambientCanvas" aria-hidden="true"></canvas>
+    <div class="timeline-floating-legend is-hidden" id="timelineLegend" aria-label="剧情线颜色图示"></div>
+
+    <main class="app-shell">
+      <nav class="view-nav" aria-label="页面切换">
+        <button class="view-btn" data-view="story">剧情</button>
+        <button class="view-btn is-active" data-view="graph">图谱</button>
+        <button class="view-btn" data-view="timeline">时间线</button>
+        <button class="view-btn" data-view="characters">人物</button>
+      </nav>
+
+      <section class="story-panel page-view" data-page="story" aria-label="剧情记录">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Story Teller</p>
+            <h1>雾港纪事</h1>
+          </div>
+          <div class="chapter-switch" aria-label="章节筛选">
+            <button class="chapter-btn is-active" data-chapter="all">全部</button>
+            <button class="chapter-btn" data-chapter="act1">第一幕</button>
+            <button class="chapter-btn" data-chapter="act2">第二幕</button>
+            <button class="chapter-btn" data-chapter="act3">第三幕</button>
+            <button class="chapter-btn" data-chapter="key">关键剧情</button>
+            <button class="chapter-btn" data-chapter="climax">高潮剧情</button>
+          </div>
+        </header>
+
+        <div class="plot-strip" id="plotStrip" aria-label="剧情线"></div>
+      </section>
+
+      <section class="plot-detail-page page-view" data-page="plot-detail" aria-label="剧情全文">
+        <aside class="plot-people-rail" id="plotPeopleRail"></aside>
+        <article class="plot-detail" id="plotDetail"></article>
+      </section>
+
+      <section class="graph-stage page-view is-active" data-page="graph" aria-label="人物关系图谱">
+        <div class="stage-header">
+          <div>
+            <p class="eyebrow">Relationship Map</p>
+            <h2>人物关系图谱</h2>
+          </div>
+          <div class="graph-tools" aria-label="图谱筛选">
+            <input id="graphSearch" class="graph-search" type="search" placeholder="搜索人物或剧情" />
+            <select id="groupFilter" class="graph-select" aria-label="人物分组">
+              <option value="all">全部分组</option>
+            </select>
+            <select id="relationFilter" class="graph-select" aria-label="关系类型">
+              <option value="all">全部关系</option>
+            </select>
+          </div>
+        </div>
+        <div class="hint">滚轮缩放 · 拖动画布 · 拖动头像 · 点击居中</div>
+
+        <div class="graph-wrap" id="graphWrap">
+          <svg id="linkLayer" aria-hidden="true"></svg>
+          <div id="nodeLayer"></div>
+          <aside class="profile-float is-hidden" id="profileFloat" aria-live="polite">
+            <div class="profile-head">
+              <div class="selected-avatar" id="selectedAvatar">林</div>
+              <div>
+                <p class="label">人物设定</p>
+                <h3 id="personName">林秋</h3>
+              </div>
+            </div>
+            <p id="personIntro">旧港档案馆修复师，负责整理一批被火烧过的航海日记。</p>
+            <div class="section-title">
+              <p class="label">关键情节</p>
+              <span class="profile-orbit" aria-hidden="true"></span>
+            </div>
+            <div class="event-list" id="eventList"></div>
+            <button class="profile-detail-btn" id="profileDetailBtn" type="button">查看人物详情</button>
+          </aside>
+        </div>
+      </section>
+
+      <section class="timeline-panel page-view" data-page="timeline" aria-label="剧情时间线">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Timeline</p>
+            <h2>剧情时间线</h2>
+          </div>
+          <div class="timeline-actions">
+            <button class="timeline-direction-btn" id="timelineDirectionBtn" type="button">顶端：开始</button>
+            <div class="hint">点击节点跳到剧情页阅读全文</div>
+          </div>
+        </header>
+        <div class="timeline-list" id="timelineList"></div>
+      </section>
+
+      <section class="character-page page-view" data-page="characters" aria-label="人物详情">
+        <aside class="character-rail">
+          <p class="eyebrow">Characters</p>
+          <h2>人物详情</h2>
+          <input id="characterSearch" class="character-search" type="search" placeholder="搜索人物" />
+          <div class="character-list" id="characterList"></div>
+        </aside>
+        <article class="character-detail" id="characterDetail"></article>
+      </section>
+    </main>
+
+    <script src="./app.js?v=character-markers-right"></script>
+  </body>
+</html>

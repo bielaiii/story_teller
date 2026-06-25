@@ -1,0 +1,1629 @@
+let characters = [];
+let plots = [];
+let relationships = [];
+let timelineModel = null;
+let timelineConfig = {};
+const DATA_VERSION = "character-markers-right";
+
+function parseValue(value) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((item) => parseValue(item))
+      .filter((item) => item !== "");
+  }
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  return trimmed.replace(/^["']|["']$/g, "");
+}
+
+function parseMarkdownFile(text) {
+  const match = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return { meta: {}, body: text.trim() };
+
+  const meta = {};
+  match[1].split("\n").forEach((line) => {
+    const separator = line.indexOf(":");
+    if (separator === -1) return;
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1);
+    meta[key] = parseValue(value);
+  });
+
+  return { meta, body: match[2].trim() };
+}
+
+async function fetchText(path) {
+  const separator = path.includes("?") ? "&" : "?";
+  const response = await fetch(`${path}${separator}v=${DATA_VERSION}`);
+  if (!response.ok) throw new Error(`无法加载 ${path}`);
+  return response.text();
+}
+
+function extractManifestSection(text, sectionName) {
+  const lines = text.split("\n");
+  const paths = [];
+  let inSection = false;
+
+  lines.forEach((line) => {
+    const heading = line.match(/^##\s+(.+)$/);
+    if (heading) {
+      inSection = heading[1].trim() === sectionName;
+      return;
+    }
+    if (!inSection) return;
+    const item = line.match(/^-\s+(.+\.md)\s*$/);
+    if (item) paths.push(item[1].trim());
+  });
+
+  return paths;
+}
+
+function parseConfigBlocks(body, sectionName) {
+  const lines = body.split("\n");
+  const blocks = [];
+  let inSection = false;
+  let current = null;
+
+  lines.forEach((line) => {
+    const heading = line.match(/^##\s+(.+)$/);
+    if (heading) {
+      if (current) blocks.push(current);
+      current = null;
+      inSection = heading[1].trim() === sectionName;
+      return;
+    }
+    if (!inSection || !line.trim()) return;
+    const item = line.match(/^-\s+([^:]+):\s*(.+)$/);
+    if (item) {
+      if (current) blocks.push(current);
+      current = { [item[1].trim()]: parseValue(item[2]) };
+      return;
+    }
+    const field = line.match(/^\s+([^:]+):\s*(.+)$/);
+    if (field && current) current[field[1].trim()] = parseValue(field[2]);
+  });
+  if (current) blocks.push(current);
+  return blocks;
+}
+
+async function loadTimelineConfig(path) {
+  if (!path) return {};
+  const { meta, body } = parseMarkdownFile(await fetchText(path));
+  return {
+    ...meta,
+    branches: parseConfigBlocks(body, "Branches"),
+    nodes: parseConfigBlocks(body, "Nodes"),
+  };
+}
+
+async function loadMarkdownData() {
+  const manifest = await fetchText("./data/manifest.md");
+  const characterPaths = extractManifestSection(manifest, "Characters");
+  const plotPaths = extractManifestSection(manifest, "Plots");
+  const relationshipPaths = extractManifestSection(manifest, "Relationships");
+  const timelinePaths = extractManifestSection(manifest, "Timeline");
+
+  characters = await Promise.all(characterPaths.map(async (path) => {
+    const { meta, body } = parseMarkdownFile(await fetchText(path));
+    return {
+      ...meta,
+      intro: body,
+      events: Array.isArray(meta.events) ? meta.events : [],
+      markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
+    };
+  }));
+
+  plots = await Promise.all(plotPaths.map(async (path) => {
+    const { meta, body } = parseMarkdownFile(await fetchText(path));
+    return {
+      ...meta,
+      text: body,
+      people: Array.isArray(meta.people) ? meta.people : [],
+    };
+  }));
+  plots.sort((a, b) => a.id - b.id);
+
+  relationships = await Promise.all(relationshipPaths.map(async (path) => {
+    const { meta } = parseMarkdownFile(await fetchText(path));
+    return meta;
+  }));
+
+  timelineConfig = await loadTimelineConfig(timelinePaths[0]);
+}
+
+const state = {
+  selected: "",
+  selectedCharacter: "",
+  selectedPlotId: null,
+  hasSelection: false,
+  chapter: "all",
+  highlightPlotId: null,
+  view: "graph",
+  dragging: null,
+  panning: null,
+  suppressClickId: "",
+  suppressClickUntil: 0,
+  graphScale: 1,
+  graphPanX: 0,
+  graphPanY: 0,
+  search: "",
+  group: "all",
+  relationType: "all",
+  characterSearch: "",
+  timelineReversed: false,
+  width: 0,
+  height: 0,
+};
+
+const graphWrap = document.querySelector("#graphWrap");
+const linkLayer = document.querySelector("#linkLayer");
+const nodeLayer = document.querySelector("#nodeLayer");
+const plotStrip = document.querySelector("#plotStrip");
+const plotPeopleRail = document.querySelector("#plotPeopleRail");
+const plotDetail = document.querySelector("#plotDetail");
+const eventList = document.querySelector("#eventList");
+const personName = document.querySelector("#personName");
+const personIntro = document.querySelector("#personIntro");
+const personAvatar = document.querySelector("#selectedAvatar");
+const profileFloat = document.querySelector("#profileFloat");
+const graphSearch = document.querySelector("#graphSearch");
+const groupFilter = document.querySelector("#groupFilter");
+const relationFilter = document.querySelector("#relationFilter");
+const timelineList = document.querySelector("#timelineList");
+const timelineDirectionBtn = document.querySelector("#timelineDirectionBtn");
+const timelineLegend = document.querySelector("#timelineLegend");
+const characterList = document.querySelector("#characterList");
+const characterDetail = document.querySelector("#characterDetail");
+const profileDetailBtn = document.querySelector("#profileDetailBtn");
+const characterSearch = document.querySelector("#characterSearch");
+
+function initial(name) {
+  return name.slice(0, 1);
+}
+
+function avatarContent(person) {
+  if (person.avatar) {
+    return `<img src="${person.avatar}" alt="${person.name}" />`;
+  }
+  return `<span class="avatar-text">${person.name}</span>`;
+}
+
+function characterMarkers(person) {
+  return Array.isArray(person?.markers) ? person.markers.filter(Boolean) : [];
+}
+
+function markerTone(marker) {
+  return {
+    男主: "#2563a8",
+    女主: "#c95f92",
+    主角: "#2a9d8f",
+    主角团: "#d58a35",
+    反派: "#9d3f3f",
+    中立: "#65717d",
+  }[marker] || "var(--accent)";
+}
+
+function markerBadges(person, limit = Infinity) {
+  const markers = characterMarkers(person).slice(0, limit);
+  if (!markers.length) return "";
+  return `
+    <span class="character-markers">
+      ${markers.map((marker) => `<span class="marker-badge" style="--marker:${markerTone(marker)}">${escapeHtml(marker)}</span>`).join("")}
+    </span>
+  `;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderMarkdownBody(text) {
+  const blocks = String(text || "")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  if (!blocks.length) return "<p>暂无正文。</p>";
+  return blocks.map((block) => {
+    if (block.startsWith("### ")) return `<h4>${escapeHtml(block.slice(4))}</h4>`;
+    if (block.startsWith("## ")) return `<h3>${escapeHtml(block.slice(3))}</h3>`;
+    return `<p>${escapeHtml(block).replaceAll("\n", "<br />")}</p>`;
+  }).join("");
+}
+
+function plotExcerpt(plot) {
+  const text = String(plot.text || "").replace(/\s+/g, " ").trim();
+  if (text.length <= 86) return text;
+  return `${text.slice(0, 86)}...`;
+}
+
+function getCharacter(id) {
+  return characters.find((person) => person.id === id);
+}
+
+function personMatchesSearch(person) {
+  if (!state.search) return true;
+  const keyword = state.search.toLowerCase();
+  const relatedPlots = plots.filter((plot) => plot.people.includes(person.id));
+  return [
+    person.name,
+    person.id,
+    person.group,
+    person.intro,
+    ...characterMarkers(person),
+    ...relatedPlots.map((plot) => `${plot.title} ${plot.text}`),
+  ]
+    .filter(Boolean)
+    .some((text) => String(text).toLowerCase().includes(keyword));
+}
+
+function isVisiblePerson(person) {
+  const groupMatch = state.group === "all" || person.group === state.group;
+  return groupMatch && personMatchesSearch(person);
+}
+
+function isVisibleRelationship(link) {
+  const a = getCharacter(link.from);
+  const b = getCharacter(link.to);
+  if (!a || !b) return false;
+  const typeMatch = state.relationType === "all" || link.type === state.relationType;
+  return typeMatch && isVisiblePerson(a) && isVisiblePerson(b);
+}
+
+function renderGraphFilters() {
+  const groups = [...new Set(characters.map((person) => person.group).filter(Boolean))];
+  const relationTypes = [...new Set(relationships.map((link) => link.type).filter(Boolean))];
+
+  groupFilter.innerHTML = '<option value="all">全部分组</option>' + groups
+    .map((group) => `<option value="${group}">${group}</option>`)
+    .join("");
+  relationFilter.innerHTML = '<option value="all">全部关系</option>' + relationTypes
+    .map((type) => `<option value="${type}">${type}</option>`)
+    .join("");
+}
+
+function renderPlots() {
+  const visible = plots.filter((plot) => {
+    if (state.chapter === "all") return true;
+    if (state.chapter === "key") return plot.key;
+    if (state.chapter === "climax") return plot.climax;
+    return plot.chapter === state.chapter;
+  });
+  plotStrip.innerHTML = visible
+    .map((plot, index) => {
+      return `
+        <button class="plot-card ${plot.key ? "is-key" : ""} ${plot.climax ? "is-climax" : ""} ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
+          <div class="plot-index">${plot.id}</div>
+          <div>
+            <h4>${plot.title}</h4>
+            ${plot.key ? '<span class="plot-badge is-key">关键剧情</span>' : ""}
+            ${plot.climax ? '<span class="plot-badge is-climax">高潮剧情</span>' : ""}
+            <p>${plotExcerpt(plot)}</p>
+          </div>
+        </button>
+      `;
+    })
+    .join("");
+  document.querySelectorAll(".plot-card").forEach((card) => {
+    card.addEventListener("click", () => openPlotDetail(Number(card.dataset.plotId)));
+  });
+}
+
+function plotBadges(plot) {
+  return `
+    ${plot.key ? '<span class="plot-badge is-key">关键剧情</span>' : ""}
+    ${plot.climax ? '<span class="plot-badge is-climax">高潮剧情</span>' : ""}
+  `;
+}
+
+function chapterName(chapter) {
+  return {
+    act1: "第一幕",
+    act2: "第二幕",
+    act3: "第三幕",
+  }[chapter] || chapter || "未分幕";
+}
+
+function connectorGeometry(connector) {
+  const span = Math.abs(connector.y2 - connector.y1);
+  const r = Math.min(connector.radius, Math.max(8, span / 5));
+  const topY = Math.min(connector.y1, connector.y2);
+  const bottomY = Math.max(connector.y1, connector.y2);
+  const topRailY = topY + r * 1.45;
+  const bottomRailY = bottomY - r * 1.45;
+  return {
+    radius: r,
+    topY,
+    bottomY,
+    topRailY,
+    bottomRailY,
+    branchTopY: topRailY + r,
+    branchBottomY: bottomRailY - r,
+  };
+}
+
+function asTimelineRatio(value, fallback = 0) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const raw = String(value).trim();
+  if (raw === "start") return 0;
+  if (raw === "end") return 1;
+  const numeric = raw.endsWith("%") ? Number(raw.slice(0, -1)) / 100 : Number(raw);
+  if (!Number.isFinite(numeric)) return fallback;
+  const ratio = numeric > 1 ? numeric / 100 : numeric;
+  return Math.max(0, Math.min(1, ratio));
+}
+
+function timelineVisualRatio(value, fallback = 0) {
+  const ratio = asTimelineRatio(value, fallback);
+  return state.timelineReversed ? 1 - ratio : ratio;
+}
+
+function timelinePercentLabel(ratio) {
+  return `${Math.round(ratio * 100)}%`;
+}
+
+function timelineRangesOverlap(first, second) {
+  return first.start < second.end && second.start < first.end;
+}
+
+function generatedTimelineColor(index) {
+  const hues = [206, 329, 151, 36, 257, 184, 4, 96, 284, 222];
+  const hue = hues[index % hues.length];
+  const lightness = index >= hues.length ? 42 + ((index - hues.length) % 3) * 4 : 46;
+  return `hsl(${hue} 58% ${lightness}%)`;
+}
+
+function assignTimelineColors(lines, branchConfigs, connectors, palette, mainLineName) {
+  const colorMap = new Map();
+  const basePalette = palette.length
+    ? palette
+    : ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"];
+  colorMap.set(mainLineName, basePalette[0] || "#1d9bf0");
+  const branchConfigByLine = new Map(branchConfigs.map((item) => [item.line, item]));
+  const connectorRanges = connectors
+    .map((connector) => ({
+      lane: connector.lane,
+      start: Math.min(connector.y1, connector.y2),
+      end: Math.max(connector.y1, connector.y2),
+    }))
+    .sort((a, b) => lines.indexOf(a.lane) - lines.indexOf(b.lane));
+
+  connectorRanges.forEach((range) => {
+    const branchConfig = branchConfigByLine.get(range.lane);
+    if (branchConfig?.color) {
+      colorMap.set(range.lane, branchConfig.color);
+      return;
+    }
+    const usedColors = new Set(connectorRanges
+      .filter((item) => item.lane !== range.lane && colorMap.has(item.lane) && timelineRangesOverlap(range, item))
+      .map((item) => colorMap.get(item.lane)));
+    let color = basePalette.find((item, index) => index > 0 && !usedColors.has(item));
+    let colorIndex = 0;
+    while (!color) {
+      const generated = generatedTimelineColor(colorIndex);
+      if (!usedColors.has(generated)) color = generated;
+      colorIndex += 1;
+    }
+    colorMap.set(range.lane, color);
+  });
+
+  lines.forEach((lane, index) => {
+    if (!colorMap.has(lane)) colorMap.set(lane, basePalette[index % basePalette.length] || generatedTimelineColor(index));
+  });
+  return colorMap;
+}
+
+function timelineNodeConfigFor(plotId) {
+  return (timelineConfig.nodes || []).find((item) => Number(item.plotId) === Number(plotId)) || {};
+}
+
+function timelinePlotTitle(plot) {
+  return timelineNodeConfigFor(plot.id).displayTitle || plot.title;
+}
+
+function timelinePlotSummary(plot) {
+  return timelineNodeConfigFor(plot.id).displaySummary || plot.text;
+}
+
+function timelinePlotChapter(plot) {
+  return timelineNodeConfigFor(plot.id).displayChapter || chapterName(plot.chapter);
+}
+
+function updateTimelineDirectionButton() {
+  if (!timelineDirectionBtn) return;
+  timelineDirectionBtn.textContent = state.timelineReversed ? "顶端：结尾" : "顶端：开始";
+  timelineDirectionBtn.setAttribute("aria-pressed", String(state.timelineReversed));
+}
+
+function renderTimeline() {
+  updateTimelineDirectionButton();
+  const mainLineName = timelineConfig.mainLine || "主线";
+  const lines = Array.isArray(timelineConfig.lines) && timelineConfig.lines.length
+    ? timelineConfig.lines
+    : [mainLineName];
+  const branchConfigs = timelineConfig.branches || [];
+  const lineSpacing = timelineConfig.lineSpacing || 54;
+  const topPadding = timelineConfig.topPadding || 54;
+  const sidePadding = timelineConfig.sidePadding || 34;
+  const palette = Array.isArray(timelineConfig.palette) && timelineConfig.palette.length
+    ? timelineConfig.palette
+    : ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"];
+  const branchConfigByLine = new Map(branchConfigs.map((item) => [item.line, item]));
+  const nodeConfigByPlot = new Map((timelineConfig.nodes || []).map((item) => [Number(item.plotId), item]));
+  const plotIndexById = new Map(plots.map((plot, index) => [Number(plot.id), index]));
+  let timelineColorMap = new Map();
+  const baseLineColor = (line) => palette[Math.max(0, lines.indexOf(line)) % palette.length];
+  const lineColor = (line) => timelineColorMap.get(line) || baseLineColor(line);
+  const lineTrack = (branchConfig) => Math.max(1, Number(branchConfig?.trackFromMain || 1) || 1);
+  const branchDisplayLength = (branchConfig) => Math.max(180, Number(branchConfig?.displayLength || 360) || 360);
+  const mainDisplayLength = Math.max(680, ...branchConfigs
+    .map((branchConfig) => branchDisplayLength(branchConfig) * 1.8), ...branchConfigs
+    .filter((branchConfig) => (branchConfig.startLine || mainLineName) === mainLineName && (branchConfig.endLine || mainLineName) === mainLineName)
+    .map((branchConfig) => {
+      const start = asTimelineRatio(branchConfig.startPosition, 0);
+      const end = asTimelineRatio(branchConfig.endPosition, 1);
+      const span = Math.max(0.08, Math.abs(end - start));
+      return (branchDisplayLength(branchConfig) + 140) / span;
+    }));
+  const configuredOffsets = branchConfigs.map((branchConfig) => ({
+    side: branchConfig.side === "left" ? "left" : "right",
+    offset: lineTrack(branchConfig),
+  }));
+  const maxLeftOffset = Math.max(0, ...configuredOffsets.filter((item) => item.side === "left").map((item) => item.offset));
+  const maxRightOffset = Math.max(0, ...configuredOffsets.filter((item) => item.side !== "left").map((item) => item.offset));
+  const mainX = sidePadding + maxLeftOffset * lineSpacing + lineSpacing / 2;
+  const graphWidth = (maxLeftOffset + maxRightOffset + 1) * lineSpacing + sidePadding * 2;
+  const lineX = (line) => {
+    if (line === mainLineName) return mainX;
+    const branchConfig = branchConfigByLine.get(line);
+    if (branchConfig) {
+      const direction = branchConfig.side === "left" ? -1 : 1;
+      return mainX + direction * lineTrack(branchConfig) * lineSpacing;
+    }
+    return mainX;
+  };
+  const graphHeight = topPadding * 2 + mainDisplayLength;
+  const cardRowHeight = Math.max(96, graphHeight / Math.max(plots.length, 1));
+  const fallbackPlotPosition = (index) => plots.length <= 1 ? 0 : index / (plots.length - 1);
+  const plotY = (index) => topPadding + timelineVisualRatio(fallbackPlotPosition(index), 0) * mainDisplayLength;
+  const plotLaneNames = (plot) => plot.lanes || [plot.lane || mainLineName];
+  const configuredNodeLine = (plot) => nodeConfigByPlot.get(Number(plot.id))?.line || plotLaneNames(plot)[0] || mainLineName;
+  const connectorByLane = new Map();
+  const resolvingLanes = new Set();
+  const mainLine = {
+    lane: mainLineName,
+    color: lineColor(mainLineName),
+    x: lineX(mainLineName),
+    y1: topPadding,
+    y2: topPadding + mainDisplayLength,
+  };
+
+  const resolveConnector = (lane) => {
+    if (connectorByLane.has(lane)) return connectorByLane.get(lane);
+    const branchConfig = branchConfigByLine.get(lane);
+    if (!branchConfig || resolvingLanes.has(lane)) return null;
+    resolvingLanes.add(lane);
+
+    const resolveLine = (lineLane) => {
+      if (lineLane === mainLineName) return mainLine;
+      const connector = resolveConnector(lineLane);
+      if (!connector) {
+        return {
+          lane: lineLane,
+          color: lineColor(lineLane),
+          x: lineX(lineLane),
+          y1: topPadding,
+          y2: topPadding + mainDisplayLength,
+        };
+      }
+      const geometry = connectorGeometry(connector);
+      const branchLineConfig = branchConfigByLine.get(lineLane);
+      return {
+        lane: lineLane,
+        color: lineColor(lineLane),
+        x: connector.x2,
+        y1: geometry.branchTopY,
+        y2: geometry.branchBottomY,
+      };
+    };
+
+    const resolvePoint = (lineLane, position, fallbackRatio) => {
+      const line = resolveLine(lineLane);
+      const ratio = timelineVisualRatio(position, fallbackRatio);
+      return {
+        x: line.x,
+        y: line.y1 + (line.y2 - line.y1) * ratio,
+        color: line.color,
+        lane: lineLane,
+      };
+    };
+
+    const sourceLane = branchConfig.startLine || mainLineName;
+    const targetLane = branchConfig.endLine || mainLineName;
+    const sourcePoint = resolvePoint(sourceLane, branchConfig.startPosition, 0);
+    const targetPoint = resolvePoint(targetLane, branchConfig.endPosition, 1);
+    const branchX = lineX(lane);
+    const radius = branchConfig.radius || Math.min(28, Math.max(14, Math.max(Math.abs(branchX - sourcePoint.x), Math.abs(branchX - targetPoint.x)) * 0.28));
+    const connector = {
+      lane,
+      sourceLane,
+      targetLane,
+      x1: sourcePoint.x,
+      x2: branchX,
+      x3: targetPoint.x,
+      y1: sourcePoint.y,
+      y2: targetPoint.y,
+      radius,
+      firstColor: sourcePoint.color,
+      lastColor: lineColor(lane),
+      targetColor: targetPoint.color,
+    };
+    connectorByLane.set(lane, connector);
+    resolvingLanes.delete(lane);
+    return connector;
+  };
+
+  const connectorLines = branchConfigs
+    .map((branchConfig) => resolveConnector(branchConfig.line))
+    .filter(Boolean);
+  timelineColorMap = assignTimelineColors(lines, branchConfigs, connectorLines, palette, mainLineName);
+  mainLine.color = lineColor(mainLineName);
+  connectorLines.forEach((connector) => {
+    connector.firstColor = lineColor(connector.sourceLane);
+    connector.lastColor = lineColor(connector.lane);
+    connector.targetColor = lineColor(connector.targetLane);
+  });
+
+  const laneLines = lines.map((lane) => {
+    if (lane === mainLineName) return mainLine;
+    const connector = connectorByLane.get(lane);
+    if (connector) {
+      const geometry = connectorGeometry(connector);
+      return {
+        lane,
+        color: lineColor(lane),
+        x: connector.x2,
+        y1: geometry.branchTopY,
+        y2: geometry.branchBottomY,
+      };
+    }
+    return {
+      lane,
+      color: lineColor(lane),
+      x: lineX(lane),
+      y1: topPadding,
+      y2: topPadding + mainDisplayLength,
+    };
+  });
+
+  const timelineNodePosition = (plot, index) => {
+    const nodeConfig = nodeConfigByPlot.get(Number(plot.id));
+    const primaryLane = nodeConfig?.line || plotLaneNames(plot)[0] || mainLineName;
+    const fallbackRatio = plots.length <= 1 ? 0 : index / (plots.length - 1);
+    const storyRatio = asTimelineRatio(nodeConfig?.linePosition, primaryLane === mainLineName ? fallbackRatio : 0.5);
+    if (primaryLane === mainLineName) {
+      return {
+        x: lineX(mainLineName),
+        y: nodeConfig?.linePosition !== undefined
+          ? mainLine.y1 + (mainLine.y2 - mainLine.y1) * timelineVisualRatio(nodeConfig.linePosition)
+          : plotY(index),
+        lane: primaryLane,
+        storyRatio,
+      };
+    }
+    const connector = connectorLines.find((item) => item.lane === primaryLane);
+    if (!connector) return { x: lineX(primaryLane), y: plotY(index), lane: primaryLane, storyRatio };
+    const geometry = connectorGeometry(connector);
+    const progress = timelineVisualRatio(nodeConfig?.linePosition, 0.5);
+    return {
+      x: connector.x2,
+      y: geometry.branchTopY + (geometry.branchBottomY - geometry.branchTopY) * progress,
+      lane: primaryLane,
+      storyRatio,
+    };
+  };
+
+  const nodes = plots.map((plot, index) => {
+    const position = timelineNodePosition(plot, index);
+    const nodeColor = lineColor(position.lane);
+    const x = position.x;
+    const y = position.y;
+    const positionLabel = `${position.lane} · ${timelinePercentLabel(position.storyRatio)}`;
+    return `<button class="timeline-node timeline-node-focus" data-plot-id="${plot.id}" data-lane="${position.lane}" type="button" aria-label="${timelinePlotTitle(plot)}，${positionLabel}" title="${positionLabel}" style="--accent:${nodeColor}; left:${x}px; top:${y}px">
+      <span class="timeline-pulse" aria-hidden="true"></span>
+      <span class="timeline-dot" aria-hidden="true"></span>
+      <span class="timeline-node-tip">${positionLabel}</span>
+    </button>`;
+  }).join("");
+  const timelineRows = state.timelineReversed ? [...plots].reverse() : plots;
+  const legendItems = laneLines
+    .filter((line) => line.lane !== mainLineName && connectorLines.some((connector) => connector.lane === line.lane))
+    .map((line) => `
+      <span class="timeline-legend-item" data-line="${line.lane}" style="--accent:${line.color}">
+        <i aria-hidden="true"></i>${line.lane}
+      </span>
+    `).join("");
+
+  timelineModel = {
+    width: graphWidth,
+    height: graphHeight,
+    lanes: lines,
+    laneLines,
+    connectors: connectorLines,
+    focusLane: "",
+  };
+
+  timelineList.innerHTML = `
+    <div class="timeline-board" style="--timeline-height:${graphHeight}px; --map-width:${graphWidth}px">
+      <div class="timeline-side timeline-side-left">
+        ${timelineRows.map((plot, index) => index % 2 === 0 ? `
+          <article class="timeline-summary-card" data-plot-id="${plot.id}" data-primary-lane="${configuredNodeLine(plot)}" data-lanes="${configuredNodeLine(plot)}" style="--accent:${lineColor(configuredNodeLine(plot))}; --row-height:${cardRowHeight}px">
+            <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
+            <strong>${timelinePlotTitle(plot)}</strong>
+            <p>${timelinePlotSummary(plot)}</p>
+            <button class="timeline-read-btn timeline-jump" data-plot-id="${plot.id}" type="button">阅读全文</button>
+          </article>
+        ` : `<span class="timeline-empty-slot" style="--row-height:${cardRowHeight}px"></span>`).join("")}
+      </div>
+      <div class="timeline-map">
+        <div class="timeline-orbit" aria-hidden="true"></div>
+        <div class="timeline-canvas" id="timelineCanvasWrap" style="width:${graphWidth}px; height:${graphHeight}px" aria-label="剧情线画布">
+          <canvas class="timeline-drawing" id="timelineDrawing" width="${graphWidth}" height="${graphHeight}" aria-hidden="true"></canvas>
+          ${nodes}
+        </div>
+      </div>
+      <div class="timeline-side timeline-side-right">
+      ${timelineRows.map((plot, index) => {
+        return index % 2 === 1 ? `
+          <article class="timeline-summary-card" data-plot-id="${plot.id}" data-primary-lane="${configuredNodeLine(plot)}" data-lanes="${configuredNodeLine(plot)}" style="--accent:${lineColor(configuredNodeLine(plot))}; --row-height:${cardRowHeight}px">
+            <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
+            <strong>${timelinePlotTitle(plot)}</strong>
+            <p>${timelinePlotSummary(plot)}</p>
+            <button class="timeline-read-btn timeline-jump" data-plot-id="${plot.id}" type="button">阅读全文</button>
+          </article>
+        ` : `<span class="timeline-empty-slot" style="--row-height:${cardRowHeight}px"></span>`;
+      }).join("")}
+      </div>
+      <div class="timeline-float is-hidden" id="timelineFloat">
+        <span id="timelineFloatLane"></span>
+        <strong id="timelineFloatTitle"></strong>
+        <p id="timelineFloatText"></p>
+      </div>
+    </div>
+  `;
+  if (timelineLegend) timelineLegend.innerHTML = legendItems;
+
+  document.querySelectorAll(".timeline-jump").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPlotDetail(Number(item.dataset.plotId));
+    });
+  });
+  document.querySelectorAll(".timeline-node-focus").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPlotDetail(Number(item.dataset.plotId));
+    });
+  });
+  document.querySelector("#timelineCanvasWrap")?.addEventListener("click", handleTimelineCanvasClick);
+  document.querySelector(".timeline-board")?.addEventListener("click", handleTimelineBoardClick);
+  drawTimelineCanvas();
+  updateTimelineLegend();
+}
+
+function drawRoundedConnector(ctx, connector) {
+  const sourcePoint = { x: connector.x1, y: connector.y1, color: connector.firstColor };
+  const targetPoint = { x: connector.x3 ?? connector.x1, y: connector.y2, color: connector.targetColor || connector.firstColor };
+  const topPoint = sourcePoint.y <= targetPoint.y ? sourcePoint : targetPoint;
+  const bottomPoint = sourcePoint.y <= targetPoint.y ? targetPoint : sourcePoint;
+  const topDirection = Math.sign(connector.x2 - topPoint.x) || 1;
+  const bottomDirection = Math.sign(bottomPoint.x - connector.x2) || -topDirection;
+  const { radius: r, topRailY, bottomRailY, branchTopY, branchBottomY } = connectorGeometry(connector);
+
+  const topGradient = ctx.createLinearGradient(topPoint.x, topRailY, connector.x2, topRailY);
+  topGradient.addColorStop(0, topPoint.color);
+  topGradient.addColorStop(1, connector.lastColor);
+  ctx.beginPath();
+  ctx.moveTo(topPoint.x, topPoint.y);
+  ctx.quadraticCurveTo(topPoint.x, topRailY, topPoint.x + topDirection * r, topRailY);
+  ctx.lineTo(connector.x2 - topDirection * r, topRailY);
+  ctx.quadraticCurveTo(connector.x2, topRailY, connector.x2, topRailY + r);
+  ctx.strokeStyle = topGradient;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(connector.x2, branchTopY);
+  ctx.lineTo(connector.x2, branchBottomY);
+  ctx.strokeStyle = connector.lastColor;
+  ctx.stroke();
+
+  const bottomGradient = ctx.createLinearGradient(connector.x2, bottomRailY, bottomPoint.x, bottomRailY);
+  bottomGradient.addColorStop(0, connector.lastColor);
+  bottomGradient.addColorStop(1, bottomPoint.color);
+  ctx.beginPath();
+  ctx.moveTo(connector.x2, branchBottomY);
+  ctx.quadraticCurveTo(connector.x2, bottomRailY, connector.x2 + bottomDirection * r, bottomRailY);
+  ctx.lineTo(bottomPoint.x - bottomDirection * r, bottomRailY);
+  ctx.quadraticCurveTo(bottomPoint.x, bottomRailY, bottomPoint.x, bottomPoint.y);
+  ctx.strokeStyle = bottomGradient;
+  ctx.stroke();
+}
+
+function drawTimelineCanvas() {
+  const canvas = document.querySelector("#timelineDrawing");
+  if (!canvas || !timelineModel) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = timelineModel.width * ratio;
+  canvas.height = timelineModel.height * ratio;
+  canvas.style.width = `${timelineModel.width}px`;
+  canvas.style.height = `${timelineModel.height}px`;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, timelineModel.width, timelineModel.height);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  timelineModel.laneLines.filter((line) => line.lane === "主线").forEach((line) => {
+    const isFocused = timelineModel.focusLane === line.lane;
+    ctx.save();
+    ctx.globalAlpha = timelineModel.focusLane && !isFocused ? 0.18 : 0.84;
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = isFocused ? 12 : 7;
+    ctx.shadowColor = isFocused ? "rgba(25, 33, 42, 0.26)" : "rgba(31, 46, 58, 0.12)";
+    ctx.shadowBlur = isFocused ? 16 : 8;
+    ctx.beginPath();
+    ctx.moveTo(line.x, line.y1);
+    ctx.lineTo(line.x, line.y2);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  timelineModel.connectors.forEach((connector) => {
+    const isFocused = timelineModel.focusLane === connector.lane;
+    const isRelated = connector.lane === timelineModel.focusLane;
+    ctx.save();
+    ctx.globalAlpha = timelineModel.focusLane && !isFocused && !isRelated ? 0.14 : 0.76;
+    ctx.lineWidth = isFocused ? 8 : 5;
+    ctx.shadowColor = isFocused ? "rgba(25, 33, 42, 0.24)" : "rgba(31, 46, 58, 0.1)";
+    ctx.shadowBlur = isFocused ? 14 : 8;
+    drawRoundedConnector(ctx, connector);
+    ctx.restore();
+  });
+}
+
+function updateTimelineLegend() {
+  if (!timelineModel || !timelineLegend) return;
+  const visibleLines = new Set();
+  const canvasWrap = document.querySelector("#timelineCanvasWrap");
+  const canvasRect = canvasWrap?.getBoundingClientRect();
+  const listRect = timelineList?.getBoundingClientRect();
+  if (canvasRect && listRect && canvasRect.height > 0) {
+    const clipTop = Math.max(0, listRect.top);
+    const clipBottom = Math.min(window.innerHeight, listRect.bottom);
+    const scale = timelineModel.height / canvasRect.height;
+    const visibleTop = Math.max(0, (clipTop - canvasRect.top) * scale);
+    const visibleBottom = Math.min(timelineModel.height, (clipBottom - canvasRect.top) * scale);
+    const overlapsView = (start, end) => Math.max(start, visibleTop) <= Math.min(end, visibleBottom);
+    timelineModel.laneLines.forEach((line) => {
+      if (overlapsView(Math.min(line.y1, line.y2), Math.max(line.y1, line.y2))) visibleLines.add(line.lane);
+    });
+    timelineModel.connectors.forEach((connector) => {
+      if (overlapsView(Math.min(connector.y1, connector.y2), Math.max(connector.y1, connector.y2))) visibleLines.add(connector.lane);
+    });
+  }
+
+  let visibleCount = 0;
+  document.querySelectorAll(".timeline-legend-item").forEach((item) => {
+    const isVisible = timelineModel.focusLane
+      ? item.dataset.line === timelineModel.focusLane
+      : visibleLines.has(item.dataset.line);
+    item.classList.toggle("is-hidden-by-focus", !isVisible);
+    item.classList.toggle("is-active", item.dataset.line === timelineModel.focusLane);
+    if (isVisible) visibleCount += 1;
+  });
+  const legendRows = visibleCount <= 3
+    ? Math.max(1, visibleCount)
+    : Math.ceil(Math.sqrt(visibleCount));
+  timelineLegend.style.setProperty("--legend-rows", legendRows);
+  timelineLegend.classList.toggle("is-hidden", state.view !== "timeline" || visibleCount === 0);
+}
+
+function distanceToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function connectorHitDistance(x, y, connector) {
+  const { topRailY, bottomRailY, branchTopY, branchBottomY } = connectorGeometry(connector);
+  const sourcePoint = { x: connector.x1, y: connector.y1 };
+  const targetPoint = { x: connector.x3 ?? connector.x1, y: connector.y2 };
+  const topPoint = sourcePoint.y <= targetPoint.y ? sourcePoint : targetPoint;
+  const bottomPoint = sourcePoint.y <= targetPoint.y ? targetPoint : sourcePoint;
+  return Math.min(
+    distanceToSegment(x, y, topPoint.x, topRailY, connector.x2, topRailY),
+    distanceToSegment(x, y, connector.x2, branchTopY, connector.x2, branchBottomY),
+    distanceToSegment(x, y, connector.x2, bottomRailY, bottomPoint.x, bottomRailY),
+    Math.hypot(x - topPoint.x, y - topPoint.y),
+    Math.hypot(x - bottomPoint.x, y - bottomPoint.y),
+  );
+}
+
+function handleTimelineCanvasClick(event) {
+  if (!timelineModel) return;
+  event.stopPropagation();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * (timelineModel.width / rect.width);
+  const y = (event.clientY - rect.top) * (timelineModel.height / rect.height);
+  const connector = timelineModel.connectors.find((item) => connectorHitDistance(x, y, item) < 14);
+  if (connector) {
+    showTimelineFloat({ dataset: { lane: connector.lane } });
+    return;
+  }
+  const lane = timelineModel.laneLines.find((item) => (
+    Math.abs(x - item.x) < 18 && y >= item.y1 - 8 && y <= item.y2 + 8
+  ));
+  if (lane) {
+    showTimelineFloat({ dataset: { lane: lane.lane } });
+    return;
+  }
+  hideTimelineFloat();
+}
+
+function handleTimelineBoardClick(event) {
+  const interactiveTarget = event.target.closest(
+    ".timeline-summary-card, .timeline-read-btn, .timeline-node, .timeline-float, #timelineCanvasWrap",
+  );
+  if (interactiveTarget) return;
+  hideTimelineFloat();
+}
+
+function showTimelineFloat(target) {
+  const float = document.querySelector("#timelineFloat");
+  if (!float) return;
+  const plot = plots.find((item) => item.id === Number(target.dataset.plotId));
+  const lane = target.dataset.lane || "剧情线";
+  const activeLane = lane.split(" / ").map((item) => item.trim()).filter(Boolean)[0] || lane;
+  if (timelineModel) timelineModel.focusLane = plot ? activeLane : lane;
+  drawTimelineCanvas();
+  updateTimelineLegend();
+  document.querySelectorAll(".timeline-summary-card.is-hidden-by-focus").forEach((item) => item.classList.remove("is-hidden-by-focus"));
+  document.querySelectorAll(".timeline-summary-card").forEach((item) => {
+    const isRelated = plot
+      ? item.dataset.plotId === String(plot.id)
+      : item.dataset.primaryLane === lane;
+    item.classList.toggle("is-hidden-by-focus", !isRelated);
+  });
+  document.querySelector("#timelineFloatLane").textContent = plot ? activeLane : lane;
+  document.querySelector("#timelineFloatTitle").textContent = plot ? timelinePlotTitle(plot) : "剧情流向";
+  document.querySelector("#timelineFloatText").textContent = plot ? timelinePlotSummary(plot) : "这条剧情线连接了相关事件，点击节点可跳到完整剧情。";
+  float.classList.remove("is-hidden");
+}
+
+function hideTimelineFloat() {
+  document.querySelector("#timelineFloat")?.classList.add("is-hidden");
+  if (timelineModel) timelineModel.focusLane = "";
+  drawTimelineCanvas();
+  updateTimelineLegend();
+  document.querySelectorAll(".timeline-summary-card.is-hidden-by-focus").forEach((item) => item.classList.remove("is-hidden-by-focus"));
+}
+
+function setChapterFilter(chapter) {
+  state.chapter = chapter;
+  document.querySelectorAll(".chapter-btn").forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.chapter === chapter);
+  });
+}
+
+function openPlotInStory(plotId) {
+  const plot = plots.find((item) => item.id === plotId);
+  if (!plot) return;
+  state.highlightPlotId = plotId;
+  setChapterFilter(plot.chapter);
+  switchView("story");
+  renderPlots();
+  window.setTimeout(() => {
+    document.querySelector(`[data-plot-id="${plotId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 60);
+}
+
+function openCharacterDetail(id) {
+  const person = getCharacter(id);
+  if (!person) return;
+  state.selectedCharacter = id;
+  state.characterSearch = "";
+  if (characterSearch) characterSearch.value = "";
+  switchView("characters");
+}
+
+function openPlotDetail(plotId) {
+  const plot = plots.find((item) => item.id === plotId);
+  if (!plot) return;
+  state.selectedPlotId = plotId;
+  state.highlightPlotId = plotId;
+  switchView("plot-detail");
+}
+
+function renderPlotDetail() {
+  const plot = plots.find((item) => item.id === Number(state.selectedPlotId)) || plots[0];
+  if (!plot || !plotDetail || !plotPeopleRail) return;
+  const plotPeople = plot.people.map((id) => ({ id, person: getCharacter(id) }));
+
+  plotPeopleRail.innerHTML = `
+    <p class="eyebrow">Cast</p>
+    <h2>出场人物</h2>
+    <div class="plot-people-list">
+      ${plotPeople.map(({ id, person }) => {
+        if (!person) {
+          return `
+            <div class="plot-person-item">
+              <span class="mini-avatar" style="--avatar-gradient:linear-gradient(135deg, #9aa6b2, #65717d)">${escapeHtml(id).slice(0, 2)}</span>
+              <span>
+                <strong>${escapeHtml(id)}</strong>
+                <small>未在人物列表中</small>
+              </span>
+            </div>
+          `;
+        }
+        return `
+          <button class="plot-person-item" data-id="${person.id}" type="button">
+            <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+            <span>
+              <strong>${person.name}</strong>
+              <small>${person.group || "未分组"}</small>
+            </span>
+          </button>
+        `;
+      }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
+    </div>
+  `;
+
+  plotDetail.innerHTML = `
+    <div class="plot-detail-head" style="--accent:${plot.accent}">
+      <div class="plot-detail-actions">
+        <button class="plot-back-btn" id="plotBackBtn" type="button">返回剧情列表</button>
+        <span class="chapter-chip">${chapterName(plot.chapter)} · ${plot.id}</span>
+      </div>
+      <div>
+        <h2>${plot.title}</h2>
+        <div class="badge-line">${plotBadges(plot)}</div>
+      </div>
+    </div>
+    <div class="plot-detail-body">
+      ${renderMarkdownBody(plot.text)}
+    </div>
+  `;
+
+  document.querySelector("#plotBackBtn")?.addEventListener("click", () => openPlotInStory(plot.id));
+  document.querySelectorAll(".plot-person-item[data-id]").forEach((button) => {
+    button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
+  });
+}
+
+function renderCharacterList() {
+  const visibleCharacters = characters.filter((person) => {
+    if (!state.characterSearch) return true;
+    const keyword = state.characterSearch.toLowerCase();
+    return [
+      person.name,
+      person.id,
+      person.group,
+      person.intro,
+      ...characterMarkers(person),
+    ]
+      .filter(Boolean)
+      .some((text) => String(text).toLowerCase().includes(keyword));
+  });
+
+  if (visibleCharacters.length && !visibleCharacters.some((person) => person.id === state.selectedCharacter)) {
+    state.selectedCharacter = visibleCharacters[0].id;
+  }
+
+  characterList.innerHTML = visibleCharacters
+    .map((person) => `
+      <button class="character-list-item ${person.id === state.selectedCharacter ? "is-active" : ""}" data-id="${person.id}" type="button">
+        <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+        <span>
+          <strong>${person.name}</strong>
+          <small>${person.group || "未分组"}</small>
+        </span>
+      </button>
+    `)
+    .join("");
+
+  if (!visibleCharacters.length) {
+    characterList.innerHTML = '<p class="empty-state">没有找到匹配人物</p>';
+  }
+
+  document.querySelectorAll(".character-list-item").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedCharacter = button.dataset.id;
+      renderCharacterList();
+      renderCharacterDetail();
+    });
+  });
+}
+
+function renderCharacterDetail() {
+  const person = getCharacter(state.selectedCharacter) || characters[0];
+  if (!person) {
+    characterDetail.innerHTML = "";
+    return;
+  }
+
+  const personPlots = plots.filter((plot) => plot.people.includes(person.id) || person.events.includes(plot.id));
+  const personLinks = relationships.filter((link) => link.from === person.id || link.to === person.id);
+
+  characterDetail.innerHTML = `
+    <div class="character-hero">
+      <div class="character-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</div>
+      <div class="character-copy">
+        <p class="label">${person.group || "未分组"}</p>
+        <h2>${person.name}</h2>
+        <p>${person.intro}</p>
+      </div>
+      <aside class="character-marker-panel">
+        <p class="label">角色标识</p>
+        ${markerBadges(person) || '<span class="empty-marker">未配置</span>'}
+      </aside>
+    </div>
+
+    <section class="character-section">
+      <div class="section-title">
+        <p class="label">出场剧情</p>
+        <h3>${personPlots.length} 个剧情点</h3>
+      </div>
+      <div class="character-plot-list">
+        ${personPlots.map((plot) => `
+          <article class="character-plot" style="--accent:${plot.accent}">
+            <strong>${plot.id}. ${plot.title}</strong>
+            <div class="badge-line">${plotBadges(plot)}</div>
+            <p>${plot.text}</p>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+
+    <section class="character-section">
+      <div class="section-title">
+        <p class="label">人物关系</p>
+        <h3>${personLinks.length} 条关系</h3>
+      </div>
+      <div class="relation-list">
+        ${personLinks.map((link) => {
+          const otherId = link.from === person.id ? link.to : link.from;
+          const other = getCharacter(otherId);
+          return `
+            <div class="relation-row" style="--accent:${link.color}">
+              <span>${other?.name || otherId}</span>
+              <strong>${link.label}</strong>
+              <small>${link.type || "未分类"}</small>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function switchView(view) {
+  const activeNav = view === "plot-detail" ? "story" : view;
+  document.querySelectorAll(".view-btn").forEach((item) => item.classList.toggle("is-active", item.dataset.view === activeNav));
+  document.querySelectorAll(".page-view").forEach((page) => page.classList.toggle("is-active", page.dataset.page === view));
+  state.view = view;
+
+  if (state.view === "graph") {
+    updateGraphBounds();
+    if (state.selected) selectPerson(state.selected);
+    drawGraph();
+  }
+  if (state.view === "timeline") {
+    renderTimeline();
+  } else {
+    timelineLegend?.classList.add("is-hidden");
+  }
+  if (state.view === "characters") {
+    if (!state.selectedCharacter) state.selectedCharacter = state.selected || characters[0]?.id || "";
+    renderCharacterList();
+    renderCharacterDetail();
+  }
+  if (state.view === "plot-detail") renderPlotDetail();
+}
+
+function renderProfile() {
+  if (!state.hasSelection) {
+    profileFloat.classList.add("is-hidden");
+    return;
+  }
+
+  const person = getCharacter(state.selected);
+  if (!person) return;
+  const items = plots.filter((plot) => person.events.includes(plot.id));
+
+  personName.textContent = person.name;
+  personIntro.textContent = person.intro;
+  personAvatar.innerHTML = avatarContent(person);
+  personAvatar.classList.toggle("has-image", Boolean(person.avatar));
+  personAvatar.style.setProperty("--selected-gradient", person.gradient);
+
+  eventList.innerHTML = items
+    .map((plot, index) => `
+      <article class="event-item" style="--accent:${plot.accent}; animation-delay:${index * 70}ms">
+        <span class="event-dot"></span>
+        <p>${plot.title}：${plot.text}</p>
+      </article>
+    `)
+    .join("");
+  profileFloat.classList.remove("is-hidden");
+}
+
+function renderNodes() {
+  nodeLayer.innerHTML = "";
+  characters.forEach((person, index) => {
+    const node = document.createElement("button");
+    node.className = "person-node";
+    node.type = "button";
+    node.dataset.id = person.id;
+    node.style.setProperty("--accent", person.color);
+    node.style.setProperty("--avatar-gradient", person.gradient);
+    node.style.animationDelay = `${index * 90}ms, ${index * 170}ms`;
+    node.innerHTML = `
+      <span class="avatar ${person.avatar ? "has-image" : ""}">${avatarContent(person)}</span>
+      <span class="node-name">${person.name}</span>
+    `;
+    node.addEventListener("pointerdown", startDrag);
+    node.addEventListener("click", () => {
+      if (state.suppressClickId === person.id && Date.now() < state.suppressClickUntil) {
+        state.suppressClickId = "";
+        state.suppressClickUntil = 0;
+        return;
+      }
+      state.suppressClickId = "";
+      state.suppressClickUntil = 0;
+      selectPerson(person.id);
+    });
+    nodeLayer.appendChild(node);
+  });
+  updateGraphBounds();
+  applyGraphFilters();
+}
+
+function renderLinks() {
+  linkLayer.innerHTML = "";
+  relationships.forEach((link) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.classList.add("relationship-path");
+    path.dataset.from = link.from;
+    path.dataset.to = link.to;
+    path.dataset.type = link.type || "";
+    path.style.setProperty("--accent", link.color);
+    linkLayer.appendChild(path);
+
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.classList.add("relationship-label");
+    label.dataset.from = link.from;
+    label.dataset.to = link.to;
+    label.dataset.type = link.type || "";
+    label.textContent = link.label;
+    linkLayer.appendChild(label);
+  });
+  applyGraphFilters();
+}
+
+function selectPerson(id) {
+  const person = getCharacter(id);
+  if (!person) return;
+  state.selected = id;
+  state.hasSelection = true;
+  state.selectedCharacter = id;
+  person.pinned = false;
+  centerViewportOn(person);
+  renderProfile();
+  markRelatedNodes();
+}
+
+function markRelatedNodes() {
+  const related = new Set(state.hasSelection ? [state.selected] : []);
+  relationships.forEach((link) => {
+    if (link.from === state.selected) related.add(link.to);
+    if (link.to === state.selected) related.add(link.from);
+  });
+
+  document.querySelectorAll(".person-node").forEach((node) => {
+    const id = node.dataset.id;
+    const person = getCharacter(id);
+    node.classList.toggle("is-active", state.hasSelection && id === state.selected);
+    node.classList.toggle("is-linked", related.has(id) && id !== state.selected);
+    node.classList.toggle("is-pinned", Boolean(person?.pinned));
+  });
+  applyGraphFilters();
+}
+
+function applyGraphFilters() {
+  document.querySelectorAll(".person-node").forEach((node) => {
+    const person = getCharacter(node.dataset.id);
+    const visible = Boolean(person && isVisiblePerson(person));
+    node.classList.toggle("is-filtered-out", !visible);
+    node.classList.toggle("is-search-match", Boolean(state.search && visible));
+  });
+
+  document.querySelectorAll(".relationship-path, .relationship-label").forEach((item) => {
+    const visible = isVisibleRelationship({
+      from: item.dataset.from,
+      to: item.dataset.to,
+      type: item.dataset.type,
+    });
+    item.classList.toggle("is-filtered-out", !visible);
+  });
+}
+
+function updateGraphBounds() {
+  const bounds = graphWrap.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  state.width = bounds.width;
+  state.height = bounds.height;
+
+  characters.forEach((person) => {
+    if (typeof person.px !== "number" || typeof person.py !== "number") {
+      person.px = (person.x / 100) * state.width;
+      person.py = (person.y / 100) * state.height;
+    }
+    person.vx = person.vx || 0;
+    person.vy = person.vy || 0;
+    person.pinned = Boolean(person.pinned);
+  });
+  updateGraphViewport();
+}
+
+function clientToWorld(clientX, clientY) {
+  const bounds = graphWrap.getBoundingClientRect();
+  return {
+    x: (clientX - bounds.left - state.graphPanX) / state.graphScale,
+    y: (clientY - bounds.top - state.graphPanY) / state.graphScale,
+  };
+}
+
+function centerViewportOn(person) {
+  if (!state.width || !state.height) return;
+  state.graphPanX = state.width / 2 - person.px * state.graphScale;
+  state.graphPanY = state.height / 2 - person.py * state.graphScale;
+  updateGraphViewport();
+}
+
+function updateGraphViewport() {
+  if (!state.width || !state.height) return;
+  const worldX = -state.graphPanX / state.graphScale;
+  const worldY = -state.graphPanY / state.graphScale;
+  linkLayer.setAttribute("viewBox", `${worldX} ${worldY} ${state.width / state.graphScale} ${state.height / state.graphScale}`);
+  nodeLayer.style.transform = `translate(${state.graphPanX}px, ${state.graphPanY}px) scale(${state.graphScale})`;
+  graphWrap.classList.toggle("hide-labels", characters.length > 10 || state.graphScale < 0.75);
+}
+
+function startDrag(event) {
+  event.stopPropagation();
+  const id = event.currentTarget.dataset.id;
+  state.dragging = {
+    id,
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    moved: false,
+  };
+  event.currentTarget.setPointerCapture(event.pointerId);
+}
+
+graphWrap.addEventListener("pointerdown", (event) => {
+  if (event.target.closest(".person-node")) return;
+  state.panning = {
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startPanX: state.graphPanX,
+    startPanY: state.graphPanY,
+  };
+});
+
+graphWrap.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const bounds = graphWrap.getBoundingClientRect();
+  const cursorX = event.clientX - bounds.left;
+  const cursorY = event.clientY - bounds.top;
+  const before = clientToWorld(event.clientX, event.clientY);
+  const nextScale = Math.min(4.8, Math.max(0.18, state.graphScale * Math.exp(-event.deltaY * 0.0012)));
+
+  state.graphScale = nextScale;
+  state.graphPanX = cursorX - before.x * nextScale;
+  state.graphPanY = cursorY - before.y * nextScale;
+  updateGraphViewport();
+}, { passive: false });
+
+window.addEventListener("pointermove", (event) => {
+  if (state.panning) {
+    state.graphPanX = state.panning.startPanX + event.clientX - state.panning.startClientX;
+    state.graphPanY = state.panning.startPanY + event.clientY - state.panning.startClientY;
+    updateGraphViewport();
+    return;
+  }
+
+  if (state.dragging) {
+    const person = getCharacter(state.dragging.id);
+    const moveDistance = Math.hypot(event.clientX - state.dragging.startClientX, event.clientY - state.dragging.startClientY);
+    if (moveDistance > 5) state.dragging.moved = true;
+    const point = clientToWorld(event.clientX, event.clientY);
+    person.px = point.x;
+    person.py = point.y;
+    person.vx = 0;
+    person.vy = 0;
+  }
+});
+
+window.addEventListener("pointerup", () => {
+  if (state.dragging?.moved) {
+    const person = getCharacter(state.dragging.id);
+    if (person) {
+      person.pinned = true;
+      person.vx = 0;
+      person.vy = 0;
+      person.x = (person.px / state.width) * 100;
+      person.y = (person.py / state.height) * 100;
+    }
+    state.suppressClickId = state.dragging.id;
+    state.suppressClickUntil = Date.now() + 250;
+    markRelatedNodes();
+  }
+  state.dragging = null;
+  state.panning = null;
+});
+
+function tick() {
+  if (!state.width || !state.height) {
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  characters.forEach((a, index) => {
+    if (state.dragging?.id === a.id || a.pinned) return;
+
+    characters.forEach((b, bIndex) => {
+      if (index >= bIndex) return;
+      const dx = a.px - b.px;
+      const dy = a.py - b.py;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const push = Math.max(0, 150 - distance) * 0.0009;
+      const nx = dx / distance;
+      const ny = dy / distance;
+      const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.004 : 0;
+      if (!a.pinned) {
+        a.vx += nx * push;
+        a.vy += ny * push;
+      }
+      if (!b.pinned) {
+        b.vx -= nx * push;
+        b.vy -= ny * push;
+      }
+      if (selectedPush) {
+        if (!a.pinned) {
+          a.vx += nx * selectedPush;
+          a.vy += ny * selectedPush;
+        }
+        if (!b.pinned) {
+          b.vx -= nx * selectedPush;
+          b.vy -= ny * selectedPush;
+        }
+      }
+    });
+  });
+
+  relationships.forEach((link) => {
+    const a = getCharacter(link.from);
+    const b = getCharacter(link.to);
+    if (!a || !b) return;
+    const dx = b.px - a.px;
+    const dy = b.py - a.py;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const pull = (distance - 250) * 0.00045;
+    const nx = dx / distance;
+    const ny = dy / distance;
+    if (state.dragging?.id !== a.id && !a.pinned) {
+      a.vx += nx * pull;
+      a.vy += ny * pull;
+    }
+    if (state.dragging?.id !== b.id && !b.pinned) {
+      b.vx -= nx * pull;
+      b.vy -= ny * pull;
+    }
+  });
+
+  characters.forEach((person) => {
+    if (state.dragging?.id !== person.id && !person.pinned) {
+      person.vx *= 0.91;
+      person.vy *= 0.91;
+      person.px += person.vx;
+      person.py += person.vy;
+    }
+    person.x = (person.px / state.width) * 100;
+    person.y = (person.py / state.height) * 100;
+  });
+
+  drawGraph();
+  requestAnimationFrame(tick);
+}
+
+function drawGraph() {
+  updateGraphViewport();
+  document.querySelectorAll(".person-node").forEach((node) => {
+    const person = getCharacter(node.dataset.id);
+    node.style.left = `${person.px}px`;
+    node.style.top = `${person.py}px`;
+  });
+
+  document.querySelectorAll(".relationship-path").forEach((path) => {
+    const a = getCharacter(path.dataset.from);
+    const b = getCharacter(path.dataset.to);
+    if (!a || !b) return;
+    const dx = b.px - a.px;
+    const dy = b.py - a.py;
+    const curve = Math.min(92, Math.hypot(dx, dy) * 0.24);
+    const cx = (a.px + b.px) / 2 - (dy / Math.max(1, Math.hypot(dx, dy))) * curve;
+    const cy = (a.py + b.py) / 2 + (dx / Math.max(1, Math.hypot(dx, dy))) * curve;
+    path.setAttribute("d", `M ${a.px} ${a.py} Q ${cx} ${cy} ${b.px} ${b.py}`);
+  });
+
+  document.querySelectorAll(".relationship-label").forEach((label) => {
+    const a = getCharacter(label.dataset.from);
+    const b = getCharacter(label.dataset.to);
+    if (!a || !b) return;
+    label.setAttribute("x", (a.px + b.px) / 2);
+    label.setAttribute("y", (a.py + b.py) / 2);
+    label.setAttribute("text-anchor", "middle");
+  });
+}
+
+document.querySelectorAll(".chapter-btn").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll(".chapter-btn").forEach((item) => item.classList.remove("is-active"));
+    button.classList.add("is-active");
+    state.chapter = button.dataset.chapter;
+    renderPlots();
+  });
+});
+
+graphSearch.addEventListener("input", () => {
+  state.search = graphSearch.value.trim();
+  applyGraphFilters();
+});
+
+graphSearch.addEventListener("search", () => {
+  state.search = graphSearch.value.trim();
+  applyGraphFilters();
+});
+
+groupFilter.addEventListener("change", () => {
+  state.group = groupFilter.value;
+  applyGraphFilters();
+});
+
+relationFilter.addEventListener("change", () => {
+  state.relationType = relationFilter.value;
+  applyGraphFilters();
+});
+
+characterSearch.addEventListener("input", () => {
+  state.characterSearch = characterSearch.value.trim();
+  renderCharacterList();
+  renderCharacterDetail();
+});
+
+characterSearch.addEventListener("search", () => {
+  state.characterSearch = characterSearch.value.trim();
+  renderCharacterList();
+  renderCharacterDetail();
+});
+
+timelineList?.addEventListener("scroll", updateTimelineLegend);
+window.addEventListener("scroll", updateTimelineLegend);
+window.addEventListener("resize", updateTimelineLegend);
+
+function runAmbientCanvas() {
+  const canvas = document.querySelector("#ambientCanvas");
+  const ctx = canvas.getContext("2d");
+  const particles = Array.from({ length: 78 }, (_, index) => ({
+    x: Math.random(),
+    y: Math.random(),
+    r: 1.2 + Math.random() * 2.8,
+    speed: 0.001 + Math.random() * 0.002,
+    phase: index * 0.4,
+    color: ["rgba(42, 157, 143, 0.32)", "rgba(231, 111, 81, 0.24)", "rgba(69, 123, 157, 0.25)", "rgba(233, 196, 106, 0.28)"][index % 4],
+  }));
+
+  function resize() {
+    canvas.width = window.innerWidth * window.devicePixelRatio;
+    canvas.height = window.innerHeight * window.devicePixelRatio;
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  }
+
+  function paint(time) {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    particles.forEach((particle) => {
+      const drift = Math.sin(time * particle.speed + particle.phase) * 26;
+      const x = particle.x * window.innerWidth + drift;
+      const y = ((particle.y + time * particle.speed * 0.018) % 1) * window.innerHeight;
+      ctx.beginPath();
+      ctx.fillStyle = particle.color;
+      ctx.arc(x, y, particle.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    requestAnimationFrame(paint);
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(paint);
+}
+
+window.addEventListener("resize", () => {
+  updateGraphBounds();
+  drawGraph();
+});
+
+document.querySelectorAll(".view-btn").forEach((button) => {
+  button.addEventListener("click", () => {
+    switchView(button.dataset.view);
+  });
+});
+
+timelineDirectionBtn?.addEventListener("click", () => {
+  state.timelineReversed = !state.timelineReversed;
+  hideTimelineFloat();
+  renderTimeline();
+});
+
+profileDetailBtn.addEventListener("click", () => {
+  if (!state.selected) return;
+  state.selectedCharacter = state.selected;
+  switchView("characters");
+});
+
+async function init() {
+  try {
+    await loadMarkdownData();
+    state.selected = "";
+    state.selectedCharacter = characters[0]?.id || "";
+    state.hasSelection = false;
+    renderPlots();
+    renderTimeline();
+    renderCharacterList();
+    renderCharacterDetail();
+    renderProfile();
+    renderGraphFilters();
+    renderLinks();
+    renderNodes();
+    markRelatedNodes();
+    switchView("graph");
+    requestAnimationFrame(tick);
+  } catch (error) {
+    plotStrip.innerHTML = `
+      <article class="plot-card" style="--accent:#e76f51">
+        <div class="plot-index">!</div>
+        <div>
+          <h4>内容加载失败</h4>
+          <p>${error.message}</p>
+        </div>
+      </article>
+    `;
+    console.error(error);
+  }
+}
+
+runAmbientCanvas();
+init();

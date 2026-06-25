@@ -1,0 +1,12 @@
+---
+id: su
+name: 苏眠
+color: #457b9d
+gradient: linear-gradient(135deg, #457b9d, #1d3557)
+group: 主角团
+markers: [女主, 主角团]
+x: 68
+y: 28
+events: [1, 5, 8]
+---
+夜航电台主持人，能收到不属于当前时间的求救信号。
