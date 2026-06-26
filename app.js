@@ -1,12 +1,14 @@
 let characters = [];
 let plots = [];
 let fragments = [];
+let places = [];
 let relationships = [];
 let timelineModel = null;
 let timelineConfig = {};
-const DATA_VERSION = "tag-focus-toggle";
+const DATA_VERSION = "shared-entry-tags";
 const STORY_CHAPTERS = ["act1", "act2", "act3"];
 const PAGE_SIZE = 6;
+const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
 
 function parseValue(value) {
   const trimmed = value.trim();
@@ -108,6 +110,7 @@ async function loadMarkdownData() {
   const characterPaths = extractManifestSection(manifest, "Characters");
   const plotPaths = extractManifestSection(manifest, "Plots");
   const fragmentPaths = extractManifestSection(manifest, "Fragments");
+  const placePaths = extractManifestSection(manifest, "Entries");
   const relationshipPaths = extractManifestSection(manifest, "Relationships");
   const timelinePaths = extractManifestSection(manifest, "Timeline");
 
@@ -127,6 +130,7 @@ async function loadMarkdownData() {
       ...meta,
       text: body,
       people: Array.isArray(meta.people) ? meta.people : [],
+      entries: Array.isArray(meta.entries) ? meta.entries : [],
       tags: Array.isArray(meta.tags) ? meta.tags : [],
       status: meta.status || "已接入",
     };
@@ -142,6 +146,21 @@ async function loadMarkdownData() {
       text: body,
       tags: Array.isArray(meta.tags) ? meta.tags : [],
       status: meta.status || "灵感",
+    };
+  }));
+
+  places = await Promise.all(placePaths.map(async (path) => {
+    const { meta, body } = parseMarkdownFile(await fetchText(path));
+    return {
+      ...meta,
+      intro: body,
+      people: Array.isArray(meta.people) ? meta.people : [],
+      plots: Array.isArray(meta.plots) ? meta.plots : [],
+      aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
+      tags: Array.isArray(meta.tags) ? meta.tags : [],
+      accent: meta.accent || meta.color || "#457b9d",
+      type: meta.type || "设定",
+      subtype: meta.subtype || "",
     };
   }));
 
@@ -177,6 +196,10 @@ const state = {
   group: "all",
   relationType: "all",
   characterSearch: "",
+  placeSearch: "",
+  entryType: "all",
+  entryTags: [],
+  selectedPlace: "",
   globalSearch: "",
   timelineReversed: false,
   width: 0,
@@ -210,6 +233,11 @@ const characterList = document.querySelector("#characterList");
 const characterDetail = document.querySelector("#characterDetail");
 const profileDetailBtn = document.querySelector("#profileDetailBtn");
 const characterSearch = document.querySelector("#characterSearch");
+const placeList = document.querySelector("#placeList");
+const placeDetail = document.querySelector("#placeDetail");
+const placeSearch = document.querySelector("#placeSearch");
+const entryTypeFilter = document.querySelector("#entryTypeFilter");
+const entryTagFilter = document.querySelector("#entryTagFilter");
 const globalSearch = document.querySelector("#globalSearch");
 const globalSearchResults = document.querySelector("#globalSearchResults");
 
@@ -330,8 +358,17 @@ function allFragmentTags() {
   return [...new Set(fragments.flatMap((fragment) => fragment.tags || []))];
 }
 
+function allEntryTags() {
+  return [...new Set(places.flatMap((place) => place.tags || []))];
+}
+
 function selectedTags(selected, allTags) {
   return selected.filter((tag) => allTags.includes(tag));
+}
+
+function visibleSelectedTags(selected, allTags) {
+  const activeTags = selectedTags(selected, allTags);
+  return !activeTags.length || activeTags.length === allTags.length ? allTags : activeTags;
 }
 
 function matchesSelectedTags(itemTags = [], selected, allTags) {
@@ -346,6 +383,50 @@ function nextSelectedTags(selected, allTags, tag) {
   return activeTags.includes(tag)
     ? activeTags.filter((item) => item !== tag)
     : [...activeTags, tag];
+}
+
+function renderChipFilter({ container, label, items, selected, mode = "single", onChange }) {
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = "";
+    return;
+  }
+  const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
+  container.innerHTML = `
+    <span class="filter-label">${label}</span>
+    ${mode === "single" ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
+    ${items.map((item) => `
+      <button class="filter-chip ${
+        mode === "multi" ? (activeItems.includes(item) ? "is-active" : "") : (selected === item ? "is-active" : "")
+      }" data-value="${escapeHtml(item)}" type="button">${escapeHtml(item)}</button>
+    `).join("")}
+  `;
+  container.querySelectorAll("[data-value]").forEach((button) => {
+    button.addEventListener("click", () => onChange(button.dataset.value, activeItems));
+  });
+}
+
+function renderCardRibbon(plot) {
+  const ribbon = plotRibbon(plot);
+  return ribbon ? `<span class="plot-ribbon is-${ribbon.tone}">${ribbon.label}</span>` : "";
+}
+
+function storyCardClass(plot, extra = "") {
+  return `${extra} ${plot.key ? "is-key" : ""} ${plot.climax ? "is-climax" : ""} ${plot.status === "草稿" ? "is-draft" : ""}`.trim();
+}
+
+function renderStoryCardContent(plot, { heading = "h4", titlePrefix = "", summary = plotExcerpt(plot), includeTags = true } = {}) {
+  const safeHeading = heading === "strong" ? "strong" : "h4";
+  const title = `${titlePrefix}${plot.title}`;
+  return `
+    ${renderCardRibbon(plot)}
+    <${safeHeading}>${escapeHtml(title)}</${safeHeading}>
+    <div class="plot-meta-line">
+      ${plot.status === "草稿" ? "" : statusBadge(plot.status)}
+      ${includeTags ? tagBadges(plot.tags) : ""}
+    </div>
+    <p>${escapeHtml(summary)}</p>
+  `;
 }
 
 function clampPage(page, totalPages) {
@@ -400,6 +481,10 @@ function getCharacter(id) {
   return characters.find((person) => person.id === id);
 }
 
+function getPlace(id) {
+  return places.find((place) => place.id === id);
+}
+
 function personMatchesSearch(person) {
   if (!state.search) return true;
   const keyword = state.search.toLowerCase();
@@ -443,42 +528,33 @@ function renderGraphFilters() {
 
 function renderStoryFilters() {
   const statuses = [...new Set(plots.map((plot) => plot.status).filter(Boolean))];
-  if (statusFilter) {
-    statusFilter.innerHTML = `
-      <span class="filter-label">状态</span>
-      <button class="filter-chip ${state.plotStatus === "all" ? "is-active" : ""}" data-status="all" type="button">全部</button>
-      ${statuses.map((status) => `
-        <button class="filter-chip ${state.plotStatus === status ? "is-active" : ""}" data-status="${status}" type="button">${status}</button>
-      `).join("")}
-    `;
-    statusFilter.querySelectorAll("[data-status]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.plotStatus = button.dataset.status;
-        state.plotPage = 1;
-        renderStoryFilters();
-        renderPlots();
-      });
-    });
-  }
+  renderChipFilter({
+    container: statusFilter,
+    label: "状态",
+    items: statuses,
+    selected: state.plotStatus,
+    onChange: (value) => {
+      state.plotStatus = value;
+      state.plotPage = 1;
+      renderStoryFilters();
+      renderPlots();
+    },
+  });
 
   const tags = allPlotTags();
-  if (tagFilter) {
-    const activeTags = selectedTags(state.plotTags, tags);
-    tagFilter.innerHTML = `
-      <span class="filter-label">标签</span>
-      ${tags.map((tag) => `
-        <button class="filter-chip ${activeTags.includes(tag) ? "is-active" : ""}" data-tag="${tag}" type="button">${tag}</button>
-      `).join("")}
-    `;
-    tagFilter.querySelectorAll("[data-tag]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.plotTags = nextSelectedTags(activeTags, tags, button.dataset.tag);
-        state.plotPage = 1;
-        renderStoryFilters();
-        renderPlots();
-      });
-    });
-  }
+  renderChipFilter({
+    container: tagFilter,
+    label: "标签",
+    items: tags,
+    selected: state.plotTags,
+    mode: "multi",
+    onChange: (value) => {
+      state.plotTags = nextSelectedTags(state.plotTags, tags, value);
+      state.plotPage = 1;
+      renderStoryFilters();
+      renderPlots();
+    },
+  });
 }
 
 function renderPlots() {
@@ -494,23 +570,12 @@ function renderPlots() {
   const page = pagedItems(visible, state.plotPage);
   state.plotPage = page.currentPage;
   plotStrip.innerHTML = page.items.length ? page.items
-    .map((plot, index) => {
-      const ribbon = plotRibbon(plot);
-      return `
-        <button class="plot-card ${plot.key ? "is-key" : ""} ${plot.climax ? "is-climax" : ""} ${plot.status === "草稿" ? "is-draft" : ""} ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
-          ${ribbon ? `<span class="plot-ribbon is-${ribbon.tone}">${ribbon.label}</span>` : ""}
-          <div class="plot-index">${plot.id}</div>
-          <div>
-            <h4>${plot.title}</h4>
-            <div class="plot-meta-line">
-              ${plot.status === "草稿" ? "" : statusBadge(plot.status)}
-              ${tagBadges(plot.tags)}
-            </div>
-            <p>${plotExcerpt(plot)}</p>
-          </div>
-        </button>
-      `;
-    })
+    .map((plot, index) => `
+      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
+        <div class="plot-index">${plot.id}</div>
+        <div>${renderStoryCardContent(plot)}</div>
+      </button>
+    `)
     .join("") : '<p class="empty-state">没有匹配的剧情。</p>';
   document.querySelectorAll(".plot-card").forEach((card) => {
     card.addEventListener("click", () => openPlotDetail(Number(card.dataset.plotId)));
@@ -524,20 +589,18 @@ function renderPlots() {
 function renderFragmentFilters() {
   if (!fragmentTagFilter) return;
   const tags = allFragmentTags();
-  const activeTags = selectedTags(state.fragmentTags, tags);
-  fragmentTagFilter.innerHTML = `
-    <span class="filter-label">标签</span>
-    ${tags.map((tag) => `
-      <button class="filter-chip ${activeTags.includes(tag) ? "is-active" : ""}" data-tag="${tag}" type="button">${tag}</button>
-    `).join("")}
-  `;
-  fragmentTagFilter.querySelectorAll("[data-tag]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.fragmentTags = nextSelectedTags(activeTags, tags, button.dataset.tag);
+  renderChipFilter({
+    container: fragmentTagFilter,
+    label: "标签",
+    items: tags,
+    selected: state.fragmentTags,
+    mode: "multi",
+    onChange: (value) => {
+      state.fragmentTags = nextSelectedTags(state.fragmentTags, tags, value);
       state.fragmentPage = 1;
       renderFragmentFilters();
       renderFragments();
-    });
+    },
   });
 }
 
@@ -1206,6 +1269,16 @@ function openCharacterDetail(id) {
   hideGlobalSearchResults();
 }
 
+function openPlaceDetail(id) {
+  const place = getPlace(id);
+  if (!place) return;
+  state.selectedPlace = id;
+  state.placeSearch = "";
+  if (placeSearch) placeSearch.value = "";
+  switchView("places");
+  hideGlobalSearchResults();
+}
+
 function openPlotDetail(plotId) {
   const plot = plots.find((item) => item.id === plotId);
   if (!plot) return;
@@ -1251,6 +1324,7 @@ function globalSearchMatches() {
       plot.status,
       chapterName(plot.chapter),
       ...(plot.people || []).map((id) => getCharacter(id)?.name || id),
+      ...(plot.entries || []).map((id) => getPlace(id)?.name || id),
       ...(plot.lanes || []),
       ...(plot.tags || []),
     ], keyword))
@@ -1260,6 +1334,25 @@ function globalSearchMatches() {
       title: plot.title,
       meta: `剧情 · ${chapterName(plot.chapter)} · ${plot.status || "未标记"} · ${plot.id}`,
       text: plotExcerpt(plot),
+    }));
+
+  const placeResults = places
+    .filter((place) => matchesKeyword([
+      place.name,
+      place.id,
+      place.type,
+      place.subtype,
+      place.area,
+      place.intro,
+      ...(place.aliases || []),
+      ...(place.people || []).map((id) => getCharacter(id)?.name || id),
+    ], keyword))
+    .map((place) => ({
+      type: "place",
+      id: place.id,
+      title: place.name,
+      meta: `设定 · ${place.type || "未分类"} · ${place.area || "未分区"}`,
+      text: place.intro,
     }));
 
   const fragmentResults = fragments
@@ -1304,7 +1397,7 @@ function globalSearchMatches() {
       };
     });
 
-  return [...characterResults, ...plotResults, ...fragmentResults, ...relationshipResults].slice(0, 9);
+  return [...characterResults, ...placeResults, ...plotResults, ...fragmentResults, ...relationshipResults].slice(0, 9);
 }
 
 function hideGlobalSearchResults() {
@@ -1336,6 +1429,7 @@ function renderGlobalSearchResults() {
     button.addEventListener("click", () => {
       const type = button.dataset.type;
       if (type === "character") openCharacterDetail(button.dataset.id);
+      if (type === "place") openPlaceDetail(button.dataset.id);
       if (type === "plot") openPlotDetail(Number(button.dataset.id));
       if (type === "fragment") {
         switchView("fragments");
@@ -1358,6 +1452,7 @@ function renderPlotDetail() {
   const plot = plots.find((item) => item.id === Number(state.selectedPlotId)) || plots[0];
   if (!plot || !plotDetail || !plotPeopleRail) return;
   const plotPeople = plot.people.map((id) => ({ id, person: getCharacter(id) }));
+  const plotPlaces = (plot.entries || []).map((id) => ({ id, place: getPlace(id) }));
   const navigation = plotNavigation(plot);
   const markdown = renderMarkdownContent(plot.text);
 
@@ -1390,6 +1485,36 @@ function renderPlotDetail() {
         }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
       </div>
     </section>
+    ${plotPlaces.length ? `
+      <section class="plot-rail-section">
+        <p class="eyebrow">Entries</p>
+        <h2>关联设定</h2>
+        <div class="plot-people-list">
+          ${plotPlaces.map(({ id, place }) => {
+            if (!place) {
+              return `
+                <div class="plot-place-item">
+                  <span class="place-mini-symbol" style="--accent:#9aa6b2">${escapeHtml(id).slice(0, 2)}</span>
+                  <span>
+                    <strong>${escapeHtml(id)}</strong>
+                    <small>未在设定档案中</small>
+                  </span>
+                </div>
+              `;
+            }
+            return `
+              <button class="plot-place-item" data-id="${place.id}" type="button" style="--accent:${place.accent}">
+                <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
+                <span>
+                  <strong>${place.name}</strong>
+                  <small>${place.type || "未分类"} · ${place.area || "未分区"}</small>
+                </span>
+              </button>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    ` : ""}
     ${markdown.toc.length ? `
       <section class="plot-rail-section">
         <p class="eyebrow">Contents</p>
@@ -1440,6 +1565,9 @@ function renderPlotDetail() {
   });
   document.querySelectorAll(".plot-person-item[data-id]").forEach((button) => {
     button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
+  });
+  document.querySelectorAll(".plot-place-item[data-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlaceDetail(button.dataset.id));
   });
   document.querySelectorAll(".plot-toc-item").forEach((item) => {
     item.addEventListener("click", (event) => {
@@ -1523,10 +1651,8 @@ function renderCharacterDetail() {
       </div>
       <div class="character-plot-list">
         ${personPlots.map((plot) => `
-          <article class="character-plot" style="--accent:${plot.accent}">
-            <strong>${plot.id}. ${plot.title}</strong>
-            <div class="badge-line">${plotBadges(plot)}</div>
-            <p>${plot.text}</p>
+          <article class="${storyCardClass(plot, "character-plot")}" style="--accent:${plot.accent}">
+            ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
           </article>
         `).join("")}
       </div>
@@ -1554,7 +1680,176 @@ function renderCharacterDetail() {
   `;
 }
 
+function renderPlaceList() {
+  if (!placeList) return;
+  const discoveredTypes = [...new Set(places.map((place) => place.type).filter(Boolean))];
+  const entryTypes = [
+    ...ENTRY_TYPES.filter((type) => discoveredTypes.includes(type)),
+    ...discoveredTypes.filter((type) => !ENTRY_TYPES.includes(type)),
+  ];
+  renderChipFilter({
+    container: entryTypeFilter,
+    label: "类型",
+    items: entryTypes,
+    selected: state.entryType,
+    onChange: (value) => {
+      state.entryType = value;
+      renderPlaceList();
+      renderPlaceDetail();
+    },
+  });
+
+  const entryTags = allEntryTags();
+  renderChipFilter({
+    container: entryTagFilter,
+    label: "标签",
+    items: entryTags,
+    selected: state.entryTags,
+    mode: "multi",
+    onChange: (value) => {
+      state.entryTags = nextSelectedTags(state.entryTags, entryTags, value);
+      renderPlaceList();
+      renderPlaceDetail();
+    },
+  });
+
+  const visiblePlaces = places.filter((place) => {
+    if (state.entryType !== "all" && place.type !== state.entryType) return false;
+    if (!matchesSelectedTags(place.tags || [], state.entryTags, entryTags)) return false;
+    if (!state.placeSearch) return true;
+    const keyword = state.placeSearch.toLowerCase();
+    return [
+      place.name,
+      place.id,
+      place.type,
+      place.subtype,
+      place.area,
+      place.intro,
+      ...(place.tags || []),
+      ...(place.aliases || []),
+    ]
+      .filter(Boolean)
+      .some((text) => String(text).toLowerCase().includes(keyword));
+  });
+
+  if (visiblePlaces.length && !visiblePlaces.some((place) => place.id === state.selectedPlace)) {
+    state.selectedPlace = visiblePlaces[0].id;
+  }
+
+  placeList.innerHTML = visiblePlaces
+    .map((place) => `
+      <button class="place-list-item ${place.id === state.selectedPlace ? "is-active" : ""}" data-id="${place.id}" type="button" style="--accent:${place.accent}">
+        <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
+        <span>
+          <strong>${place.name}</strong>
+          <small>${place.type || "未分类"}${place.subtype ? ` · ${place.subtype}` : ""} · ${place.area || "未分区"}</small>
+        </span>
+      </button>
+    `)
+    .join("");
+
+  if (!visiblePlaces.length) {
+    placeList.innerHTML = '<p class="empty-state">没有找到匹配设定</p>';
+  }
+
+  document.querySelectorAll(".place-list-item").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedPlace = button.dataset.id;
+      renderPlaceList();
+      renderPlaceDetail();
+    });
+  });
+}
+
+function renderPlaceDetail() {
+  if (!placeDetail) return;
+  const place = getPlace(state.selectedPlace) || places[0];
+  if (!place) {
+    placeDetail.innerHTML = "";
+    return;
+  }
+
+  const placePlots = plots.filter((plot) => (plot.entries || []).includes(place.id) || place.plots.includes(plot.id));
+  const relatedPeopleIds = [...new Set([
+    ...(place.people || []),
+    ...placePlots.flatMap((plot) => plot.people || []),
+  ])];
+  const relatedPeople = relatedPeopleIds.map((id) => ({ id, person: getCharacter(id) }));
+
+  placeDetail.innerHTML = `
+    <div class="place-hero" style="--accent:${place.accent}">
+      <div class="place-symbol">${escapeHtml(place.name).slice(0, 2)}</div>
+      <div class="character-copy">
+        <p class="label">${place.type || "未分类"}${place.subtype ? ` · ${place.subtype}` : ""} · ${place.area || "未分区"}</p>
+        <h2>${place.name}</h2>
+        <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
+      </div>
+      <aside class="place-facts">
+        <span>${escapeHtml(place.type || "未分类")}</span>
+        ${place.subtype ? `<span>${escapeHtml(place.subtype)}</span>` : ""}
+        ${place.area ? `<span>${escapeHtml(place.area)}</span>` : ""}
+        ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+        ${(place.aliases || []).map((alias) => `<span>${escapeHtml(alias)}</span>`).join("")}
+        ${place.status ? `<span>${escapeHtml(place.status)}</span>` : ""}
+      </aside>
+    </div>
+
+    <section class="character-section">
+      <div class="section-title">
+        <p class="label">相关人物</p>
+        <h3>${relatedPeople.filter(({ person }) => person).length} 个角色</h3>
+      </div>
+      <div class="place-person-grid">
+        ${relatedPeople.map(({ id, person }) => {
+          if (!person) {
+            return `
+              <div class="plot-person-item">
+                <span class="mini-avatar" style="--avatar-gradient:linear-gradient(135deg, #9aa6b2, #65717d)">${escapeHtml(id).slice(0, 2)}</span>
+                <span>
+                  <strong>${escapeHtml(id)}</strong>
+                  <small>未在人物列表中</small>
+                </span>
+              </div>
+            `;
+          }
+          return `
+            <button class="plot-person-item" data-id="${person.id}" type="button">
+              <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+              <span>
+                <strong>${person.name}</strong>
+                <small>${person.group || "未分组"}</small>
+              </span>
+            </button>
+          `;
+        }).join("") || '<p class="empty-state">这个设定还没有关联人物。</p>'}
+      </div>
+    </section>
+
+    <section class="character-section">
+      <div class="section-title">
+        <p class="label">出现剧情</p>
+        <h3>${placePlots.length} 个剧情点</h3>
+      </div>
+      <div class="character-plot-list">
+        ${placePlots.map((plot) => `
+          <button class="${storyCardClass(plot, "character-plot place-plot-card")}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}">
+            ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
+          </button>
+        `).join("") || '<p class="empty-state">这个设定还没有配置出现剧情。</p>'}
+      </div>
+    </section>
+  `;
+
+  document.querySelectorAll(".place-person-grid .plot-person-item[data-id]").forEach((button) => {
+    button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
+  });
+  document.querySelectorAll(".place-plot-card[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  });
+}
+
 function switchView(view) {
+  const previousView = state.view;
   const activeNav = view === "plot-detail" ? "story" : view;
   document.querySelectorAll(".view-btn").forEach((item) => item.classList.toggle("is-active", item.dataset.view === activeNav));
   document.querySelectorAll(".page-view").forEach((page) => page.classList.toggle("is-active", page.dataset.page === view));
@@ -1575,9 +1870,20 @@ function switchView(view) {
     renderCharacterList();
     renderCharacterDetail();
   }
+  if (state.view === "places") {
+    if (!state.selectedPlace) state.selectedPlace = places[0]?.id || "";
+    renderPlaceList();
+    renderPlaceDetail();
+  }
   if (state.view === "fragments") {
     renderFragmentFilters();
     renderFragments();
+  }
+  if (state.view === "story" && previousView !== "story" && previousView !== "plot-detail") {
+    state.plotTags = allPlotTags();
+    state.plotPage = 1;
+    renderStoryFilters();
+    renderPlots();
   }
   if (state.view === "plot-detail") renderPlotDetail();
 }
@@ -1999,6 +2305,18 @@ characterSearch.addEventListener("search", () => {
   renderCharacterDetail();
 });
 
+placeSearch?.addEventListener("input", () => {
+  state.placeSearch = placeSearch.value.trim();
+  renderPlaceList();
+  renderPlaceDetail();
+});
+
+placeSearch?.addEventListener("search", () => {
+  state.placeSearch = placeSearch.value.trim();
+  renderPlaceList();
+  renderPlaceDetail();
+});
+
 timelineList?.addEventListener("scroll", updateTimelineLegend);
 window.addEventListener("scroll", updateTimelineLegend);
 window.addEventListener("resize", updateTimelineLegend);
@@ -2070,9 +2388,11 @@ async function init() {
     await loadMarkdownData();
     state.selected = "";
     state.selectedCharacter = characters[0]?.id || "";
+    state.selectedPlace = places[0]?.id || "";
     state.hasSelection = false;
     state.plotTags = allPlotTags();
     state.fragmentTags = allFragmentTags();
+    state.entryTags = allEntryTags();
     renderStoryFilters();
     renderPlots();
     renderFragmentFilters();
@@ -2080,6 +2400,8 @@ async function init() {
     renderTimeline();
     renderCharacterList();
     renderCharacterDetail();
+    renderPlaceList();
+    renderPlaceDetail();
     renderProfile();
     renderGraphFilters();
     renderLinks();

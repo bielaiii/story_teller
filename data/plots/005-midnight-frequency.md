@@ -3,6 +3,7 @@ id: 5
 chapter: act2
 title: 午夜频率
 people: [su, qiao]
+entries: [radio-station, harbor-repair-network]
 accent: #457b9d
 lanes: [电台线, 港区线]
 status: 待串联

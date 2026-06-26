@@ -3,6 +3,7 @@ id: 7
 chapter: act3
 title: 律师的旧照片
 people: [shen, yan]
+entries: [night-restaurant]
 accent: #e76f51
 lanes: [旧案线, 手稿线]
 status: 草稿

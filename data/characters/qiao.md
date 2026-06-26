@@ -3,7 +3,7 @@ id: qiao
 name: 乔鸢
 color: #c66b8c
 gradient: linear-gradient(135deg, #c66b8c, #f4a261)
-group: 港区势力
+group: 港区相关
 markers: [主角, 主角团]
 x: 25
 y: 62

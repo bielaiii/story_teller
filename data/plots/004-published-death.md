@@ -3,6 +3,7 @@ id: 4
 chapter: act2
 title: 提前出版的死亡章节
 people: [yan, shen]
+entries: [night-restaurant]
 accent: #e9c46a
 lanes: [手稿线, 旧案线]
 status: 待串联

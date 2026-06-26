@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=tag-focus-toggle" />
+    <link rel="stylesheet" href="./styles.css?v=shared-entry-tags" />
   </head>
   <body>
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
@@ -17,9 +17,10 @@
         <button class="view-btn is-active" data-view="graph">图谱</button>
         <button class="view-btn" data-view="timeline">时间线</button>
         <button class="view-btn" data-view="characters">人物</button>
+        <button class="view-btn" data-view="places">设定</button>
         <button class="view-btn" data-view="fragments">碎片</button>
         <div class="global-search">
-          <input id="globalSearch" type="search" placeholder="搜索人物、剧情、碎片、关系" aria-label="全局搜索" />
+          <input id="globalSearch" type="search" placeholder="搜索人物、设定、剧情、碎片、关系" aria-label="全局搜索" />
           <div class="global-search-results is-hidden" id="globalSearchResults" aria-live="polite"></div>
         </div>
       </nav>
@@ -129,8 +130,20 @@
         </aside>
         <article class="character-detail" id="characterDetail"></article>
       </section>
+
+      <section class="place-page page-view" data-page="places" aria-label="设定档案">
+        <aside class="place-rail">
+          <p class="eyebrow">Entries</p>
+          <h2>设定档案</h2>
+          <input id="placeSearch" class="place-search" type="search" placeholder="搜索公司、地点、物品" />
+          <div class="entry-type-filter story-filter-group" id="entryTypeFilter" aria-label="设定类型筛选"></div>
+          <div class="entry-tag-filter story-filter-group" id="entryTagFilter" aria-label="设定标签筛选"></div>
+          <div class="place-list" id="placeList"></div>
+        </aside>
+        <article class="place-detail" id="placeDetail"></article>
+      </section>
     </main>
 
-    <script src="./app.js?v=tag-focus-toggle"></script>
+    <script src="./app.js?v=shared-entry-tags"></script>
   </body>
 </html>

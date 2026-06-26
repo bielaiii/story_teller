@@ -3,6 +3,7 @@ id: 9
 chapter: act3
 title: 雾港开闸
 people: [qiao, han]
+entries: [harbor-gate-company, harbor-repair-network]
 accent: #c66b8c
 lanes: [主线, 港区线, 旧案线]
 status: 已接入

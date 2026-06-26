@@ -3,7 +3,7 @@ id: mo
 name: 莫岚
 color: #8a5cf6
 gradient: linear-gradient(135deg, #8a5cf6, #2f184b)
-group: 港区势力
+group: 港区相关
 markers: [中立]
 x: 15
 y: 24

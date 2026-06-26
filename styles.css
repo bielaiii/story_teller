@@ -176,6 +176,7 @@ button {
 .graph-stage,
 .timeline-panel,
 .character-page,
+.place-page,
 .plot-detail-page,
 .fragment-page {
   min-height: calc(100vh - 94px);
@@ -913,8 +914,17 @@ button {
 }
 
 .character-page.is-active,
+.place-page.is-active,
 .plot-detail-page.is-active {
   display: grid;
+}
+
+.place-page {
+  display: none;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  border-radius: 6px;
+  padding: 18px;
 }
 
 .plot-detail-page {
@@ -927,6 +937,8 @@ button {
 
 .character-rail,
 .character-detail,
+.place-rail,
+.place-detail,
 .plot-people-rail,
 .plot-detail {
   border-radius: 6px;
@@ -934,14 +946,21 @@ button {
 }
 
 .character-rail,
+.place-rail,
 .plot-people-rail {
   padding: 18px;
 }
 
-.character-list {
+.character-list,
+.place-list {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+}
+
+.entry-type-filter,
+.entry-tag-filter {
+  margin-top: 12px;
 }
 
 .plot-people-list {
@@ -986,7 +1005,8 @@ button {
   background: rgba(255, 255, 255, 0.74);
 }
 
-.character-search {
+.character-search,
+.place-search {
   width: 100%;
   min-height: 38px;
   margin-top: 14px;
@@ -997,7 +1017,8 @@ button {
   outline: none;
 }
 
-.character-search:focus {
+.character-search:focus,
+.place-search:focus {
   border-color: rgba(42, 157, 143, 0.55);
   box-shadow: 0 0 0 4px rgba(42, 157, 143, 0.12);
 }
@@ -1010,7 +1031,8 @@ button {
   color: var(--muted);
 }
 
-.character-list-item {
+.character-list-item,
+.place-list-item {
   display: grid;
   grid-template-columns: 46px 1fr;
   gap: 10px;
@@ -1026,7 +1048,8 @@ button {
   cursor: pointer;
 }
 
-.plot-person-item {
+.plot-person-item,
+.plot-place-item {
   display: grid;
   grid-template-columns: 46px 1fr;
   gap: 10px;
@@ -1040,31 +1063,37 @@ button {
   text-align: left;
 }
 
-button.plot-person-item {
+button.plot-person-item,
+button.plot-place-item {
   cursor: pointer;
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
 button.plot-person-item:hover,
-button.plot-person-item:focus-visible {
+button.plot-person-item:focus-visible,
+button.plot-place-item:hover,
+button.plot-place-item:focus-visible {
   border-color: rgba(42, 157, 143, 0.42);
   box-shadow: 0 12px 30px rgba(42, 157, 143, 0.14);
   outline: none;
   transform: translateY(-2px);
 }
 
-.character-list-item.is-active {
+.character-list-item.is-active,
+.place-list-item.is-active {
   border-color: rgba(42, 157, 143, 0.46);
   box-shadow: 0 12px 30px rgba(42, 157, 143, 0.16);
 }
 
-.character-list-item small {
+.character-list-item small,
+.place-list-item small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
 }
 
-.plot-person-item small {
+.plot-person-item small,
+.plot-place-item small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
@@ -1122,6 +1151,12 @@ button.plot-person-item:focus-visible {
 }
 
 .character-detail {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.place-detail {
   display: grid;
   gap: 18px;
   padding: 22px;
@@ -1291,6 +1326,105 @@ button.plot-person-item:focus-visible {
   box-shadow: 0 18px 44px rgba(31, 46, 58, 0.2);
 }
 
+.place-mini-symbol,
+.place-symbol {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.42), transparent 25%),
+    linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 48%, var(--ink)));
+  font-weight: 950;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.place-mini-symbol {
+  width: 42px;
+  height: 42px;
+  font-size: 12px;
+}
+
+.place-symbol {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  font-size: 24px;
+}
+
+.place-symbol::after {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.76);
+  border-radius: 50%;
+  content: "";
+}
+
+.place-hero {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) minmax(160px, auto);
+  gap: 18px;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.place-intro {
+  color: #4c5862;
+  line-height: 1.68;
+}
+
+.place-intro p {
+  margin: 0;
+}
+
+.place-facts {
+  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.place-facts span {
+  display: inline-grid;
+  place-items: center;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  border-radius: 999px;
+  padding: 5px 12px;
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.8));
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.place-person-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.place-plot-card {
+  width: 100%;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.place-plot-card:hover,
+.place-plot-card:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  outline: none;
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .character-section {
   display: grid;
   gap: 12px;
@@ -1310,6 +1444,8 @@ button.plot-person-item:focus-visible {
 }
 
 .character-plot {
+  position: relative;
+  overflow: hidden;
   padding: 14px;
 }
 
@@ -2045,6 +2181,7 @@ h3 {
   .graph-stage,
   .timeline-panel,
   .character-page,
+  .place-page,
   .plot-detail-page,
   .fragment-page {
     min-height: auto;
@@ -2060,6 +2197,7 @@ h3 {
   }
 
   .character-page.is-active,
+  .place-page.is-active,
   .plot-detail-page.is-active {
     grid-template-columns: 1fr;
   }
@@ -2086,6 +2224,7 @@ h3 {
   .graph-stage,
   .timeline-panel,
   .character-page,
+  .place-page,
   .plot-detail-page,
   .fragment-page {
     padding: 14px;
@@ -2126,8 +2265,18 @@ h3 {
 
   .timeline-head,
   .character-hero,
+  .place-hero,
   .relation-row,
   .plot-nav-row {
+    grid-template-columns: 1fr;
+  }
+
+  .place-facts {
+    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  .place-person-grid {
     grid-template-columns: 1fr;
   }
 
