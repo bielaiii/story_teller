@@ -7,10 +7,14 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
-const DATA_VERSION = "markdown-renderer-unified";
+const DATA_VERSION = "timeline-layout-roomy";
 const DEFAULT_PROJECT_ID = "demo";
 const PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
+
+if ("scrollRestoration" in history) {
+  history.scrollRestoration = "manual";
+}
 
 function safeProjectId(value) {
   const normalized = String(value || DEFAULT_PROJECT_ID).trim();
@@ -1060,6 +1064,22 @@ function updateTimelineDirectionButton() {
   timelineDirectionBtn.setAttribute("aria-pressed", String(state.timelineReversed));
 }
 
+function scrollPageToTop() {
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    timelineList?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  });
+}
+
+function resolvedBranchTrack(branchConfig, occupiedTracks) {
+  const side = branchConfig.side === "left" ? "left" : "right";
+  let track = Math.max(1, Number(branchConfig.trackFromMain ?? branchConfig.distance ?? 1) || 1);
+  const key = () => `${side}:${track}`;
+  while (occupiedTracks.has(key())) track += 1;
+  occupiedTracks.add(key());
+  return track;
+}
+
 function renderTimeline() {
   updateTimelineDirectionButton();
   const mainLineName = timelineConfig.mainLine || "主线";
@@ -1067,7 +1087,7 @@ function renderTimeline() {
     ? timelineConfig.lines
     : [mainLineName];
   const branchConfigs = timelineConfig.branches || [];
-  const lineSpacing = timelineConfig.lineSpacing || 54;
+  const lineSpacing = Math.max(72, Number(timelineConfig.lineSpacing || 72) || 72);
   const topPadding = timelineConfig.topPadding || 54;
   const sidePadding = timelineConfig.sidePadding || 34;
   const palette = Array.isArray(timelineConfig.palette) && timelineConfig.palette.length
@@ -1079,8 +1099,19 @@ function renderTimeline() {
   let timelineColorMap = new Map();
   const baseLineColor = (line) => palette[Math.max(0, lines.indexOf(line)) % palette.length];
   const lineColor = (line) => timelineColorMap.get(line) || baseLineColor(line);
-  const lineTrack = (branchConfig) => Math.max(1, Number(branchConfig?.trackFromMain || 1) || 1);
-  const branchDisplayLength = (branchConfig) => Math.max(180, Number(branchConfig?.displayLength || 360) || 360);
+  const occupiedTracks = new Set();
+  const branchTrackByLine = new Map(branchConfigs.map((branchConfig) => [
+    branchConfig.line,
+    resolvedBranchTrack(branchConfig, occupiedTracks),
+  ]));
+  const lineTrack = (branchConfig) => branchTrackByLine.get(branchConfig?.line) || 1;
+  const storyUnitPixels = Math.max(560, Number(timelineConfig.pixelsPerStoryUnit || 860) || 860);
+  const branchDisplayLength = (branchConfig) => {
+    if (branchConfig?.displayLength !== undefined) return Math.max(260, Number(branchConfig.displayLength) || 420);
+    if (branchConfig?.visualLength !== undefined) return Math.max(260, Number(branchConfig.visualLength) * storyUnitPixels || 420);
+    return 460;
+  };
+  const nodeGap = Math.max(40, Number(timelineConfig.nodeGap || 56) || 56);
   const mainDisplayLength = Math.max(680, ...branchConfigs
     .map((branchConfig) => branchDisplayLength(branchConfig) * 1.8), ...branchConfigs
     .filter((branchConfig) => (branchConfig.startLine || mainLineName) === mainLineName && (branchConfig.endLine || mainLineName) === mainLineName)
@@ -1089,7 +1120,7 @@ function renderTimeline() {
       const end = asTimelineRatio(branchConfig.endPosition, 1);
       const span = Math.max(0.08, Math.abs(end - start));
       return (branchDisplayLength(branchConfig) + 140) / span;
-    }));
+    }), plots.length * nodeGap);
   const configuredOffsets = branchConfigs.map((branchConfig) => ({
     side: branchConfig.side === "left" ? "left" : "right",
     offset: lineTrack(branchConfig),
@@ -2206,6 +2237,7 @@ function switchView(view) {
     renderPlots();
   }
   if (state.view === "plot-detail") renderPlotDetail();
+  scrollPageToTop();
 }
 
 function renderProfile() {
@@ -2878,6 +2910,9 @@ document.addEventListener("click", (event) => {
   if (event.target.closest(".global-search")) return;
   hideGlobalSearchResults();
 });
+
+window.addEventListener("pageshow", scrollPageToTop);
+window.addEventListener("load", scrollPageToTop);
 
 graphSearch.addEventListener("input", () => {
   state.search = graphSearch.value.trim();
