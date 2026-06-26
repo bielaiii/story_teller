@@ -7,7 +7,7 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
-const DATA_VERSION = "timeline-node-unified";
+const DATA_VERSION = "markdown-renderer-unified";
 const DEFAULT_PROJECT_ID = "demo";
 const PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
@@ -360,29 +360,186 @@ function slugifyHeading(text, index) {
   return base || `section-${index + 1}`;
 }
 
+function inlineMarkdown(value) {
+  return escapeHtml(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
+}
+
+function splitTableRow(line) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function renderMarkdownTable(lines) {
+  const rows = lines.filter((line) => line.trim());
+  if (rows.length < 2) return "";
+  const header = splitTableRow(rows[0]);
+  const bodyRows = rows.slice(2).map(splitTableRow);
+  return `
+    <div class="markdown-table-wrap">
+      <table class="markdown-table">
+        <thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMarkdownList(lines, ordered = false) {
+  const tag = ordered ? "ol" : "ul";
+  const pattern = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+  return `<${tag}>${lines.map((line) => `<li>${inlineMarkdown(line.replace(pattern, "").trim())}</li>`).join("")}</${tag}>`;
+}
+
 function renderMarkdownContent(text) {
-  const blocks = String(text || "")
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-  if (!blocks.length) return { html: "<p>暂无正文。</p>", toc: [] };
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  if (!lines.some((line) => line.trim())) return { html: "<p>暂无正文。</p>", toc: [] };
+
   const toc = [];
-  const html = blocks.map((block) => {
-    if (block.startsWith("### ")) {
-      const title = block.slice(4).trim();
-      const id = slugifyHeading(title, toc.length);
-      toc.push({ id, title, level: 3 });
-      return `<h4 id="${id}">${escapeHtml(title)}</h4>`;
+  const html = [];
+  let paragraph = [];
+  let quote = [];
+  let unordered = [];
+  let ordered = [];
+  let table = [];
+  let code = [];
+  let inCode = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html.push(`<p>${paragraph.map(inlineMarkdown).join("<br />")}</p>`);
+    paragraph = [];
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    html.push(`<blockquote>${quote.map((line) => `<p>${inlineMarkdown(line)}</p>`).join("")}</blockquote>`);
+    quote = [];
+  };
+  const flushUnordered = () => {
+    if (!unordered.length) return;
+    html.push(renderMarkdownList(unordered));
+    unordered = [];
+  };
+  const flushOrdered = () => {
+    if (!ordered.length) return;
+    html.push(renderMarkdownList(ordered, true));
+    ordered = [];
+  };
+  const flushTable = () => {
+    if (!table.length) return;
+    html.push(renderMarkdownTable(table));
+    table = [];
+  };
+  const flushBlocks = () => {
+    flushParagraph();
+    flushQuote();
+    flushUnordered();
+    flushOrdered();
+    flushTable();
+  };
+
+  lines.forEach((rawLine, lineIndex) => {
+    const line = rawLine.replace(/\s+$/, "");
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      if (inCode) {
+        html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+        code = [];
+        inCode = false;
+      } else {
+        flushBlocks();
+        inCode = true;
+      }
+      return;
     }
-    if (block.startsWith("## ")) {
-      const title = block.slice(3).trim();
-      const id = slugifyHeading(title, toc.length);
-      toc.push({ id, title, level: 2 });
-      return `<h3 id="${id}">${escapeHtml(title)}</h3>`;
+
+    if (inCode) {
+      code.push(rawLine);
+      return;
     }
-    return `<p>${escapeHtml(block).replaceAll("\n", "<br />")}</p>`;
-  }).join("");
-  return { html, toc };
+
+    if (!trimmed) {
+      flushBlocks();
+      return;
+    }
+
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      const depth = heading[1].length;
+      const title = heading[2].trim();
+      const id = slugifyHeading(title, toc.length);
+      const tag = depth <= 2 ? "h3" : depth === 3 ? "h4" : "h5";
+      toc.push({ id, title, level: depth <= 2 ? 2 : 3 });
+      html.push(`<${tag} id="${id}">${inlineMarkdown(title)}</${tag}>`);
+      return;
+    }
+
+    if (/^[-*_]{3,}$/.test(trimmed)) {
+      flushBlocks();
+      html.push("<hr />");
+      return;
+    }
+
+    if (trimmed.startsWith(">")) {
+      flushParagraph();
+      flushUnordered();
+      flushOrdered();
+      flushTable();
+      quote.push(trimmed.replace(/^>\s?/, ""));
+      return;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      flushParagraph();
+      flushQuote();
+      flushOrdered();
+      flushTable();
+      unordered.push(line);
+      return;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      flushParagraph();
+      flushQuote();
+      flushUnordered();
+      flushTable();
+      ordered.push(line);
+      return;
+    }
+
+    if (trimmed.includes("|") && /^\s*\|?\s*:?-{2,}:?/.test(lines[lineIndex + 1] || "")) {
+      flushBlocks();
+      table.push(line);
+      return;
+    }
+
+    if (table.length || (/^\s*\|?\s*:?-{2,}:?/.test(trimmed) && trimmed.includes("|"))) {
+      table.push(line);
+      return;
+    }
+
+    flushQuote();
+    flushUnordered();
+    flushOrdered();
+    flushTable();
+    paragraph.push(line);
+  });
+
+  if (inCode) html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+  flushBlocks();
+
+  return { html: html.join(""), toc };
 }
 
 function renderMarkdownBody(text) {
