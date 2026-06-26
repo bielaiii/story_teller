@@ -7,7 +7,7 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
-const DATA_VERSION = "timeline-density";
+const DATA_VERSION = "timeline-node-unified";
 const DEFAULT_PROJECT_ID = "demo";
 const PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
@@ -1120,7 +1120,6 @@ function renderTimeline() {
       plot.key ? "is-key" : "",
     ].filter(Boolean).join(" ");
     return `<button class="${nodeClass}" data-plot-id="${plot.id}" data-lane="${position.lane}" type="button" aria-label="${timelinePlotTitle(plot)}，${positionLabel}" title="${positionLabel}" style="--accent:${nodeColor}; left:${position.x}px; top:${position.y}px">
-      <span class="timeline-pulse" aria-hidden="true"></span>
       <span class="timeline-dot" aria-hidden="true"></span>
       <span class="timeline-node-tip">${positionLabel}</span>
     </button>`;
