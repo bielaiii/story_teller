@@ -51,8 +51,12 @@ button {
 }
 
 .view-nav {
+  position: relative;
+  z-index: 140;
   display: flex;
+  flex-wrap: wrap;
   align-self: center;
+  justify-content: center;
   gap: 8px;
   padding: 7px;
   border: 1px solid rgba(255, 255, 255, 0.7);
@@ -60,6 +64,83 @@ button {
   background: rgba(255, 253, 247, 0.72);
   box-shadow: 0 18px 52px rgba(31, 46, 58, 0.12);
   backdrop-filter: blur(18px);
+}
+
+.global-search {
+  position: relative;
+  min-width: min(270px, 32vw);
+}
+
+.global-search input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 14px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.64);
+  outline: none;
+}
+
+.global-search input:focus {
+  border-color: rgba(42, 157, 143, 0.42);
+  box-shadow: 0 0 0 4px rgba(42, 157, 143, 0.1);
+}
+
+.global-search-results {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 160;
+  display: grid;
+  gap: 6px;
+  width: min(380px, 88vw);
+  max-height: min(460px, 72vh);
+  overflow: auto;
+  border: 1px solid rgba(25, 33, 42, 0.1);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(255, 253, 247, 0.94);
+  box-shadow: 0 22px 60px rgba(31, 46, 58, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.global-search-results.is-hidden {
+  display: none;
+}
+
+.global-search-result {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.58);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.global-search-result:hover,
+.global-search-result:focus-visible {
+  border-color: rgba(42, 157, 143, 0.42);
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(31, 46, 58, 0.1);
+}
+
+.global-search-result span,
+.global-search-result small,
+.global-search-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.global-search-result small,
+.global-search-empty {
+  margin: 0;
 }
 
 .view-btn {
@@ -95,7 +176,8 @@ button {
 .graph-stage,
 .timeline-panel,
 .character-page,
-.plot-detail-page {
+.plot-detail-page,
+.fragment-page {
   min-height: calc(100vh - 94px);
   border: 1px solid rgba(255, 255, 255, 0.68);
   background: var(--paper);
@@ -111,6 +193,13 @@ button {
 }
 
 .timeline-panel {
+  flex-direction: column;
+  gap: 18px;
+  border-radius: 6px;
+  padding: 26px;
+}
+
+.fragment-page {
   flex-direction: column;
   gap: 18px;
   border-radius: 6px;
@@ -581,14 +670,14 @@ button {
 .chapter-chip {
   display: inline-grid;
   place-items: center;
-  min-height: 22px;
-  margin-bottom: 6px;
-  padding: 3px 8px;
+  min-height: 38px;
+  margin-bottom: 0;
+  padding: 7px 15px;
   border-radius: 999px;
-  background: rgba(25, 33, 42, 0.08);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  background: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, 0.74));
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  font-size: 16px;
+  font-weight: 950;
 }
 
 .timeline-head {
@@ -630,6 +719,189 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.story-filter-row {
+  display: grid;
+  gap: 8px;
+}
+
+.story-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.filter-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.filter-chip {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.filter-chip:hover {
+  transform: translateY(-1px);
+}
+
+.filter-chip.is-active {
+  color: #fff;
+  background: var(--ink);
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.pagination-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.pagination-btn {
+  min-width: 36px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.56);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  transition: transform 160ms ease, background 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.pagination-btn:hover,
+.pagination-btn:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.pagination-btn.is-active {
+  color: #fff;
+  background: var(--ink);
+}
+
+.pagination-btn:disabled {
+  cursor: default;
+  opacity: 0.38;
+  transform: none;
+}
+
+.pagination-jump {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.pagination-jump span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.pagination-jump input {
+  width: 68px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+  outline: none;
+  text-align: center;
+}
+
+.plot-meta-line,
+.tag-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.plot-meta-line {
+  margin: 2px 0 8px;
+}
+
+.tag-badge,
+.status-badge {
+  display: inline-grid;
+  place-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.tag-badge {
+  color: var(--muted);
+  background: rgba(25, 33, 42, 0.07);
+}
+
+.status-badge {
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.76));
+}
+
+.fragment-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 14px;
+  overflow: auto;
+}
+
+.fragment-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 180px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent);
+  border-radius: 6px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  animation: riseIn 620ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.fragment-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fragment-card h3 {
+  margin: 0;
+}
+
+.fragment-body {
+  color: #4c5862;
+  line-height: 1.62;
+}
+
+.fragment-body p {
+  margin: 0;
 }
 
 .character-page {
@@ -676,6 +948,42 @@ button {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+}
+
+.plot-rail-section + .plot-rail-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.plot-toc {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.plot-toc-item {
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.48);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 850;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.plot-toc-item.level-3 {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plot-toc-item:hover,
+.plot-toc-item:focus-visible {
+  outline: none;
+  transform: translateX(3px);
+  background: rgba(255, 255, 255, 0.74);
 }
 
 .character-search {
@@ -784,12 +1092,6 @@ button.plot-person-item:focus-visible {
   line-height: 1;
 }
 
-.empty-marker {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 800;
-}
-
 .mini-avatar,
 .character-avatar {
   display: grid;
@@ -865,6 +1167,65 @@ button.plot-person-item:focus-visible {
   background: rgba(255, 255, 255, 0.86);
 }
 
+.plot-nav-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(66px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.plot-nav-btn {
+  display: grid;
+  gap: 2px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.58);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.plot-nav-btn:last-child {
+  text-align: right;
+}
+
+.plot-nav-btn span,
+.plot-nav-scope {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.plot-nav-btn strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.plot-nav-btn:hover,
+.plot-nav-btn:focus-visible {
+  outline: none;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(31, 46, 58, 0.1);
+}
+
+.plot-nav-btn:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
+}
+
+.plot-nav-scope {
+  min-width: max-content;
+}
+
 .plot-detail-body {
   display: grid;
   gap: 12px;
@@ -883,11 +1244,13 @@ button.plot-person-item:focus-visible {
 .plot-detail-body h3 {
   color: var(--ink);
   font-size: 20px;
+  scroll-margin-top: 18px;
 }
 
 .plot-detail-body h4 {
   color: var(--ink);
   font-size: 17px;
+  scroll-margin-top: 18px;
 }
 
 .character-hero {
@@ -907,12 +1270,7 @@ button.plot-person-item:focus-visible {
   justify-self: end;
   display: grid;
   justify-items: end;
-  gap: 10px;
   min-width: 160px;
-  padding: 12px 14px;
-  border: 1px solid rgba(25, 33, 42, 0.08);
-  border-radius: 6px;
-  background: rgba(255, 253, 247, 0.58);
 }
 
 .character-marker-panel .character-markers {
@@ -1075,6 +1433,55 @@ h3 {
   background: var(--accent);
 }
 
+.plot-ribbon {
+  position: absolute;
+  top: 14px;
+  right: -37px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  min-height: 28px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 54%, var(--ink)));
+  box-shadow: 0 10px 24px rgba(31, 46, 58, 0.18);
+  font-size: 12px;
+  font-weight: 950;
+  transform: rotate(38deg);
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.plot-ribbon::before,
+.plot-ribbon::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.42);
+  content: "";
+}
+
+.plot-ribbon::before {
+  left: 10px;
+}
+
+.plot-ribbon::after {
+  right: 10px;
+}
+
+.plot-ribbon.is-climax {
+  background: linear-gradient(135deg, var(--coral), #9d4edd);
+}
+
+.plot-ribbon.is-key {
+  background: linear-gradient(135deg, var(--gold), #d58a35);
+}
+
+.plot-ribbon.is-draft {
+  background: linear-gradient(135deg, #71869d, #334155);
+}
+
 .plot-index {
   display: grid;
   place-items: center;
@@ -1117,7 +1524,8 @@ h3 {
 }
 
 .plot-card.is-key,
-.plot-card.is-climax {
+.plot-card.is-climax,
+.plot-card.is-draft {
   border-color: color-mix(in srgb, var(--accent) 58%, transparent);
   box-shadow: 0 14px 34px color-mix(in srgb, var(--accent) 18%, transparent);
 }
@@ -1394,29 +1802,29 @@ h3 {
   animation: dashFlow 1.6s linear infinite;
 }
 
-.relationship-label {
-  fill: rgba(25, 33, 42, 0.66);
-  font-size: 12px;
-  opacity: 1;
-  paint-order: stroke;
-  stroke: rgba(255, 253, 247, 0.9);
-  stroke-width: 4px;
-  transition: opacity 180ms ease;
-}
-
-.graph-wrap.hide-labels .relationship-label {
-  opacity: 0;
-}
-
-.relationship-path.is-filtered-out,
-.relationship-label.is-filtered-out {
+.relationship-path.is-filtered-out {
   opacity: 0;
   pointer-events: none;
+}
+
+.relationship-path.is-muted-by-selection {
+  opacity: 0.1;
+}
+
+.relationship-path.is-reachable {
+  stroke-width: 3.5;
+  opacity: 0.86;
+  filter: drop-shadow(0 0 9px rgba(31, 46, 58, 0.16));
 }
 
 .person-node.is-filtered-out {
   opacity: 0.14;
   pointer-events: none;
+}
+
+.person-node.is-muted-by-selection {
+  opacity: 0.18;
+  filter: grayscale(0.8);
 }
 
 .person-node {
@@ -1443,6 +1851,10 @@ h3 {
 
 .person-node.is-linked .avatar {
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent), 0 16px 34px rgba(31, 46, 58, 0.18);
+}
+
+.person-node.is-reachable .avatar {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent), 0 14px 30px rgba(31, 46, 58, 0.16);
 }
 
 .person-node.is-search-match {
@@ -1633,11 +2045,13 @@ h3 {
   .graph-stage,
   .timeline-panel,
   .character-page,
-  .plot-detail-page {
+  .plot-detail-page,
+  .fragment-page {
     min-height: auto;
   }
 
-  .plot-strip {
+  .plot-strip,
+  .fragment-board {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
 
@@ -1656,11 +2070,24 @@ h3 {
     padding: 10px;
   }
 
+  .global-search {
+    order: 5;
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .global-search-results {
+    right: auto;
+    left: 0;
+    width: 100%;
+  }
+
   .story-panel,
   .graph-stage,
   .timeline-panel,
   .character-page,
-  .plot-detail-page {
+  .plot-detail-page,
+  .fragment-page {
     padding: 14px;
   }
 
@@ -1675,7 +2102,8 @@ h3 {
     justify-content: flex-start;
   }
 
-  .plot-strip {
+  .plot-strip,
+  .fragment-board {
     grid-template-columns: 1fr;
   }
 
@@ -1698,8 +2126,13 @@ h3 {
 
   .timeline-head,
   .character-hero,
-  .relation-row {
+  .relation-row,
+  .plot-nav-row {
     grid-template-columns: 1fr;
+  }
+
+  .plot-nav-scope {
+    justify-self: center;
   }
 
   .timeline-head {

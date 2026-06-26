@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=character-markers-right" />
+    <link rel="stylesheet" href="./styles.css?v=tag-focus-toggle" />
   </head>
   <body>
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
@@ -17,6 +17,11 @@
         <button class="view-btn is-active" data-view="graph">图谱</button>
         <button class="view-btn" data-view="timeline">时间线</button>
         <button class="view-btn" data-view="characters">人物</button>
+        <button class="view-btn" data-view="fragments">碎片</button>
+        <div class="global-search">
+          <input id="globalSearch" type="search" placeholder="搜索人物、剧情、碎片、关系" aria-label="全局搜索" />
+          <div class="global-search-results is-hidden" id="globalSearchResults" aria-live="polite"></div>
+        </div>
       </nav>
 
       <section class="story-panel page-view" data-page="story" aria-label="剧情记录">
@@ -27,15 +32,33 @@
           </div>
           <div class="chapter-switch" aria-label="章节筛选">
             <button class="chapter-btn is-active" data-chapter="all">全部</button>
-            <button class="chapter-btn" data-chapter="act1">第一幕</button>
-            <button class="chapter-btn" data-chapter="act2">第二幕</button>
-            <button class="chapter-btn" data-chapter="act3">第三幕</button>
+            <button class="chapter-btn" data-chapter="act1">旧港篇</button>
+            <button class="chapter-btn" data-chapter="act2">电台篇</button>
+            <button class="chapter-btn" data-chapter="act3">水闸篇</button>
             <button class="chapter-btn" data-chapter="key">关键剧情</button>
             <button class="chapter-btn" data-chapter="climax">高潮剧情</button>
           </div>
         </header>
 
+        <div class="story-filter-row">
+          <div class="story-filter-group" id="statusFilter" aria-label="剧情状态筛选"></div>
+          <div class="story-filter-group" id="tagFilter" aria-label="剧情标签筛选"></div>
+        </div>
+
         <div class="plot-strip" id="plotStrip" aria-label="剧情线"></div>
+        <div class="pagination-bar" id="plotPagination" aria-label="剧情分页"></div>
+      </section>
+
+      <section class="fragment-page page-view" data-page="fragments" aria-label="灵感碎片箱">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Fragments</p>
+            <h2>灵感碎片箱</h2>
+          </div>
+          <div class="story-filter-group" id="fragmentTagFilter" aria-label="碎片标签筛选"></div>
+        </header>
+        <div class="fragment-board" id="fragmentBoard"></div>
+        <div class="pagination-bar" id="fragmentPagination" aria-label="碎片分页"></div>
       </section>
 
       <section class="plot-detail-page page-view" data-page="plot-detail" aria-label="剧情全文">
@@ -108,6 +131,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=character-markers-right"></script>
+    <script src="./app.js?v=tag-focus-toggle"></script>
   </body>
 </html>

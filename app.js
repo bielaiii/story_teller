@@ -1,9 +1,12 @@
 let characters = [];
 let plots = [];
+let fragments = [];
 let relationships = [];
 let timelineModel = null;
 let timelineConfig = {};
-const DATA_VERSION = "character-markers-right";
+const DATA_VERSION = "tag-focus-toggle";
+const STORY_CHAPTERS = ["act1", "act2", "act3"];
+const PAGE_SIZE = 6;
 
 function parseValue(value) {
   const trimmed = value.trim();
@@ -104,6 +107,7 @@ async function loadMarkdownData() {
   const manifest = await fetchText("./data/manifest.md");
   const characterPaths = extractManifestSection(manifest, "Characters");
   const plotPaths = extractManifestSection(manifest, "Plots");
+  const fragmentPaths = extractManifestSection(manifest, "Fragments");
   const relationshipPaths = extractManifestSection(manifest, "Relationships");
   const timelinePaths = extractManifestSection(manifest, "Timeline");
 
@@ -123,9 +127,23 @@ async function loadMarkdownData() {
       ...meta,
       text: body,
       people: Array.isArray(meta.people) ? meta.people : [],
+      tags: Array.isArray(meta.tags) ? meta.tags : [],
+      status: meta.status || "已接入",
     };
   }));
   plots.sort((a, b) => a.id - b.id);
+
+  fragments = await Promise.all(fragmentPaths.map(async (path, index) => {
+    const { meta, body } = parseMarkdownFile(await fetchText(path));
+    return {
+      ...meta,
+      id: meta.id || `fragment-${index + 1}`,
+      title: meta.title || "未命名碎片",
+      text: body,
+      tags: Array.isArray(meta.tags) ? meta.tags : [],
+      status: meta.status || "灵感",
+    };
+  }));
 
   relationships = await Promise.all(relationshipPaths.map(async (path) => {
     const { meta } = parseMarkdownFile(await fetchText(path));
@@ -141,6 +159,11 @@ const state = {
   selectedPlotId: null,
   hasSelection: false,
   chapter: "all",
+  plotStatus: "all",
+  plotTags: [],
+  fragmentTags: [],
+  plotPage: 1,
+  fragmentPage: 1,
   highlightPlotId: null,
   view: "graph",
   dragging: null,
@@ -154,6 +177,7 @@ const state = {
   group: "all",
   relationType: "all",
   characterSearch: "",
+  globalSearch: "",
   timelineReversed: false,
   width: 0,
   height: 0,
@@ -163,6 +187,12 @@ const graphWrap = document.querySelector("#graphWrap");
 const linkLayer = document.querySelector("#linkLayer");
 const nodeLayer = document.querySelector("#nodeLayer");
 const plotStrip = document.querySelector("#plotStrip");
+const plotPagination = document.querySelector("#plotPagination");
+const statusFilter = document.querySelector("#statusFilter");
+const tagFilter = document.querySelector("#tagFilter");
+const fragmentBoard = document.querySelector("#fragmentBoard");
+const fragmentPagination = document.querySelector("#fragmentPagination");
+const fragmentTagFilter = document.querySelector("#fragmentTagFilter");
 const plotPeopleRail = document.querySelector("#plotPeopleRail");
 const plotDetail = document.querySelector("#plotDetail");
 const eventList = document.querySelector("#eventList");
@@ -180,6 +210,8 @@ const characterList = document.querySelector("#characterList");
 const characterDetail = document.querySelector("#characterDetail");
 const profileDetailBtn = document.querySelector("#profileDetailBtn");
 const characterSearch = document.querySelector("#characterSearch");
+const globalSearch = document.querySelector("#globalSearch");
+const globalSearchResults = document.querySelector("#globalSearchResults");
 
 function initial(name) {
   return name.slice(0, 1);
@@ -225,23 +257,143 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function renderMarkdownBody(text) {
+function slugifyHeading(text, index) {
+  const base = String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || `section-${index + 1}`;
+}
+
+function renderMarkdownContent(text) {
   const blocks = String(text || "")
     .split(/\n{2,}/)
     .map((block) => block.trim())
     .filter(Boolean);
-  if (!blocks.length) return "<p>暂无正文。</p>";
-  return blocks.map((block) => {
-    if (block.startsWith("### ")) return `<h4>${escapeHtml(block.slice(4))}</h4>`;
-    if (block.startsWith("## ")) return `<h3>${escapeHtml(block.slice(3))}</h3>`;
+  if (!blocks.length) return { html: "<p>暂无正文。</p>", toc: [] };
+  const toc = [];
+  const html = blocks.map((block) => {
+    if (block.startsWith("### ")) {
+      const title = block.slice(4).trim();
+      const id = slugifyHeading(title, toc.length);
+      toc.push({ id, title, level: 3 });
+      return `<h4 id="${id}">${escapeHtml(title)}</h4>`;
+    }
+    if (block.startsWith("## ")) {
+      const title = block.slice(3).trim();
+      const id = slugifyHeading(title, toc.length);
+      toc.push({ id, title, level: 2 });
+      return `<h3 id="${id}">${escapeHtml(title)}</h3>`;
+    }
     return `<p>${escapeHtml(block).replaceAll("\n", "<br />")}</p>`;
   }).join("");
+  return { html, toc };
+}
+
+function renderMarkdownBody(text) {
+  return renderMarkdownContent(text).html;
 }
 
 function plotExcerpt(plot) {
   const text = String(plot.text || "").replace(/\s+/g, " ").trim();
   if (text.length <= 86) return text;
   return `${text.slice(0, 86)}...`;
+}
+
+function tagBadges(tags = []) {
+  if (!tags.length) return "";
+  return `
+    <span class="tag-badges">
+      ${tags.map((tag) => `<span class="tag-badge">${escapeHtml(tag)}</span>`).join("")}
+    </span>
+  `;
+}
+
+function statusBadge(status) {
+  if (!status) return "";
+  return `<span class="status-badge" data-status="${escapeHtml(status)}">${escapeHtml(status)}</span>`;
+}
+
+function plotRibbon(plot) {
+  if (plot.climax) return { label: "高潮", tone: "climax" };
+  if (plot.key) return { label: "关键", tone: "key" };
+  if (plot.status === "草稿") return { label: "草稿", tone: "draft" };
+  return null;
+}
+
+function allPlotTags() {
+  return [...new Set(plots.flatMap((plot) => plot.tags || []))];
+}
+
+function allFragmentTags() {
+  return [...new Set(fragments.flatMap((fragment) => fragment.tags || []))];
+}
+
+function selectedTags(selected, allTags) {
+  return selected.filter((tag) => allTags.includes(tag));
+}
+
+function matchesSelectedTags(itemTags = [], selected, allTags) {
+  const activeTags = selectedTags(selected, allTags);
+  if (!activeTags.length || activeTags.length === allTags.length) return true;
+  return itemTags.some((tag) => activeTags.includes(tag));
+}
+
+function nextSelectedTags(selected, allTags, tag) {
+  const activeTags = selectedTags(selected, allTags);
+  if (!activeTags.length || activeTags.length === allTags.length) return [tag];
+  return activeTags.includes(tag)
+    ? activeTags.filter((item) => item !== tag)
+    : [...activeTags, tag];
+}
+
+function clampPage(page, totalPages) {
+  return Math.max(1, Math.min(totalPages || 1, page || 1));
+}
+
+function pagedItems(items, page) {
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const currentPage = clampPage(page, totalPages);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  return {
+    currentPage,
+    totalPages,
+    items: items.slice(start, start + PAGE_SIZE),
+  };
+}
+
+function renderPagination(container, currentPage, totalPages, onChange) {
+  if (!container) return;
+  if (totalPages <= 1) {
+    container.innerHTML = "";
+    return;
+  }
+  const startPage = Math.max(1, currentPage - 3);
+  const endPage = Math.min(totalPages, currentPage + 3);
+  const pages = Array.from({ length: endPage - startPage + 1 }, (_, index) => startPage + index);
+  container.innerHTML = `
+    <button class="pagination-btn" data-page="${currentPage - 1}" type="button" ${currentPage === 1 ? "disabled" : ""}>上一页</button>
+    <div class="pagination-pages">
+      ${pages.map((page) => `
+        <button class="pagination-btn ${page === currentPage ? "is-active" : ""}" data-page="${page}" type="button">${page}</button>
+      `).join("")}
+    </div>
+    <button class="pagination-btn" data-page="${currentPage + 1}" type="button" ${currentPage === totalPages ? "disabled" : ""}>下一页</button>
+    <form class="pagination-jump">
+      <span>${currentPage}/${totalPages}</span>
+      <input type="number" min="1" max="${totalPages}" value="${currentPage}" aria-label="跳转页码" />
+      <button class="pagination-btn" type="submit">跳转</button>
+    </form>
+  `;
+  container.querySelectorAll(".pagination-btn[data-page]").forEach((button) => {
+    button.addEventListener("click", () => onChange(clampPage(Number(button.dataset.page), totalPages)));
+  });
+  container.querySelector(".pagination-jump")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = Number(event.currentTarget.querySelector("input")?.value);
+    onChange(clampPage(value, totalPages));
+  });
 }
 
 function getCharacter(id) {
@@ -289,30 +441,126 @@ function renderGraphFilters() {
     .join("");
 }
 
+function renderStoryFilters() {
+  const statuses = [...new Set(plots.map((plot) => plot.status).filter(Boolean))];
+  if (statusFilter) {
+    statusFilter.innerHTML = `
+      <span class="filter-label">状态</span>
+      <button class="filter-chip ${state.plotStatus === "all" ? "is-active" : ""}" data-status="all" type="button">全部</button>
+      ${statuses.map((status) => `
+        <button class="filter-chip ${state.plotStatus === status ? "is-active" : ""}" data-status="${status}" type="button">${status}</button>
+      `).join("")}
+    `;
+    statusFilter.querySelectorAll("[data-status]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.plotStatus = button.dataset.status;
+        state.plotPage = 1;
+        renderStoryFilters();
+        renderPlots();
+      });
+    });
+  }
+
+  const tags = allPlotTags();
+  if (tagFilter) {
+    const activeTags = selectedTags(state.plotTags, tags);
+    tagFilter.innerHTML = `
+      <span class="filter-label">标签</span>
+      ${tags.map((tag) => `
+        <button class="filter-chip ${activeTags.includes(tag) ? "is-active" : ""}" data-tag="${tag}" type="button">${tag}</button>
+      `).join("")}
+    `;
+    tagFilter.querySelectorAll("[data-tag]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.plotTags = nextSelectedTags(activeTags, tags, button.dataset.tag);
+        state.plotPage = 1;
+        renderStoryFilters();
+        renderPlots();
+      });
+    });
+  }
+}
+
 function renderPlots() {
   const visible = plots.filter((plot) => {
-    if (state.chapter === "all") return true;
-    if (state.chapter === "key") return plot.key;
-    if (state.chapter === "climax") return plot.climax;
-    return plot.chapter === state.chapter;
+    const chapterMatch = state.chapter === "all"
+      || (state.chapter === "key" && plot.key)
+      || (state.chapter === "climax" && plot.climax)
+      || plot.chapter === state.chapter;
+    const statusMatch = state.plotStatus === "all" || plot.status === state.plotStatus;
+    const tagMatch = matchesSelectedTags(plot.tags || [], state.plotTags, allPlotTags());
+    return chapterMatch && statusMatch && tagMatch;
   });
-  plotStrip.innerHTML = visible
+  const page = pagedItems(visible, state.plotPage);
+  state.plotPage = page.currentPage;
+  plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => {
+      const ribbon = plotRibbon(plot);
       return `
-        <button class="plot-card ${plot.key ? "is-key" : ""} ${plot.climax ? "is-climax" : ""} ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
+        <button class="plot-card ${plot.key ? "is-key" : ""} ${plot.climax ? "is-climax" : ""} ${plot.status === "草稿" ? "is-draft" : ""} ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
+          ${ribbon ? `<span class="plot-ribbon is-${ribbon.tone}">${ribbon.label}</span>` : ""}
           <div class="plot-index">${plot.id}</div>
           <div>
             <h4>${plot.title}</h4>
-            ${plot.key ? '<span class="plot-badge is-key">关键剧情</span>' : ""}
-            ${plot.climax ? '<span class="plot-badge is-climax">高潮剧情</span>' : ""}
+            <div class="plot-meta-line">
+              ${plot.status === "草稿" ? "" : statusBadge(plot.status)}
+              ${tagBadges(plot.tags)}
+            </div>
             <p>${plotExcerpt(plot)}</p>
           </div>
         </button>
       `;
     })
-    .join("");
+    .join("") : '<p class="empty-state">没有匹配的剧情。</p>';
   document.querySelectorAll(".plot-card").forEach((card) => {
     card.addEventListener("click", () => openPlotDetail(Number(card.dataset.plotId)));
+  });
+  renderPagination(plotPagination, page.currentPage, page.totalPages, (nextPage) => {
+    state.plotPage = nextPage;
+    renderPlots();
+  });
+}
+
+function renderFragmentFilters() {
+  if (!fragmentTagFilter) return;
+  const tags = allFragmentTags();
+  const activeTags = selectedTags(state.fragmentTags, tags);
+  fragmentTagFilter.innerHTML = `
+    <span class="filter-label">标签</span>
+    ${tags.map((tag) => `
+      <button class="filter-chip ${activeTags.includes(tag) ? "is-active" : ""}" data-tag="${tag}" type="button">${tag}</button>
+    `).join("")}
+  `;
+  fragmentTagFilter.querySelectorAll("[data-tag]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.fragmentTags = nextSelectedTags(activeTags, tags, button.dataset.tag);
+      state.fragmentPage = 1;
+      renderFragmentFilters();
+      renderFragments();
+    });
+  });
+}
+
+function renderFragments() {
+  if (!fragmentBoard) return;
+  const visible = fragments.filter((fragment) => (
+    matchesSelectedTags(fragment.tags || [], state.fragmentTags, allFragmentTags())
+  ));
+  const page = pagedItems(visible, state.fragmentPage);
+  state.fragmentPage = page.currentPage;
+  fragmentBoard.innerHTML = page.items.length ? page.items.map((fragment, index) => `
+    <article class="fragment-card" id="fragment-${fragment.id}" style="--accent:${fragment.accent || "#8a5cf6"}; animation-delay:${index * 55}ms">
+      <div class="fragment-head">
+        <span class="status-badge">${fragment.status || "灵感"}</span>
+        ${tagBadges(fragment.tags)}
+      </div>
+      <h3>${escapeHtml(fragment.title)}</h3>
+      <div class="fragment-body">${renderMarkdownBody(fragment.text)}</div>
+    </article>
+  `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';
+  renderPagination(fragmentPagination, page.currentPage, page.totalPages, (nextPage) => {
+    state.fragmentPage = nextPage;
+    renderFragments();
   });
 }
 
@@ -325,10 +573,22 @@ function plotBadges(plot) {
 
 function chapterName(chapter) {
   return {
-    act1: "第一幕",
-    act2: "第二幕",
-    act3: "第三幕",
+    act1: "旧港篇",
+    act2: "电台篇",
+    act3: "水闸篇",
   }[chapter] || chapter || "未分幕";
+}
+
+function plotNavigation(plot) {
+  const scopedPlots = STORY_CHAPTERS.includes(state.chapter)
+    ? plots.filter((item) => item.chapter === state.chapter)
+    : plots;
+  const currentIndex = scopedPlots.findIndex((item) => item.id === plot.id);
+  return {
+    prev: currentIndex > 0 ? scopedPlots[currentIndex - 1] : null,
+    next: currentIndex >= 0 && currentIndex < scopedPlots.length - 1 ? scopedPlots[currentIndex + 1] : null,
+    scopeLabel: STORY_CHAPTERS.includes(state.chapter) ? "篇内导航" : "全部剧情",
+  };
 }
 
 function connectorGeometry(connector) {
@@ -943,6 +1203,7 @@ function openCharacterDetail(id) {
   state.characterSearch = "";
   if (characterSearch) characterSearch.value = "";
   switchView("characters");
+  hideGlobalSearchResults();
 }
 
 function openPlotDetail(plotId) {
@@ -951,40 +1212,195 @@ function openPlotDetail(plotId) {
   state.selectedPlotId = plotId;
   state.highlightPlotId = plotId;
   switchView("plot-detail");
+  hideGlobalSearchResults();
+}
+
+function globalSearchText() {
+  return state.globalSearch.trim().toLowerCase();
+}
+
+function matchesKeyword(values, keyword) {
+  return values
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(keyword));
+}
+
+function globalSearchMatches() {
+  const keyword = globalSearchText();
+  if (!keyword) return [];
+  const characterResults = characters
+    .filter((person) => matchesKeyword([
+      person.name,
+      person.id,
+      person.group,
+      person.intro,
+      ...characterMarkers(person),
+    ], keyword))
+    .map((person) => ({
+      type: "character",
+      id: person.id,
+      title: person.name,
+      meta: `人物 · ${person.group || "未分组"}`,
+      text: person.intro,
+    }));
+
+  const plotResults = plots
+    .filter((plot) => matchesKeyword([
+      plot.title,
+      plot.text,
+      plot.status,
+      chapterName(plot.chapter),
+      ...(plot.people || []).map((id) => getCharacter(id)?.name || id),
+      ...(plot.lanes || []),
+      ...(plot.tags || []),
+    ], keyword))
+    .map((plot) => ({
+      type: "plot",
+      id: plot.id,
+      title: plot.title,
+      meta: `剧情 · ${chapterName(plot.chapter)} · ${plot.status || "未标记"} · ${plot.id}`,
+      text: plotExcerpt(plot),
+    }));
+
+  const fragmentResults = fragments
+    .filter((fragment) => matchesKeyword([
+      fragment.title,
+      fragment.text,
+      fragment.status,
+      ...(fragment.tags || []),
+    ], keyword))
+    .map((fragment) => ({
+      type: "fragment",
+      id: fragment.id,
+      title: fragment.title,
+      meta: `碎片 · ${fragment.status || "灵感"}`,
+      text: String(fragment.text || "").replace(/\s+/g, " ").slice(0, 86),
+    }));
+
+  const relationshipResults = relationships
+    .filter((link) => {
+      const from = getCharacter(link.from);
+      const to = getCharacter(link.to);
+      return matchesKeyword([
+        link.label,
+        link.type,
+        from?.name,
+        to?.name,
+        link.from,
+        link.to,
+      ], keyword);
+    })
+    .map((link, index) => {
+      const from = getCharacter(link.from);
+      const to = getCharacter(link.to);
+      return {
+        type: "relationship",
+        id: index,
+        from: link.from,
+        to: link.to,
+        title: `${from?.name || link.from} ↔ ${to?.name || link.to}`,
+        meta: `关系 · ${link.label || link.type || "未分类"}`,
+        text: link.type || "",
+      };
+    });
+
+  return [...characterResults, ...plotResults, ...fragmentResults, ...relationshipResults].slice(0, 9);
+}
+
+function hideGlobalSearchResults() {
+  globalSearchResults?.classList.add("is-hidden");
+}
+
+function renderGlobalSearchResults() {
+  if (!globalSearchResults) return;
+  const results = globalSearchMatches();
+  if (!state.globalSearch.trim()) {
+    globalSearchResults.innerHTML = "";
+    hideGlobalSearchResults();
+    return;
+  }
+  if (!results.length) {
+    globalSearchResults.innerHTML = '<p class="global-search-empty">没有找到匹配内容</p>';
+    globalSearchResults.classList.remove("is-hidden");
+    return;
+  }
+  globalSearchResults.innerHTML = results.map((result) => `
+    <button class="global-search-result" type="button" data-type="${result.type}" data-id="${result.id}" data-from="${result.from || ""}" data-to="${result.to || ""}">
+      <span>${result.meta}</span>
+      <strong>${result.title}</strong>
+      <small>${result.text || ""}</small>
+    </button>
+  `).join("");
+  globalSearchResults.classList.remove("is-hidden");
+  document.querySelectorAll(".global-search-result").forEach((button) => {
+    button.addEventListener("click", () => {
+      const type = button.dataset.type;
+      if (type === "character") openCharacterDetail(button.dataset.id);
+      if (type === "plot") openPlotDetail(Number(button.dataset.id));
+      if (type === "fragment") {
+        switchView("fragments");
+        window.setTimeout(() => {
+          document.querySelector(`#fragment-${CSS.escape(button.dataset.id)}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 80);
+      }
+      if (type === "relationship") {
+        switchView("graph");
+        selectPerson(button.dataset.from);
+      }
+      if (globalSearch) globalSearch.value = "";
+      state.globalSearch = "";
+      hideGlobalSearchResults();
+    });
+  });
 }
 
 function renderPlotDetail() {
   const plot = plots.find((item) => item.id === Number(state.selectedPlotId)) || plots[0];
   if (!plot || !plotDetail || !plotPeopleRail) return;
   const plotPeople = plot.people.map((id) => ({ id, person: getCharacter(id) }));
+  const navigation = plotNavigation(plot);
+  const markdown = renderMarkdownContent(plot.text);
 
   plotPeopleRail.innerHTML = `
-    <p class="eyebrow">Cast</p>
-    <h2>出场人物</h2>
-    <div class="plot-people-list">
-      ${plotPeople.map(({ id, person }) => {
-        if (!person) {
+    <section class="plot-rail-section">
+      <p class="eyebrow">Cast</p>
+      <h2>出场人物</h2>
+      <div class="plot-people-list">
+        ${plotPeople.map(({ id, person }) => {
+          if (!person) {
+            return `
+              <div class="plot-person-item">
+                <span class="mini-avatar" style="--avatar-gradient:linear-gradient(135deg, #9aa6b2, #65717d)">${escapeHtml(id).slice(0, 2)}</span>
+                <span>
+                  <strong>${escapeHtml(id)}</strong>
+                  <small>未在人物列表中</small>
+                </span>
+              </div>
+            `;
+          }
           return `
-            <div class="plot-person-item">
-              <span class="mini-avatar" style="--avatar-gradient:linear-gradient(135deg, #9aa6b2, #65717d)">${escapeHtml(id).slice(0, 2)}</span>
+            <button class="plot-person-item" data-id="${person.id}" type="button">
+              <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
               <span>
-                <strong>${escapeHtml(id)}</strong>
-                <small>未在人物列表中</small>
+                <strong>${person.name}</strong>
+                <small>${person.group || "未分组"}</small>
               </span>
-            </div>
+            </button>
           `;
-        }
-        return `
-          <button class="plot-person-item" data-id="${person.id}" type="button">
-            <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
-            <span>
-              <strong>${person.name}</strong>
-              <small>${person.group || "未分组"}</small>
-            </span>
-          </button>
-        `;
-      }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
-    </div>
+        }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
+      </div>
+    </section>
+    ${markdown.toc.length ? `
+      <section class="plot-rail-section">
+        <p class="eyebrow">Contents</p>
+        <h2>本章目录</h2>
+        <nav class="plot-toc" aria-label="本章目录">
+          ${markdown.toc.map((item) => `
+            <a href="#${item.id}" class="plot-toc-item level-${item.level}">${escapeHtml(item.title)}</a>
+          `).join("")}
+        </nav>
+      </section>
+    ` : ""}
   `;
 
   plotDetail.innerHTML = `
@@ -995,17 +1411,41 @@ function renderPlotDetail() {
       </div>
       <div>
         <h2>${plot.title}</h2>
-        <div class="badge-line">${plotBadges(plot)}</div>
+        <div class="badge-line">
+          ${statusBadge(plot.status)}
+          ${tagBadges(plot.tags)}
+          ${plotBadges(plot)}
+        </div>
+      </div>
+      <div class="plot-nav-row" aria-label="章节切换">
+        <button class="plot-nav-btn" id="plotPrevBtn" type="button" ${navigation.prev ? `data-plot-id="${navigation.prev.id}"` : "disabled"}>
+          <span>上一章</span>
+          <strong>${navigation.prev ? navigation.prev.title : "没有上一章"}</strong>
+        </button>
+        <span class="plot-nav-scope">${navigation.scopeLabel}</span>
+        <button class="plot-nav-btn" id="plotNextBtn" type="button" ${navigation.next ? `data-plot-id="${navigation.next.id}"` : "disabled"}>
+          <span>下一章</span>
+          <strong>${navigation.next ? navigation.next.title : "没有下一章"}</strong>
+        </button>
       </div>
     </div>
     <div class="plot-detail-body">
-      ${renderMarkdownBody(plot.text)}
+      ${markdown.html}
     </div>
   `;
 
   document.querySelector("#plotBackBtn")?.addEventListener("click", () => openPlotInStory(plot.id));
+  document.querySelectorAll(".plot-nav-btn[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  });
   document.querySelectorAll(".plot-person-item[data-id]").forEach((button) => {
     button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
+  });
+  document.querySelectorAll(".plot-toc-item").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      document.querySelector(item.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   });
 }
 
@@ -1072,8 +1512,7 @@ function renderCharacterDetail() {
         <p>${person.intro}</p>
       </div>
       <aside class="character-marker-panel">
-        <p class="label">角色标识</p>
-        ${markerBadges(person) || '<span class="empty-marker">未配置</span>'}
+        ${markerBadges(person)}
       </aside>
     </div>
 
@@ -1135,6 +1574,10 @@ function switchView(view) {
     if (!state.selectedCharacter) state.selectedCharacter = state.selected || characters[0]?.id || "";
     renderCharacterList();
     renderCharacterDetail();
+  }
+  if (state.view === "fragments") {
+    renderFragmentFilters();
+    renderFragments();
   }
   if (state.view === "plot-detail") renderPlotDetail();
 }
@@ -1207,14 +1650,6 @@ function renderLinks() {
     path.dataset.type = link.type || "";
     path.style.setProperty("--accent", link.color);
     linkLayer.appendChild(path);
-
-    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    label.classList.add("relationship-label");
-    label.dataset.from = link.from;
-    label.dataset.to = link.to;
-    label.dataset.type = link.type || "";
-    label.textContent = link.label;
-    linkLayer.appendChild(label);
   });
   applyGraphFilters();
 }
@@ -1232,18 +1667,37 @@ function selectPerson(id) {
 }
 
 function markRelatedNodes() {
-  const related = new Set(state.hasSelection ? [state.selected] : []);
-  relationships.forEach((link) => {
-    if (link.from === state.selected) related.add(link.to);
-    if (link.to === state.selected) related.add(link.from);
-  });
+  const direct = new Set(state.hasSelection ? [state.selected] : []);
+  const reachable = new Set(state.hasSelection ? [state.selected] : []);
+  if (state.hasSelection) {
+    const queue = [state.selected];
+    while (queue.length) {
+      const current = queue.shift();
+      relationships.forEach((link) => {
+        const next = link.from === current ? link.to : link.to === current ? link.from : "";
+        if (!next) return;
+        if (current === state.selected) direct.add(next);
+        if (!reachable.has(next)) {
+          reachable.add(next);
+          queue.push(next);
+        }
+      });
+    }
+  }
 
   document.querySelectorAll(".person-node").forEach((node) => {
     const id = node.dataset.id;
     const person = getCharacter(id);
     node.classList.toggle("is-active", state.hasSelection && id === state.selected);
-    node.classList.toggle("is-linked", related.has(id) && id !== state.selected);
+    node.classList.toggle("is-linked", direct.has(id) && id !== state.selected);
+    node.classList.toggle("is-reachable", reachable.has(id) && id !== state.selected);
+    node.classList.toggle("is-muted-by-selection", state.hasSelection && !reachable.has(id));
     node.classList.toggle("is-pinned", Boolean(person?.pinned));
+  });
+  document.querySelectorAll(".relationship-path").forEach((item) => {
+    const relatedEdge = state.hasSelection && reachable.has(item.dataset.from) && reachable.has(item.dataset.to);
+    item.classList.toggle("is-reachable", relatedEdge);
+    item.classList.toggle("is-muted-by-selection", state.hasSelection && !relatedEdge);
   });
   applyGraphFilters();
 }
@@ -1256,7 +1710,7 @@ function applyGraphFilters() {
     node.classList.toggle("is-search-match", Boolean(state.search && visible));
   });
 
-  document.querySelectorAll(".relationship-path, .relationship-label").forEach((item) => {
+  document.querySelectorAll(".relationship-path").forEach((item) => {
     const visible = isVisibleRelationship({
       from: item.dataset.from,
       to: item.dataset.to,
@@ -1477,14 +1931,6 @@ function drawGraph() {
     path.setAttribute("d", `M ${a.px} ${a.py} Q ${cx} ${cy} ${b.px} ${b.py}`);
   });
 
-  document.querySelectorAll(".relationship-label").forEach((label) => {
-    const a = getCharacter(label.dataset.from);
-    const b = getCharacter(label.dataset.to);
-    if (!a || !b) return;
-    label.setAttribute("x", (a.px + b.px) / 2);
-    label.setAttribute("y", (a.py + b.py) / 2);
-    label.setAttribute("text-anchor", "middle");
-  });
 }
 
 document.querySelectorAll(".chapter-btn").forEach((button) => {
@@ -1492,8 +1938,33 @@ document.querySelectorAll(".chapter-btn").forEach((button) => {
     document.querySelectorAll(".chapter-btn").forEach((item) => item.classList.remove("is-active"));
     button.classList.add("is-active");
     state.chapter = button.dataset.chapter;
+    state.plotPage = 1;
+    renderStoryFilters();
     renderPlots();
   });
+});
+
+globalSearch?.addEventListener("input", () => {
+  state.globalSearch = globalSearch.value.trim();
+  renderGlobalSearchResults();
+});
+
+globalSearch?.addEventListener("search", () => {
+  state.globalSearch = globalSearch.value.trim();
+  renderGlobalSearchResults();
+});
+
+globalSearch?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    globalSearch.value = "";
+    state.globalSearch = "";
+    hideGlobalSearchResults();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".global-search")) return;
+  hideGlobalSearchResults();
 });
 
 graphSearch.addEventListener("input", () => {
@@ -1600,7 +2071,12 @@ async function init() {
     state.selected = "";
     state.selectedCharacter = characters[0]?.id || "";
     state.hasSelection = false;
+    state.plotTags = allPlotTags();
+    state.fragmentTags = allFragmentTags();
+    renderStoryFilters();
     renderPlots();
+    renderFragmentFilters();
+    renderFragments();
     renderTimeline();
     renderCharacterList();
     renderCharacterDetail();

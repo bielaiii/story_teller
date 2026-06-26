@@ -22,6 +22,12 @@
 - ./data/plots/008-unhappened-broadcast.md
 - ./data/plots/009-harbor-gate.md
 
+## Fragments
+
+- ./data/fragments/future-broadcast.md
+- ./data/fragments/hidden-ship.md
+- ./data/fragments/rain-knocking.md
+
 ## Relationships
 
 - ./data/relationships/lin-shen.md

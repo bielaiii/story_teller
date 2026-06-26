@@ -48,6 +48,8 @@ title: 新剧情标题
 people: [new_person, lin]
 accent: #8a5cf6
 lanes: [主线, 感情线]
+status: 待串联
+tags: [雨夜, 暧昧, 身份暴露]
 key: true
 climax: false
 ---
@@ -55,6 +57,10 @@ climax: false
 ```
 
 `lanes` 表示这段剧情属于哪些剧情线。第一个是主要落点，后面的线会在时间线图里用横线连接，适合表现伏笔、支线穿插、分支汇合。
+
+`status` 表示整理状态，例如 `草稿`、`待串联`、`已接入`。这不是剧情内容本身，只是帮你知道这篇单篇目前整理到什么程度。
+
+`tags` 表示剧情特征，例如 `雨夜`、`暧昧`、`恐怖感`、`身份暴露`。标签不代表剧情线，只用来搜索和筛选。
 
 `key: true` 表示关键线索、重要反转、人物关系变化等关键剧情。
 
@@ -64,6 +70,28 @@ climax: false
 
 ```md
 - ./data/plots/010-new-plot.md
+```
+
+## 添加灵感碎片
+
+1. 在 `fragments` 目录新建一个 Markdown 文件，例如 `fragments/new-idea.md`。
+2. 按下面格式填写：
+
+```md
+---
+id: new-idea
+title: 新灵感
+status: 灵感
+tags: [电台, 梦境]
+accent: #457b9d
+---
+这里写还没整理成正式剧情点的画面、台词、设定或想法。
+```
+
+3. 在 `manifest.md` 的 `Fragments` 下面加一行：
+
+```md
+- ./data/fragments/new-idea.md
 ```
 
 ## 添加人物关系
