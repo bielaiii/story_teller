@@ -13,7 +13,7 @@ id: new_person
 name: 新人物
 color: #8a5cf6
 gradient: linear-gradient(135deg, #8a5cf6, #2f184b)
-avatar: ./data/avatars/new-person.jpg
+avatar: ./avatars/new-person.jpg
 group: 主角团
 markers: [男主, 主角团]
 x: 60
@@ -32,7 +32,7 @@ events: [1, 5]
 3. 在 `manifest.md` 的 `Characters` 下面加一行：
 
 ```md
-- ./data/characters/new-person.md
+- ./characters/new-person.md
 ```
 
 ## 添加剧情
@@ -72,7 +72,7 @@ climax: false
 3. 在 `manifest.md` 的 `Plots` 下面加一行：
 
 ```md
-- ./data/plots/010-new-plot.md
+- ./plots/010-new-plot.md
 ```
 
 ## 添加设定条目
@@ -112,7 +112,7 @@ status: 草稿
 3. 在 `manifest.md` 的 `Entries` 下面加一行：
 
 ```md
-- ./data/entries/night-restaurant.md
+- ./entries/night-restaurant.md
 ```
 
 ## 添加灵感碎片
@@ -134,7 +134,7 @@ accent: #457b9d
 3. 在 `manifest.md` 的 `Fragments` 下面加一行：
 
 ```md
-- ./data/fragments/new-idea.md
+- ./fragments/new-idea.md
 ```
 
 ## 添加人物关系
@@ -155,9 +155,178 @@ type: 同盟
 3. 在 `manifest.md` 的 `Relationships` 下面加一行：
 
 ```md
-- ./data/relationships/new-person-lin.md
+- ./relationships/new-person-lin.md
 ```
 
 如果一个人物只和一个人物有关系，只写这一条关系文件就可以。系统不会自动帮它连到其他人。
 
 `type` 用来做关系类型筛选，例如 `同盟`、`敌对`、`亲属`、`旧案`、`秘密`、`预言`。
+
+## 调整人物图谱布局
+
+人物图谱默认会根据人物关系自动布局。你不需要给每个人都手动设置位置。
+
+如果某些节点太乱，可以在 `graph-layout.md` 里增加软约束。软约束不会把节点钉死，只会像弹簧一样影响自动布局。
+
+### 阵型
+
+默认不需要写阵型。图谱会先根据人物关系和自然随机偏移自动展开。
+
+当你确实想要某一组节点有明显轮廓时，可以在 `graph-layout.md` 里加 `Formations`。阵型只是位置参考，仍然是软约束，不会覆盖手动拖拽后固定的位置。每个阵型都可以加 `jitter`，让节点保留大概形状但不死板。
+
+男女主水平居中：
+
+```md
+## Formations
+
+- id: lead-pair
+  type: pair
+  members: [lin, su]
+  centerX: 50
+  centerY: 50
+  direction: horizontal
+  distance: 280
+  strength: 0.88
+  jitter: 22
+```
+
+`centerX` 和 `centerY` 表示这一组的中心点在画布中的百分比。`direction: horizontal` 表示左右展开，`direction: vertical` 表示上下展开。`distance` 是两个节点之间的大概距离。
+
+十字形：
+
+```md
+## Formations
+
+- id: old-case-cross
+  type: cross
+  center: shen
+  north: yan
+  south: han
+  west: lin
+  east: qiao
+  centerX: 56
+  centerY: 52
+  spacing: 220
+  strength: 0.82
+  jitter: 20
+```
+
+放射形：
+
+```md
+## Formations
+
+- id: qiao-star
+  type: star
+  center: qiao
+  members: [mo, lin, su, han]
+  centerX: 32
+  centerY: 55
+  radius: 230
+  startAngle: -90
+  strength: 0.72
+  jitter: 26
+```
+
+环形：
+
+```md
+## Formations
+
+- id: suspect-ring
+  type: ring
+  members: [lin, su, shen, han, yan, qiao]
+  centerX: 55
+  centerY: 52
+  radius: 260
+  strength: 0.68
+  jitter: 24
+```
+
+链条：
+
+```md
+## Formations
+
+- id: clue-chain
+  type: chain
+  members: [yan, shen, han, qiao]
+  centerX: 58
+  centerY: 44
+  direction: horizontal
+  spacing: 180
+  strength: 0.7
+  jitter: 18
+```
+
+三角形：
+
+```md
+## Formations
+
+- id: lead-triangle
+  type: triangle
+  members: [lin, su, shen]
+  centerX: 50
+  centerY: 50
+  radius: 190
+  strength: 0.72
+  jitter: 20
+```
+
+支持的阵型类型是 `pair`、`cross`、`star`、`ring`、`chain`、`triangle`。如果一个节点同时出现在多个阵型里，会受到多个参考位置影响；为了仍然看出形状，建议一个强阵型配合其他弱阵型使用。
+
+`nodeSpacing` 可以写在 `graph-layout.md` 顶部元信息里，用来控制节点之间的最小间距：
+
+```md
+---
+nodeSpacing: 116
+---
+```
+
+系统每帧都会做碰撞分离，避免头像互相重叠。
+
+### 抱团
+
+```md
+## Clusters
+
+- id: harbor
+  label: 港区相关
+  centerX: 26
+  centerY: 56
+  radius: 160
+  strength: 0.46
+  members: [qiao, mo]
+```
+
+`members` 会自然靠近。`centerX` 和 `centerY` 是这个团大概在画布中的位置百分比。`radius` 越大越松散，`strength` 越大越听配置。
+
+### 指定距离
+
+```md
+## Distances
+
+- from: qiao
+  to: mo
+  distance: 280
+  strength: 0.9
+```
+
+`distance` 是希望两个节点保持的大概距离。它会和关系线、抱团、拖拽位置一起折中。
+
+### 向外延伸
+
+```md
+## Nodes
+
+- id: mo
+  orbitOf: qiao
+  orbitDistance: 300
+  orbitAngle: -145
+  strength: 0.03
+```
+
+这适合“某个人只和一个核心人物有关”的情况。`orbitOf` 是核心节点，`orbitDistance` 是离核心多远，`orbitAngle` 是延伸方向：`0` 向右，`90` 向下，`-90` 向上，`180` 向左。
+
+手动拖动过的节点会优先停在你松手的位置，配置不会把它强行拉回去。

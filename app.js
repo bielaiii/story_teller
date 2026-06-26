@@ -5,10 +5,46 @@ let places = [];
 let relationships = [];
 let timelineModel = null;
 let timelineConfig = {};
-const DATA_VERSION = "shared-entry-tags";
-const STORY_CHAPTERS = ["act1", "act2", "act3"];
+let graphLayoutConfig = {};
+let projectConfig = {};
+const DATA_VERSION = "content-pack-refactor";
+const DEFAULT_PROJECT_ID = "demo";
 const PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
+
+function safeProjectId(value) {
+  const normalized = String(value || DEFAULT_PROJECT_ID).trim();
+  return /^[a-zA-Z0-9_-]+$/.test(normalized) ? normalized : DEFAULT_PROJECT_ID;
+}
+
+function currentProjectId() {
+  return safeProjectId(new URLSearchParams(window.location.search).get("project"));
+}
+
+function contentBasePath() {
+  return `./content/${projectConfig.id || currentProjectId()}`;
+}
+
+function resolveContentPath(path) {
+  if (!path) return "";
+  if (/^(https?:|data:|\/)/.test(path)) return path;
+  const cleanPath = path.replace(/^\.\//, "");
+  return `${contentBasePath()}/${cleanPath}`;
+}
+
+function chapterKeys() {
+  return Array.isArray(projectConfig.chapters) && projectConfig.chapters.length
+    ? projectConfig.chapters
+    : ["act1", "act2", "act3"];
+}
+
+function chapterLabelMap(meta = {}) {
+  return chapterKeys().reduce((labels, key) => {
+    const suffix = key.slice(0, 1).toUpperCase() + key.slice(1);
+    labels[key] = meta[`chapter${suffix}`] || meta[`chapter_${key}`] || key;
+    return labels;
+  }, {});
+}
 
 function parseValue(value) {
   const trimmed = value.trim();
@@ -105,20 +141,46 @@ async function loadTimelineConfig(path) {
   };
 }
 
+async function loadGraphLayoutConfig(path) {
+  if (!path) return {};
+  const { meta, body } = parseMarkdownFile(await fetchText(path));
+  return {
+    ...meta,
+    formations: parseConfigBlocks(body, "Formations"),
+    distances: parseConfigBlocks(body, "Distances"),
+    clusters: parseConfigBlocks(body, "Clusters"),
+    nodes: parseConfigBlocks(body, "Nodes"),
+  };
+}
+
 async function loadMarkdownData() {
-  const manifest = await fetchText("./data/manifest.md");
-  const characterPaths = extractManifestSection(manifest, "Characters");
-  const plotPaths = extractManifestSection(manifest, "Plots");
-  const fragmentPaths = extractManifestSection(manifest, "Fragments");
-  const placePaths = extractManifestSection(manifest, "Entries");
-  const relationshipPaths = extractManifestSection(manifest, "Relationships");
-  const timelinePaths = extractManifestSection(manifest, "Timeline");
+  projectConfig = {
+    id: currentProjectId(),
+  };
+  const manifestPath = `${contentBasePath()}/manifest.md`;
+  const { meta: manifestMeta, body: manifestBody } = parseMarkdownFile(await fetchText(manifestPath));
+  projectConfig = {
+    ...projectConfig,
+    title: manifestMeta.title || "小说剧情记录器",
+    eyebrow: manifestMeta.eyebrow || "Story Teller",
+    chapters: Array.isArray(manifestMeta.chapters) ? manifestMeta.chapters : ["act1", "act2", "act3"],
+  };
+  projectConfig.chapterLabels = chapterLabelMap(manifestMeta);
+
+  const characterPaths = extractManifestSection(manifestBody, "Characters").map(resolveContentPath);
+  const plotPaths = extractManifestSection(manifestBody, "Plots").map(resolveContentPath);
+  const fragmentPaths = extractManifestSection(manifestBody, "Fragments").map(resolveContentPath);
+  const placePaths = extractManifestSection(manifestBody, "Entries").map(resolveContentPath);
+  const relationshipPaths = extractManifestSection(manifestBody, "Relationships").map(resolveContentPath);
+  const timelinePaths = extractManifestSection(manifestBody, "Timeline").map(resolveContentPath);
+  const graphLayoutPaths = extractManifestSection(manifestBody, "GraphLayout").map(resolveContentPath);
 
   characters = await Promise.all(characterPaths.map(async (path) => {
     const { meta, body } = parseMarkdownFile(await fetchText(path));
     return {
       ...meta,
       intro: body,
+      avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
       events: Array.isArray(meta.events) ? meta.events : [],
       markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
     };
@@ -170,6 +232,7 @@ async function loadMarkdownData() {
   }));
 
   timelineConfig = await loadTimelineConfig(timelinePaths[0]);
+  graphLayoutConfig = await loadGraphLayoutConfig(graphLayoutPaths[0]);
 }
 
 const state = {
@@ -209,6 +272,9 @@ const state = {
 const graphWrap = document.querySelector("#graphWrap");
 const linkLayer = document.querySelector("#linkLayer");
 const nodeLayer = document.querySelector("#nodeLayer");
+const storyEyebrow = document.querySelector("#storyEyebrow");
+const storyTitle = document.querySelector("#storyTitle");
+const chapterSwitch = document.querySelector("#chapterSwitch");
 const plotStrip = document.querySelector("#plotStrip");
 const plotPagination = document.querySelector("#plotPagination");
 const statusFilter = document.querySelector("#statusFilter");
@@ -526,6 +592,35 @@ function renderGraphFilters() {
     .join("");
 }
 
+function renderProjectChrome() {
+  document.title = projectConfig.title ? `${projectConfig.title}记录器` : "小说剧情记录器";
+  if (storyEyebrow) storyEyebrow.textContent = projectConfig.eyebrow || "Story Teller";
+  if (storyTitle) storyTitle.textContent = projectConfig.title || "小说剧情记录器";
+}
+
+function renderChapterSwitch() {
+  if (!chapterSwitch) return;
+  const chapterButtons = chapterKeys().map((chapter) => `
+    <button class="chapter-btn ${state.chapter === chapter ? "is-active" : ""}" data-chapter="${chapter}" type="button">
+      ${escapeHtml(chapterName(chapter))}
+    </button>
+  `).join("");
+  chapterSwitch.innerHTML = `
+    <button class="chapter-btn ${state.chapter === "all" ? "is-active" : ""}" data-chapter="all" type="button">全部</button>
+    ${chapterButtons}
+    <button class="chapter-btn ${state.chapter === "key" ? "is-active" : ""}" data-chapter="key" type="button">关键剧情</button>
+    <button class="chapter-btn ${state.chapter === "climax" ? "is-active" : ""}" data-chapter="climax" type="button">高潮剧情</button>
+  `;
+  chapterSwitch.querySelectorAll(".chapter-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      setChapterFilter(button.dataset.chapter);
+      state.plotPage = 1;
+      renderStoryFilters();
+      renderPlots();
+    });
+  });
+}
+
 function renderStoryFilters() {
   const statuses = [...new Set(plots.map((plot) => plot.status).filter(Boolean))];
   renderChipFilter({
@@ -635,22 +730,18 @@ function plotBadges(plot) {
 }
 
 function chapterName(chapter) {
-  return {
-    act1: "旧港篇",
-    act2: "电台篇",
-    act3: "水闸篇",
-  }[chapter] || chapter || "未分幕";
+  return projectConfig.chapterLabels?.[chapter] || chapter || "未分幕";
 }
 
 function plotNavigation(plot) {
-  const scopedPlots = STORY_CHAPTERS.includes(state.chapter)
+  const scopedPlots = chapterKeys().includes(state.chapter)
     ? plots.filter((item) => item.chapter === state.chapter)
     : plots;
   const currentIndex = scopedPlots.findIndex((item) => item.id === plot.id);
   return {
     prev: currentIndex > 0 ? scopedPlots[currentIndex - 1] : null,
     next: currentIndex >= 0 && currentIndex < scopedPlots.length - 1 ? scopedPlots[currentIndex + 1] : null,
-    scopeLabel: STORY_CHAPTERS.includes(state.chapter) ? "篇内导航" : "全部剧情",
+    scopeLabel: chapterKeys().includes(state.chapter) ? "篇内导航" : "全部剧情",
   };
 }
 
@@ -2034,8 +2125,15 @@ function updateGraphBounds() {
 
   characters.forEach((person) => {
     if (typeof person.px !== "number" || typeof person.py !== "number") {
-      person.px = (person.x / 100) * state.width;
-      person.py = (person.y / 100) * state.height;
+      const point = jitterPoint(
+        (person.x / 100) * state.width,
+        (person.y / 100) * state.height,
+        person.id,
+        Number(graphLayoutConfig.initialJitter || 34),
+        "initial",
+      );
+      person.px = point.x;
+      person.py = point.y;
     }
     person.vx = person.vx || 0;
     person.vy = person.vy || 0;
@@ -2066,6 +2164,316 @@ function updateGraphViewport() {
   linkLayer.setAttribute("viewBox", `${worldX} ${worldY} ${state.width / state.graphScale} ${state.height / state.graphScale}`);
   nodeLayer.style.transform = `translate(${state.graphPanX}px, ${state.graphPanY}px) scale(${state.graphScale})`;
   graphWrap.classList.toggle("hide-labels", characters.length > 10 || state.graphScale < 0.75);
+}
+
+function canMovePerson(person) {
+  return state.dragging?.id !== person.id && !person.pinned;
+}
+
+function pushPerson(person, vx, vy) {
+  if (!person || !canMovePerson(person)) return;
+  person.vx += vx;
+  person.vy += vy;
+}
+
+function nudgeToward(person, x, y, strength = 0.02) {
+  if (!person || !canMovePerson(person)) return;
+  const vx = (x - person.px) * strength;
+  const vy = (y - person.py) * strength;
+  const force = Math.max(1, Math.hypot(vx, vy));
+  const capped = Math.min(8, force);
+  person.vx += (vx / force) * capped;
+  person.vy += (vy / force) * capped;
+}
+
+function applyPairDistance(a, b, targetDistance, strength = 0.45) {
+  if (!a || !b || !targetDistance) return;
+  const dx = b.px - a.px;
+  const dy = b.py - a.py;
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const force = (distance - targetDistance) * 0.00045 * strength;
+  const nx = dx / distance;
+  const ny = dy / distance;
+  pushPerson(a, nx * force, ny * force);
+  pushPerson(b, -nx * force, -ny * force);
+}
+
+function applyNaturalGroupForces() {
+  const groups = new Map();
+  characters.forEach((person) => {
+    if (!person.group) return;
+    if (!groups.has(person.group)) groups.set(person.group, []);
+    groups.get(person.group).push(person);
+  });
+
+  groups.forEach((members) => {
+    if (members.length < 2) return;
+    const center = members.reduce((sum, person) => ({
+      x: sum.x + person.px,
+      y: sum.y + person.py,
+    }), { x: 0, y: 0 });
+    center.x /= members.length;
+    center.y /= members.length;
+    members.forEach((person) => nudgeToward(person, center.x, center.y, 0.0018));
+  });
+}
+
+function graphPoint(percentX = 50, percentY = 50) {
+  return {
+    x: (Number(percentX) / 100) * state.width,
+    y: (Number(percentY) / 100) * state.height,
+  };
+}
+
+function stableNoise(key, salt = "") {
+  const text = `${key}:${salt}`;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 4294967295) * 2 - 1;
+}
+
+function jitterPoint(x, y, id, jitter = 0, salt = "") {
+  const amount = Number(jitter || 0);
+  if (!amount) return { x, y };
+  return {
+    x: x + stableNoise(id, `${salt}:x`) * amount,
+    y: y + stableNoise(id, `${salt}:y`) * amount,
+  };
+}
+
+function formationAngle(formation) {
+  if (formation.angle !== undefined) return (Number(formation.angle) * Math.PI) / 180;
+  if (formation.direction === "vertical") return Math.PI / 2;
+  return 0;
+}
+
+function nudgeFormationMember(id, x, y, strength) {
+  nudgeToward(getCharacter(id), x, y, strength);
+}
+
+function formationCenter(formation) {
+  const anchor = getCharacter(formation.anchorNode || formation.bindMember || "");
+  const offsetX = Number(formation.offsetX || 0);
+  const offsetY = Number(formation.offsetY || 0);
+  if (anchor) return { x: anchor.px + offsetX, y: anchor.py + offsetY };
+  return graphPoint(formation.centerX ?? 50, formation.centerY ?? 50);
+}
+
+function placeFormationMember(formation, id, x, y, strength) {
+  if (!id) return;
+  const point = jitterPoint(x, y, id, formation.jitter ?? 18, formation.id || formation.type);
+  nudgeFormationMember(id, point.x, point.y, strength);
+}
+
+function applyPairFormation(formation) {
+  const members = formation.members || [];
+  if (members.length < 2) return;
+  const center = formationCenter(formation);
+  const distance = Number(formation.distance || 260);
+  const angle = formationAngle(formation);
+  const strength = Number(formation.strength || 0.8);
+  const nudgeStrength = 0.045 * strength;
+  const dx = Math.cos(angle) * distance * 0.5;
+  const dy = Math.sin(angle) * distance * 0.5;
+  placeFormationMember(formation, members[0], center.x - dx, center.y - dy, nudgeStrength);
+  placeFormationMember(formation, members[1], center.x + dx, center.y + dy, nudgeStrength);
+  applyPairDistance(getCharacter(members[0]), getCharacter(members[1]), distance, Math.max(0.55, strength));
+}
+
+function applyCrossFormation(formation) {
+  const center = formationCenter(formation);
+  const spacing = Number(formation.spacing || 220);
+  const strength = 0.04 * Number(formation.strength || 0.75);
+  placeFormationMember(formation, formation.center, center.x, center.y, strength);
+  placeFormationMember(formation, formation.north, center.x, center.y - spacing, strength);
+  placeFormationMember(formation, formation.south, center.x, center.y + spacing, strength);
+  placeFormationMember(formation, formation.west, center.x - spacing, center.y, strength);
+  placeFormationMember(formation, formation.east, center.x + spacing, center.y, strength);
+}
+
+function applyRadialFormation(formation, options = {}) {
+  const members = formation.members || [];
+  if (!members.length) return;
+  const center = formationCenter(formation);
+  const radius = Number(formation.radius || 230);
+  const startAngle = ((Number(formation.startAngle ?? -90) * Math.PI) / 180);
+  const strength = 0.038 * Number(formation.strength || 0.72);
+  if (options.centerMember) {
+    placeFormationMember(formation, options.centerMember, center.x, center.y, strength);
+  }
+  members.forEach((id, index) => {
+    const angle = startAngle + (Math.PI * 2 * index) / members.length;
+    placeFormationMember(
+      formation,
+      id,
+      center.x + Math.cos(angle) * radius,
+      center.y + Math.sin(angle) * radius,
+      strength,
+    );
+  });
+}
+
+function applyStarFormation(formation) {
+  applyRadialFormation(formation, { centerMember: formation.center });
+}
+
+function applyRingFormation(formation) {
+  applyRadialFormation(formation);
+}
+
+function applyTriangleFormation(formation) {
+  const members = formation.members || [];
+  if (members.length < 3) return;
+  applyRadialFormation({ ...formation, members: members.slice(0, 3), radius: formation.radius || 190, startAngle: formation.startAngle ?? -90 });
+}
+
+function applyChainFormation(formation) {
+  const members = formation.members || [];
+  if (!members.length) return;
+  const center = formationCenter(formation);
+  const spacing = Number(formation.spacing || 180);
+  const angle = formationAngle(formation);
+  const strength = 0.038 * Number(formation.strength || 0.72);
+  const mid = (members.length - 1) / 2;
+  members.forEach((id, index) => {
+    const offset = (index - mid) * spacing;
+    placeFormationMember(
+      formation,
+      id,
+      center.x + Math.cos(angle) * offset,
+      center.y + Math.sin(angle) * offset,
+      strength,
+    );
+  });
+}
+
+function applyFormationForces() {
+  (graphLayoutConfig.formations || []).forEach((formation) => {
+    if (formation.type === "pair") applyPairFormation(formation);
+    if (formation.type === "cross") applyCrossFormation(formation);
+    if (formation.type === "star") applyStarFormation(formation);
+    if (formation.type === "ring") applyRingFormation(formation);
+    if (formation.type === "chain") applyChainFormation(formation);
+    if (formation.type === "triangle") applyTriangleFormation(formation);
+  });
+}
+
+function applyConfiguredDistanceForces() {
+  (graphLayoutConfig.distances || []).forEach((rule) => {
+    applyPairDistance(
+      getCharacter(rule.from),
+      getCharacter(rule.to),
+      Number(rule.distance),
+      Number(rule.strength || 0.7),
+    );
+  });
+}
+
+function clusterCenter(cluster, members) {
+  const hasCenter = cluster.centerX !== undefined && cluster.centerY !== undefined;
+  if (hasCenter) {
+    return {
+      x: (Number(cluster.centerX) / 100) * state.width,
+      y: (Number(cluster.centerY) / 100) * state.height,
+    };
+  }
+  if (!members.length) return { x: state.width / 2, y: state.height / 2 };
+  const center = members.reduce((sum, person) => ({
+    x: sum.x + person.px,
+    y: sum.y + person.py,
+  }), { x: 0, y: 0 });
+  return {
+    x: center.x / members.length,
+    y: center.y / members.length,
+  };
+}
+
+function applyClusterForces() {
+  (graphLayoutConfig.clusters || []).forEach((cluster) => {
+    const members = (cluster.members || [])
+      .map((id) => getCharacter(id))
+      .filter(Boolean);
+    if (!members.length) return;
+    const center = clusterCenter(cluster, members);
+    const radius = Number(cluster.radius || 180);
+    const strength = Number(cluster.strength || 0.42);
+
+    members.forEach((person, index) => {
+      const angle = (Math.PI * 2 * index) / Math.max(1, members.length);
+      const targetRadius = radius * (members.length > 2 ? 0.42 : 0.28);
+      nudgeToward(
+        person,
+        center.x + Math.cos(angle) * targetRadius,
+        center.y + Math.sin(angle) * targetRadius,
+        0.006 * strength,
+      );
+    });
+
+    members.forEach((a, index) => {
+      members.slice(index + 1).forEach((b) => {
+        applyPairDistance(a, b, Math.max(110, radius * 0.72), 0.16 * strength);
+      });
+    });
+  });
+}
+
+function applyOrbitForces() {
+  (graphLayoutConfig.nodes || []).forEach((rule) => {
+    const person = getCharacter(rule.id);
+    const anchor = getCharacter(rule.orbitOf);
+    if (!person || !anchor) return;
+    const distance = Number(rule.orbitDistance || 260);
+    const angle = (Number(rule.orbitAngle || 0) * Math.PI) / 180;
+    nudgeToward(
+      person,
+      anchor.px + Math.cos(angle) * distance,
+      anchor.py + Math.sin(angle) * distance,
+      Number(rule.strength || 0.026),
+    );
+  });
+}
+
+function applyGraphLayoutForces() {
+  applyNaturalGroupForces();
+  applyFormationForces();
+  applyClusterForces();
+  applyConfiguredDistanceForces();
+  applyOrbitForces();
+}
+
+function separateOverlappingNodes() {
+  const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
+  characters.forEach((a, index) => {
+    characters.slice(index + 1).forEach((b) => {
+      const dx = b.px - a.px;
+      const dy = b.py - a.py;
+      const distance = Math.max(0.1, Math.hypot(dx, dy));
+      if (distance >= minDistance) return;
+      const overlap = (minDistance - distance) * 0.52;
+      const nx = dx / distance;
+      const ny = dy / distance;
+      const aCanMove = canMovePerson(a);
+      const bCanMove = canMovePerson(b);
+      if (aCanMove && bCanMove) {
+        a.px -= nx * overlap * 0.5;
+        a.py -= ny * overlap * 0.5;
+        b.px += nx * overlap * 0.5;
+        b.py += ny * overlap * 0.5;
+        return;
+      }
+      if (aCanMove) {
+        a.px -= nx * overlap;
+        a.py -= ny * overlap;
+      }
+      if (bCanMove) {
+        b.px += nx * overlap;
+        b.py += ny * overlap;
+      }
+    });
+  });
 }
 
 function startDrag(event) {
@@ -2150,8 +2558,6 @@ function tick() {
   }
 
   characters.forEach((a, index) => {
-    if (state.dragging?.id === a.id || a.pinned) return;
-
     characters.forEach((b, bIndex) => {
       if (index >= bIndex) return;
       const dx = a.px - b.px;
@@ -2161,23 +2567,11 @@ function tick() {
       const nx = dx / distance;
       const ny = dy / distance;
       const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.004 : 0;
-      if (!a.pinned) {
-        a.vx += nx * push;
-        a.vy += ny * push;
-      }
-      if (!b.pinned) {
-        b.vx -= nx * push;
-        b.vy -= ny * push;
-      }
+      pushPerson(a, nx * push, ny * push);
+      pushPerson(b, -nx * push, -ny * push);
       if (selectedPush) {
-        if (!a.pinned) {
-          a.vx += nx * selectedPush;
-          a.vy += ny * selectedPush;
-        }
-        if (!b.pinned) {
-          b.vx -= nx * selectedPush;
-          b.vy -= ny * selectedPush;
-        }
+        pushPerson(a, nx * selectedPush, ny * selectedPush);
+        pushPerson(b, -nx * selectedPush, -ny * selectedPush);
       }
     });
   });
@@ -2186,29 +2580,23 @@ function tick() {
     const a = getCharacter(link.from);
     const b = getCharacter(link.to);
     if (!a || !b) return;
-    const dx = b.px - a.px;
-    const dy = b.py - a.py;
-    const distance = Math.max(1, Math.hypot(dx, dy));
-    const pull = (distance - 250) * 0.00045;
-    const nx = dx / distance;
-    const ny = dy / distance;
-    if (state.dragging?.id !== a.id && !a.pinned) {
-      a.vx += nx * pull;
-      a.vy += ny * pull;
-    }
-    if (state.dragging?.id !== b.id && !b.pinned) {
-      b.vx -= nx * pull;
-      b.vy -= ny * pull;
-    }
+    applyPairDistance(a, b, Number(link.distance || 250), Number(link.strength || 1));
   });
 
+  applyGraphLayoutForces();
+
   characters.forEach((person) => {
-    if (state.dragging?.id !== person.id && !person.pinned) {
+    if (canMovePerson(person)) {
       person.vx *= 0.91;
       person.vy *= 0.91;
       person.px += person.vx;
       person.py += person.vy;
     }
+  });
+
+  separateOverlappingNodes();
+
+  characters.forEach((person) => {
     person.x = (person.px / state.width) * 100;
     person.y = (person.py / state.height) * 100;
   });
@@ -2238,17 +2626,6 @@ function drawGraph() {
   });
 
 }
-
-document.querySelectorAll(".chapter-btn").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".chapter-btn").forEach((item) => item.classList.remove("is-active"));
-    button.classList.add("is-active");
-    state.chapter = button.dataset.chapter;
-    state.plotPage = 1;
-    renderStoryFilters();
-    renderPlots();
-  });
-});
 
 globalSearch?.addEventListener("input", () => {
   state.globalSearch = globalSearch.value.trim();
@@ -2393,6 +2770,8 @@ async function init() {
     state.plotTags = allPlotTags();
     state.fragmentTags = allFragmentTags();
     state.entryTags = allEntryTags();
+    renderProjectChrome();
+    renderChapterSwitch();
     renderStoryFilters();
     renderPlots();
     renderFragmentFilters();

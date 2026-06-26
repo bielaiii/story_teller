@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=shared-entry-tags" />
+    <link rel="stylesheet" href="./styles.css?v=content-pack-refactor" />
   </head>
   <body>
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
@@ -28,17 +28,10 @@
       <section class="story-panel page-view" data-page="story" aria-label="剧情记录">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Story Teller</p>
-            <h1>雾港纪事</h1>
+            <p class="eyebrow" id="storyEyebrow">Story Teller</p>
+            <h1 id="storyTitle">小说剧情记录器</h1>
           </div>
-          <div class="chapter-switch" aria-label="章节筛选">
-            <button class="chapter-btn is-active" data-chapter="all">全部</button>
-            <button class="chapter-btn" data-chapter="act1">旧港篇</button>
-            <button class="chapter-btn" data-chapter="act2">电台篇</button>
-            <button class="chapter-btn" data-chapter="act3">水闸篇</button>
-            <button class="chapter-btn" data-chapter="key">关键剧情</button>
-            <button class="chapter-btn" data-chapter="climax">高潮剧情</button>
-          </div>
+          <div class="chapter-switch" id="chapterSwitch" aria-label="章节筛选"></div>
         </header>
 
         <div class="story-filter-row">
@@ -144,6 +137,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=shared-entry-tags"></script>
+    <script src="./app.js?v=content-pack-refactor"></script>
   </body>
 </html>

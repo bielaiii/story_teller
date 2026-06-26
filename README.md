@@ -18,5 +18,12 @@ http://127.0.0.1:4180/index.html
 
 ## 编辑数据
 
-小说数据放在 `data/` 目录中，人物、剧情、关系、时间线都使用 Markdown 文件配置。具体格式见 `data/README.md`。
+小说数据按内容包放在 `content/` 目录中。当前仓库只跟踪 `content/demo/` 作为开发样例，真实小说内容包可以放在 `content/你的项目名/`，默认不会被提交。
 
+访问不同内容包：
+
+```text
+http://127.0.0.1:4180/index.html?project=demo
+```
+
+人物、剧情、关系、时间线都使用 Markdown 文件配置。具体格式见 `content/demo/README.md`。
