@@ -7,7 +7,7 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
-const DATA_VERSION = "content-pack-refactor";
+const DATA_VERSION = "timeline-density";
 const DEFAULT_PROJECT_ID = "demo";
 const PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
@@ -850,6 +850,53 @@ function timelinePlotChapter(plot) {
   return timelineNodeConfigFor(plot.id).displayChapter || chapterName(plot.chapter);
 }
 
+function timelinePlotPriority(plot, nodeConfig = {}) {
+  if (nodeConfig.showSummary || nodeConfig.featured) return 6;
+  if (plot.climax) return 5;
+  if (plot.key) return 4;
+  if (plot.status === "已接入") return 2;
+  return 1;
+}
+
+function selectTimelineSummaryItems(items, lanes, mainLineName) {
+  if (!items.length) return [];
+  const selected = new Map();
+  const add = (item) => {
+    if (item) selected.set(Number(item.plot.id), item);
+  };
+
+  items
+    .filter((item) => item.priority >= 4)
+    .forEach(add);
+  add(items[0]);
+  add(items[items.length - 1]);
+
+  lanes.forEach((lane) => {
+    const laneItems = items.filter((item) => item.position.lane === lane);
+    if (!laneItems.length) return;
+    const preferred = laneItems
+      .slice()
+      .sort((a, b) => b.priority - a.priority || Math.abs(0.5 - a.position.storyRatio) - Math.abs(0.5 - b.position.storyRatio))[0];
+    if (lane !== mainLineName || preferred.priority >= 4) add(preferred);
+  });
+
+  const targetCount = Math.min(12, Math.max(7, Math.ceil(items.length / 8)));
+  const step = Math.max(1, Math.floor(items.length / targetCount));
+  for (let index = Math.floor(step / 2); selected.size < targetCount && index < items.length; index += step) {
+    add(items[index]);
+  }
+
+  const minGap = items.length > 36 ? 118 : 96;
+  const ranked = [...selected.values()].sort((a, b) => b.priority - a.priority || a.position.y - b.position.y);
+  const filtered = [];
+  ranked.forEach((item) => {
+    const near = filtered.find((picked) => picked.side === item.side && Math.abs(picked.position.y - item.position.y) < minGap);
+    if (!near) filtered.push(item);
+  });
+
+  return filtered.sort((a, b) => a.position.y - b.position.y);
+}
+
 function updateTimelineDirectionButton() {
   if (!timelineDirectionBtn) return;
   timelineDirectionBtn.textContent = state.timelineReversed ? "顶端：结尾" : "顶端：开始";
@@ -904,11 +951,9 @@ function renderTimeline() {
     return mainX;
   };
   const graphHeight = topPadding * 2 + mainDisplayLength;
-  const cardRowHeight = Math.max(96, graphHeight / Math.max(plots.length, 1));
   const fallbackPlotPosition = (index) => plots.length <= 1 ? 0 : index / (plots.length - 1);
   const plotY = (index) => topPadding + timelineVisualRatio(fallbackPlotPosition(index), 0) * mainDisplayLength;
   const plotLaneNames = (plot) => plot.lanes || [plot.lane || mainLineName];
-  const configuredNodeLine = (plot) => nodeConfigByPlot.get(Number(plot.id))?.line || plotLaneNames(plot)[0] || mainLineName;
   const connectorByLane = new Map();
   const resolvingLanes = new Set();
   const mainLine = {
@@ -1044,19 +1089,56 @@ function renderTimeline() {
     };
   };
 
-  const nodes = plots.map((plot, index) => {
+  const positionedPlots = plots.map((plot, index) => {
+    const nodeConfig = nodeConfigByPlot.get(Number(plot.id)) || {};
     const position = timelineNodePosition(plot, index);
     const nodeColor = lineColor(position.lane);
-    const x = position.x;
-    const y = position.y;
+    const laneSide = position.lane === mainLineName
+      ? (index % 2 === 0 ? "left" : "right")
+      : (branchConfigByLine.get(position.lane)?.side === "left" ? "left" : "right");
+    return {
+      plot,
+      index,
+      nodeConfig,
+      position,
+      nodeColor,
+      side: laneSide,
+      priority: timelinePlotPriority(plot, nodeConfig),
+    };
+  });
+
+  const summaryItems = selectTimelineSummaryItems(positionedPlots, lines, mainLineName);
+  const summaryIds = new Set(summaryItems.map((item) => Number(item.plot.id)));
+  const nodes = positionedPlots.map((item) => {
+    const { plot, position, nodeColor, priority } = item;
     const positionLabel = `${position.lane} · ${timelinePercentLabel(position.storyRatio)}`;
-    return `<button class="timeline-node timeline-node-focus" data-plot-id="${plot.id}" data-lane="${position.lane}" type="button" aria-label="${timelinePlotTitle(plot)}，${positionLabel}" title="${positionLabel}" style="--accent:${nodeColor}; left:${x}px; top:${y}px">
+    const nodeClass = [
+      "timeline-node",
+      "timeline-node-focus",
+      priority >= 4 || summaryIds.has(Number(plot.id)) ? "is-featured" : "is-minor",
+      plot.climax ? "is-climax" : "",
+      plot.key ? "is-key" : "",
+    ].filter(Boolean).join(" ");
+    return `<button class="${nodeClass}" data-plot-id="${plot.id}" data-lane="${position.lane}" type="button" aria-label="${timelinePlotTitle(plot)}，${positionLabel}" title="${positionLabel}" style="--accent:${nodeColor}; left:${position.x}px; top:${position.y}px">
       <span class="timeline-pulse" aria-hidden="true"></span>
       <span class="timeline-dot" aria-hidden="true"></span>
       <span class="timeline-node-tip">${positionLabel}</span>
     </button>`;
   }).join("");
-  const timelineRows = state.timelineReversed ? [...plots].reverse() : plots;
+
+  const summaryCard = (item) => {
+    const { plot, position, nodeColor } = item;
+    return `
+      <button class="timeline-summary-card timeline-jump" data-plot-id="${plot.id}" data-primary-lane="${position.lane}" data-lanes="${position.lane}" type="button" style="--accent:${nodeColor}; --card-y:${Math.round(position.y)}px">
+        <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
+        <strong>${timelinePlotTitle(plot)}</strong>
+        <p>${timelinePlotSummary(plot)}</p>
+        <small class="timeline-read-hint">阅读全文</small>
+      </button>
+    `;
+  };
+  const leftSummaryCards = summaryItems.filter((item) => item.side === "left").map(summaryCard).join("");
+  const rightSummaryCards = summaryItems.filter((item) => item.side !== "left").map(summaryCard).join("");
   const legendItems = laneLines
     .filter((line) => line.lane !== mainLineName && connectorLines.some((connector) => connector.lane === line.lane))
     .map((line) => `
@@ -1075,16 +1157,9 @@ function renderTimeline() {
   };
 
   timelineList.innerHTML = `
-    <div class="timeline-board" style="--timeline-height:${graphHeight}px; --map-width:${graphWidth}px">
+    <div class="timeline-board ${plots.length > 36 ? "is-dense" : ""}" style="--timeline-height:${graphHeight}px; --map-width:${graphWidth}px">
       <div class="timeline-side timeline-side-left">
-        ${timelineRows.map((plot, index) => index % 2 === 0 ? `
-          <article class="timeline-summary-card" data-plot-id="${plot.id}" data-primary-lane="${configuredNodeLine(plot)}" data-lanes="${configuredNodeLine(plot)}" style="--accent:${lineColor(configuredNodeLine(plot))}; --row-height:${cardRowHeight}px">
-            <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
-            <strong>${timelinePlotTitle(plot)}</strong>
-            <p>${timelinePlotSummary(plot)}</p>
-            <button class="timeline-read-btn timeline-jump" data-plot-id="${plot.id}" type="button">阅读全文</button>
-          </article>
-        ` : `<span class="timeline-empty-slot" style="--row-height:${cardRowHeight}px"></span>`).join("")}
+        ${leftSummaryCards}
       </div>
       <div class="timeline-map">
         <div class="timeline-orbit" aria-hidden="true"></div>
@@ -1094,16 +1169,7 @@ function renderTimeline() {
         </div>
       </div>
       <div class="timeline-side timeline-side-right">
-      ${timelineRows.map((plot, index) => {
-        return index % 2 === 1 ? `
-          <article class="timeline-summary-card" data-plot-id="${plot.id}" data-primary-lane="${configuredNodeLine(plot)}" data-lanes="${configuredNodeLine(plot)}" style="--accent:${lineColor(configuredNodeLine(plot))}; --row-height:${cardRowHeight}px">
-            <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
-            <strong>${timelinePlotTitle(plot)}</strong>
-            <p>${timelinePlotSummary(plot)}</p>
-            <button class="timeline-read-btn timeline-jump" data-plot-id="${plot.id}" type="button">阅读全文</button>
-          </article>
-        ` : `<span class="timeline-empty-slot" style="--row-height:${cardRowHeight}px"></span>`;
-      }).join("")}
+        ${rightSummaryCards}
       </div>
       <div class="timeline-float is-hidden" id="timelineFloat">
         <span id="timelineFloatLane"></span>
@@ -1295,7 +1361,7 @@ function handleTimelineCanvasClick(event) {
 
 function handleTimelineBoardClick(event) {
   const interactiveTarget = event.target.closest(
-    ".timeline-summary-card, .timeline-read-btn, .timeline-node, .timeline-float, #timelineCanvasWrap",
+    ".timeline-summary-card, .timeline-node, .timeline-float, #timelineCanvasWrap",
   );
   if (interactiveTarget) return;
   hideTimelineFloat();
@@ -1317,6 +1383,12 @@ function showTimelineFloat(target) {
       : item.dataset.primaryLane === lane;
     item.classList.toggle("is-hidden-by-focus", !isRelated);
   });
+  document.querySelectorAll(".timeline-node").forEach((item) => {
+    const isRelated = plot
+      ? item.dataset.plotId === String(plot.id)
+      : item.dataset.lane === lane;
+    item.classList.toggle("is-muted-by-focus", !isRelated);
+  });
   document.querySelector("#timelineFloatLane").textContent = plot ? activeLane : lane;
   document.querySelector("#timelineFloatTitle").textContent = plot ? timelinePlotTitle(plot) : "剧情流向";
   document.querySelector("#timelineFloatText").textContent = plot ? timelinePlotSummary(plot) : "这条剧情线连接了相关事件，点击节点可跳到完整剧情。";
@@ -1329,6 +1401,7 @@ function hideTimelineFloat() {
   drawTimelineCanvas();
   updateTimelineLegend();
   document.querySelectorAll(".timeline-summary-card.is-hidden-by-focus").forEach((item) => item.classList.remove("is-hidden-by-focus"));
+  document.querySelectorAll(".timeline-node.is-muted-by-focus").forEach((item) => item.classList.remove("is-muted-by-focus"));
 }
 
 function setChapterFilter(chapter) {

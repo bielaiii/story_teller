@@ -2293,3 +2293,113 @@ h3 {
     height: 92px;
   }
 }
+
+.timeline-board {
+  grid-template-columns: minmax(210px, 0.86fr) var(--map-width) minmax(210px, 0.86fr);
+  gap: 16px;
+  min-width: 800px;
+  min-height: calc(var(--timeline-height) + 42px);
+  padding: 16px;
+}
+
+.timeline-side {
+  position: relative;
+  display: block;
+  align-self: stretch;
+  min-height: var(--timeline-height);
+}
+
+.timeline-empty-slot {
+  display: none;
+}
+
+.timeline-summary-card {
+  position: absolute;
+  top: clamp(74px, var(--card-y), calc(var(--timeline-height) - 74px));
+  left: 0;
+  width: min(238px, 100%);
+  min-height: 0;
+  border-color: rgba(255, 255, 255, 0.7);
+  padding: 12px 13px 12px 17px;
+  cursor: pointer;
+  font: inherit;
+  transform: translateY(-50%);
+}
+
+.timeline-side-right .timeline-summary-card {
+  right: 0;
+  left: auto;
+}
+
+.timeline-summary-card:hover,
+.timeline-summary-card:focus {
+  transform: translateY(calc(-50% - 2px));
+}
+
+.timeline-summary-card.is-hidden-by-focus {
+  transform: translateY(calc(-50% + 4px));
+}
+
+.timeline-read-hint {
+  justify-self: start;
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.timeline-read-btn {
+  display: none;
+}
+
+.timeline-board.is-dense .timeline-node.is-minor {
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+  filter: none;
+}
+
+.timeline-board.is-dense .timeline-node.is-minor .timeline-pulse {
+  display: none;
+}
+
+.timeline-board.is-dense .timeline-node.is-minor .timeline-dot {
+  width: 7px;
+  height: 7px;
+  border-width: 2px;
+  border-color: rgba(255, 253, 247, 0.78);
+}
+
+.timeline-node.is-featured .timeline-dot {
+  width: 15px;
+  height: 15px;
+}
+
+.timeline-node.is-featured .timeline-pulse {
+  opacity: 0.16;
+}
+
+.timeline-node.is-climax .timeline-dot,
+.timeline-node.is-key .timeline-dot {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.timeline-node.is-muted-by-focus {
+  opacity: 0.16;
+}
+
+.timeline-node.is-muted-by-focus .timeline-pulse {
+  opacity: 0;
+}
+
+.timeline-board.is-dense .timeline-node.is-minor:hover,
+.timeline-board.is-dense .timeline-node.is-minor:focus-visible {
+  opacity: 1;
+  filter: drop-shadow(0 8px 12px rgba(31, 46, 58, 0.14));
+}
+
+.timeline-board.is-dense .timeline-node.is-minor:hover .timeline-dot,
+.timeline-board.is-dense .timeline-node.is-minor:focus-visible .timeline-dot {
+  width: 15px;
+  height: 15px;
+  border-width: 3px;
+}
