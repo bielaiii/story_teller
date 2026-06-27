@@ -165,6 +165,30 @@ button {
   background: var(--ink);
 }
 
+.diagnostic-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.diagnostic-nav-count {
+  display: grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  padding: 0 5px;
+  color: #fff;
+  background: var(--coral);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.diagnostic-nav-count.is-hidden {
+  display: none;
+}
+
 .page-view {
   display: none;
 }
@@ -179,6 +203,7 @@ button {
 .character-page,
 .place-page,
 .plot-detail-page,
+.diagnostic-page,
 .fragment-page {
   min-height: calc(100vh - 94px);
   border: 1px solid rgba(255, 255, 255, 0.68);
@@ -204,6 +229,13 @@ button {
 .fragment-page {
   flex-direction: column;
   gap: 18px;
+  border-radius: 6px;
+  padding: 26px;
+}
+
+.diagnostic-page {
+  flex-direction: column;
+  gap: 20px;
   border-radius: 6px;
   padding: 26px;
 }
@@ -1077,6 +1109,50 @@ button {
   text-align: left;
 }
 
+.plot-reference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 5px;
+  align-items: stretch;
+  border-radius: 6px;
+  transition: box-shadow 180ms ease, background 180ms ease;
+}
+
+.plot-reference-row .plot-person-item,
+.plot-reference-row .plot-place-item {
+  width: 100%;
+  min-width: 0;
+}
+
+.plot-reference-row.is-active {
+  background: color-mix(in srgb, var(--accent, #2a9d8f) 11%, rgba(255, 255, 255, 0.72));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #2a9d8f) 38%, transparent);
+}
+
+.plot-reference-row.is-active .plot-person-item,
+.plot-reference-row.is-active .plot-place-item {
+  background: transparent;
+}
+
+.plot-reference-open {
+  min-width: 34px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.48);
+  cursor: pointer;
+  font-size: 18px;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.plot-reference-open:hover,
+.plot-reference-open:focus-visible {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  outline: none;
+  transform: translateX(2px);
+}
+
 button.plot-person-item,
 button.plot-place-item {
   cursor: pointer;
@@ -1369,6 +1445,150 @@ button.plot-place-item:focus-visible {
 
 .plot-detail-body p {
   text-wrap: pretty;
+}
+
+.plot-reference-mark {
+  border-radius: 3px;
+  padding: 0 2px;
+  color: inherit;
+  background:
+    linear-gradient(
+      to top,
+      color-mix(in srgb, var(--reference-color) 34%, transparent) 0 52%,
+      transparent 52% 100%
+    );
+  box-decoration-break: clone;
+  animation: referenceMarkIn 260ms ease both;
+}
+
+.return-to-plot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 7px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-weight: 800;
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.return-to-plot-btn:hover,
+.return-to-plot-btn:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(31, 46, 58, 0.1);
+  transform: translateX(-2px);
+}
+
+.diagnostic-refresh-btn {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 15px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.diagnostic-summary {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(2, minmax(120px, 0.7fr));
+  gap: 12px;
+}
+
+.diagnostic-stat {
+  display: grid;
+  gap: 5px;
+  min-height: 86px;
+  border-left: 5px solid var(--blue);
+  border-radius: 6px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.diagnostic-stat.is-error {
+  border-left-color: var(--coral);
+}
+
+.diagnostic-stat.is-warning {
+  border-left-color: var(--gold);
+}
+
+.diagnostic-stat span,
+.diagnostic-item p,
+.diagnostic-item small,
+.diagnostic-clean p {
+  color: var(--muted);
+}
+
+.diagnostic-stat strong {
+  font-size: 24px;
+}
+
+.diagnostic-list {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostic-item {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) minmax(90px, auto);
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(25, 33, 42, 0.09);
+  border-left: 4px solid var(--coral);
+  border-radius: 6px;
+  padding: 13px 15px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.diagnostic-item.is-warning {
+  border-left-color: var(--gold);
+}
+
+.diagnostic-level {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #fff;
+  background: var(--coral);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.diagnostic-item.is-warning .diagnostic-level {
+  color: #5f4610;
+  background: color-mix(in srgb, var(--gold) 72%, #fff);
+}
+
+.diagnostic-item p {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
+.diagnostic-item small {
+  justify-self: end;
+}
+
+.diagnostic-clean {
+  border-left: 5px solid var(--green);
+  border-radius: 6px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.diagnostic-clean strong {
+  font-size: 20px;
+}
+
+.diagnostic-clean p {
+  margin: 7px 0 0;
 }
 
 .plot-detail-body h3 {
@@ -2300,6 +2520,17 @@ h3 {
   }
 }
 
+@keyframes referenceMarkIn {
+  from {
+    opacity: 0;
+    background-size: 0 100%;
+  }
+  to {
+    opacity: 1;
+    background-size: 100% 100%;
+  }
+}
+
 @media (max-width: 980px) {
   .story-panel,
   .graph-stage,
@@ -2307,6 +2538,7 @@ h3 {
   .character-page,
   .place-page,
   .plot-detail-page,
+  .diagnostic-page,
   .fragment-page {
     min-height: auto;
   }
@@ -2344,6 +2576,10 @@ h3 {
   .plot-detail {
     margin-right: 88px;
   }
+
+  .diagnostic-summary {
+    grid-template-columns: 1fr repeat(2, minmax(110px, 0.65fr));
+  }
 }
 
 @media (max-width: 620px) {
@@ -2369,6 +2605,7 @@ h3 {
   .character-page,
   .place-page,
   .plot-detail-page,
+  .diagnostic-page,
   .fragment-page {
     padding: 14px;
   }
@@ -2444,6 +2681,19 @@ h3 {
 
   .plot-detail {
     margin-right: 72px;
+  }
+
+  .diagnostic-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostic-item {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .diagnostic-item small {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .timeline-head {

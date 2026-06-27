@@ -36,6 +36,10 @@
         <button class="view-btn" data-view="characters">人物</button>
         <button class="view-btn" data-view="places">设定</button>
         <button class="view-btn" data-view="fragments">碎片</button>
+        <button class="view-btn diagnostic-nav-btn" data-view="diagnostics">
+          检查
+          <span class="diagnostic-nav-count is-hidden" id="diagnosticNavCount">0</span>
+        </button>
         <div class="global-search">
           <input id="globalSearch" type="search" placeholder="搜索人物、设定、剧情、碎片、关系" aria-label="全局搜索" />
           <div class="global-search-results is-hidden" id="globalSearchResults" aria-live="polite"></div>
@@ -75,6 +79,18 @@
       <section class="plot-detail-page page-view" data-page="plot-detail" aria-label="剧情全文">
         <aside class="plot-people-rail" id="plotPeopleRail"></aside>
         <article class="plot-detail" id="plotDetail"></article>
+      </section>
+
+      <section class="diagnostic-page page-view" data-page="diagnostics" aria-label="配置检查">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Content Check</p>
+            <h2>配置检查</h2>
+          </div>
+          <button class="diagnostic-refresh-btn" id="diagnosticRefreshBtn" type="button">重新检查</button>
+        </header>
+        <div class="diagnostic-summary" id="diagnosticSummary"></div>
+        <div class="diagnostic-list" id="diagnosticList"></div>
       </section>
 
       <section class="graph-stage page-view is-active" data-page="graph" aria-label="人物关系图谱">
@@ -154,6 +170,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=rendered-card-excerpts-v2"></script>
+    <script src="./app.js?v=remember-plot-progress"></script>
   </body>
 </html>

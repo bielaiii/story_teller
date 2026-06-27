@@ -7,6 +7,7 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
+let configDiagnostics = [];
 const DATA_VERSION = "auto-plot-references";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
@@ -188,6 +189,150 @@ function connectPlotReferences() {
   }));
 }
 
+function validateProjectConfiguration() {
+  const diagnostics = [];
+  const add = (level, title, detail, source) => diagnostics.push({ level, title, detail, source });
+  const hasId = (records, id) => records.some((record) => String(record.id) === String(id));
+
+  const checkDuplicateIds = (records, label) => {
+    const groups = new Map();
+    records.forEach((record) => {
+      const id = String(record.id ?? "").trim();
+      if (!id) {
+        add("error", `${label}缺少 id`, `${record.name || record.title || "未命名条目"}没有可用的唯一编号。`, label);
+        return;
+      }
+      const items = groups.get(id) || [];
+      items.push(record);
+      groups.set(id, items);
+    });
+    groups.forEach((items, id) => {
+      if (items.length < 2) return;
+      add(
+        "error",
+        `${label} id 重复：${id}`,
+        items.map((item) => item.name || item.title || id).join("、"),
+        label,
+      );
+    });
+  };
+
+  const checkAmbiguousTerms = (records, label) => {
+    const groups = new Map();
+    records.forEach((record) => {
+      [record.name, ...(record.aliases || [])].forEach((value) => {
+        const term = String(value || "").trim();
+        if (!term) return;
+        const items = groups.get(term) || [];
+        items.push(record);
+        groups.set(term, items);
+      });
+    });
+    groups.forEach((items, term) => {
+      const distinct = [...new Map(items.map((item) => [String(item.id), item])).values()];
+      if (distinct.length < 2) return;
+      add(
+        "warning",
+        `${label}称呼有歧义：${term}`,
+        `同时指向${distinct.map((item) => item.name || item.id).join("、")}，自动识别时会跳过这个称呼。`,
+        label,
+      );
+    });
+  };
+
+  checkDuplicateIds(characters, "人物");
+  checkDuplicateIds(plots, "剧情");
+  checkDuplicateIds(places, "设定");
+  checkAmbiguousTerms(characters, "人物");
+  checkAmbiguousTerms(places, "设定");
+
+  plots.forEach((plot) => {
+    (plot.people || []).forEach((id) => {
+      if (!hasId(characters, id)) {
+        add("error", `剧情缺少人物档案：${id}`, `《${plot.title}》引用了不存在的人物 id。`, `剧情 ${plot.id}`);
+      }
+    });
+    (plot.entries || []).forEach((id) => {
+      if (!hasId(places, id)) {
+        add("error", `剧情缺少设定档案：${id}`, `《${plot.title}》引用了不存在的设定 id。`, `剧情 ${plot.id}`);
+      }
+    });
+  });
+
+  characters.forEach((person) => {
+    (person.events || []).forEach((id) => {
+      if (!hasId(plots, id)) {
+        add("error", `人物引用了不存在的剧情：${id}`, `${person.name}的 events 中存在失效编号。`, `人物 ${person.id}`);
+      }
+    });
+  });
+
+  places.forEach((place) => {
+    (place.people || []).forEach((id) => {
+      if (!hasId(characters, id)) {
+        add("error", `设定缺少人物档案：${id}`, `${place.name}引用了不存在的人物 id。`, `设定 ${place.id}`);
+      }
+    });
+    (place.plots || []).forEach((id) => {
+      if (!hasId(plots, id)) {
+        add("error", `设定引用了不存在的剧情：${id}`, `${place.name}的 plots 中存在失效编号。`, `设定 ${place.id}`);
+      }
+    });
+  });
+
+  relationships.forEach((relationship) => {
+    ["from", "to"].forEach((field) => {
+      if (!hasId(characters, relationship[field])) {
+        add(
+          "error",
+          `关系缺少人物档案：${relationship[field]}`,
+          `${relationship.label || relationship.type || "未命名关系"}的 ${field} 端点无效。`,
+          "人物关系",
+        );
+      }
+    });
+  });
+
+  const timelineLines = new Set(Array.isArray(timelineConfig.lines) ? timelineConfig.lines : []);
+  (timelineConfig.nodes || []).forEach((node) => {
+    if (!hasId(plots, node.plotId)) {
+      add("error", `时间线节点缺少剧情：${node.plotId}`, "节点的 plotId 没有对应剧情文件。", "时间线");
+    }
+    if (node.line && !timelineLines.has(node.line)) {
+      add("error", `时间线缺少剧情线：${node.line}`, `剧情 ${node.plotId} 被放在未声明的剧情线上。`, "时间线");
+    }
+  });
+  (timelineConfig.branches || []).forEach((branch) => {
+    ["line", "startLine", "endLine"].forEach((field) => {
+      if (branch[field] && !timelineLines.has(branch[field])) {
+        add("error", `时间线缺少剧情线：${branch[field]}`, `${branch.line || "未命名分支"}的 ${field} 配置无效。`, "时间线");
+      }
+    });
+  });
+
+  const checkGraphMember = (id, source) => {
+    if (!hasId(characters, id)) {
+      add("error", `图谱缺少人物档案：${id}`, `${source}引用了不存在的人物 id。`, "图谱布局");
+    }
+  };
+  [...(graphLayoutConfig.formations || []), ...(graphLayoutConfig.clusters || [])].forEach((group) => {
+    (group.members || []).forEach((id) => checkGraphMember(id, group.label || group.id || "节点组"));
+  });
+  (graphLayoutConfig.distances || []).forEach((distance) => {
+    checkGraphMember(distance.from, "节点距离");
+    checkGraphMember(distance.to, "节点距离");
+  });
+  (graphLayoutConfig.nodes || []).forEach((node) => {
+    checkGraphMember(node.id, "节点定位");
+    if (node.orbitOf) checkGraphMember(node.orbitOf, `${node.id}的 orbitOf`);
+  });
+
+  return diagnostics.sort((a, b) => {
+    const levelOrder = { error: 0, warning: 1, info: 2 };
+    return levelOrder[a.level] - levelOrder[b.level] || a.source.localeCompare(b.source, "zh-CN");
+  });
+}
+
 async function fetchText(path) {
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(`${path}${separator}v=${DATA_VERSION}`);
@@ -346,6 +491,7 @@ async function loadMarkdownData() {
 
   timelineConfig = await loadTimelineConfig(timelinePaths[0]);
   graphLayoutConfig = await loadGraphLayoutConfig(graphLayoutPaths[0]);
+  configDiagnostics = validateProjectConfiguration();
 }
 
 const state = {
@@ -377,6 +523,10 @@ const state = {
   entryTags: [],
   selectedPlace: "",
   globalSearch: "",
+  highlightedReferenceType: "",
+  highlightedReferenceId: "",
+  detailReturnContext: null,
+  plotReadingPositions: {},
   timelineReversed: false,
   width: 0,
   height: 0,
@@ -419,6 +569,10 @@ const entryTypeFilter = document.querySelector("#entryTypeFilter");
 const entryTagFilter = document.querySelector("#entryTagFilter");
 const globalSearch = document.querySelector("#globalSearch");
 const globalSearchResults = document.querySelector("#globalSearchResults");
+const diagnosticSummary = document.querySelector("#diagnosticSummary");
+const diagnosticList = document.querySelector("#diagnosticList");
+const diagnosticNavCount = document.querySelector("#diagnosticNavCount");
+const diagnosticRefreshBtn = document.querySelector("#diagnosticRefreshBtn");
 
 function initial(name) {
   return name.slice(0, 1);
@@ -883,6 +1037,50 @@ function renderProjectChrome() {
   document.title = projectConfig.title ? `${projectConfig.title}记录器` : "小说剧情记录器";
   if (storyEyebrow) storyEyebrow.textContent = projectConfig.eyebrow || "Story Teller";
   if (storyTitle) storyTitle.textContent = projectConfig.title || "小说剧情记录器";
+}
+
+function renderDiagnostics() {
+  if (!diagnosticSummary || !diagnosticList) return;
+  const errors = configDiagnostics.filter((item) => item.level === "error").length;
+  const warnings = configDiagnostics.filter((item) => item.level === "warning").length;
+
+  if (diagnosticNavCount) {
+    diagnosticNavCount.textContent = String(configDiagnostics.length);
+    diagnosticNavCount.classList.toggle("is-hidden", configDiagnostics.length === 0);
+  }
+
+  diagnosticSummary.innerHTML = `
+    <div class="diagnostic-stat is-total">
+      <span>检查结果</span>
+      <strong>${configDiagnostics.length ? `${configDiagnostics.length} 项` : "全部正常"}</strong>
+    </div>
+    <div class="diagnostic-stat is-error">
+      <span>需要修复</span>
+      <strong>${errors}</strong>
+    </div>
+    <div class="diagnostic-stat is-warning">
+      <span>需要确认</span>
+      <strong>${warnings}</strong>
+    </div>
+  `;
+
+  diagnosticList.innerHTML = configDiagnostics.length
+    ? configDiagnostics.map((item) => `
+        <article class="diagnostic-item is-${item.level}">
+          <span class="diagnostic-level">${item.level === "error" ? "错误" : "提醒"}</span>
+          <div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <p>${escapeHtml(item.detail)}</p>
+          </div>
+          <small>${escapeHtml(item.source)}</small>
+        </article>
+      `).join("")
+    : `
+      <div class="diagnostic-clean">
+        <strong>配置关系完整</strong>
+        <p>没有发现重复编号、失效引用、歧义称呼或缺失档案。</p>
+      </div>
+    `;
 }
 
 function renderChapterSwitch() {
@@ -1723,9 +1921,27 @@ function setChapterFilter(chapter) {
   });
 }
 
+function rememberCurrentPlotPosition() {
+  if (state.view !== "plot-detail" || state.selectedPlotId === null) return;
+  state.plotReadingPositions[String(state.selectedPlotId)] = window.scrollY;
+}
+
+function restorePlotPosition(plotId) {
+  const savedPosition = state.plotReadingPositions[String(plotId)];
+  if (!Number.isFinite(savedPosition)) return;
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: savedPosition, left: 0, behavior: "auto" });
+    updateReadingProgress();
+  });
+}
+
 function openPlotInStory(plotId) {
   const plot = plots.find((item) => item.id === plotId);
   if (!plot) return;
+  rememberCurrentPlotPosition();
+  state.detailReturnContext = null;
+  state.highlightedReferenceType = "";
+  state.highlightedReferenceId = "";
   state.highlightPlotId = plotId;
   setChapterFilter(plot.chapter);
   switchView("story");
@@ -1735,9 +1951,11 @@ function openPlotInStory(plotId) {
   }, 60);
 }
 
-function openCharacterDetail(id) {
+function openCharacterDetail(id, { preserveReturnContext = false } = {}) {
   const person = getCharacter(id);
   if (!person) return;
+  rememberCurrentPlotPosition();
+  if (!preserveReturnContext) state.detailReturnContext = null;
   state.selectedCharacter = id;
   state.characterSearch = "";
   if (characterSearch) characterSearch.value = "";
@@ -1745,9 +1963,11 @@ function openCharacterDetail(id) {
   hideGlobalSearchResults();
 }
 
-function openPlaceDetail(id) {
+function openPlaceDetail(id, { preserveReturnContext = false } = {}) {
   const place = getPlace(id);
   if (!place) return;
+  rememberCurrentPlotPosition();
+  if (!preserveReturnContext) state.detailReturnContext = null;
   state.selectedPlace = id;
   state.placeSearch = "";
   if (placeSearch) placeSearch.value = "";
@@ -1755,13 +1975,52 @@ function openPlaceDetail(id) {
   hideGlobalSearchResults();
 }
 
-function openPlotDetail(plotId) {
+function openPlotDetail(plotId, { preserveReturnContext = false } = {}) {
   const plot = plots.find((item) => item.id === plotId);
   if (!plot) return;
+  rememberCurrentPlotPosition();
+  if (!preserveReturnContext) state.detailReturnContext = null;
+  if (Number(state.selectedPlotId) !== Number(plotId)) {
+    state.highlightedReferenceType = "";
+    state.highlightedReferenceId = "";
+  }
   state.selectedPlotId = plotId;
   state.highlightPlotId = plotId;
   switchView("plot-detail");
   hideGlobalSearchResults();
+  restorePlotPosition(plotId);
+}
+
+function openPlotReferenceDetail(type, id) {
+  rememberCurrentPlotPosition();
+  state.detailReturnContext = {
+    plotId: Number(state.selectedPlotId),
+    scrollY: window.scrollY,
+    highlightedReferenceType: state.highlightedReferenceType,
+    highlightedReferenceId: state.highlightedReferenceId,
+  };
+  if (type === "character") openCharacterDetail(id, { preserveReturnContext: true });
+  if (type === "place") openPlaceDetail(id, { preserveReturnContext: true });
+}
+
+function returnToPlotContext() {
+  const context = state.detailReturnContext;
+  if (!context) return;
+  state.highlightedReferenceType = context.highlightedReferenceType;
+  state.highlightedReferenceId = context.highlightedReferenceId;
+  state.plotReadingPositions[String(context.plotId)] = context.scrollY;
+  openPlotDetail(context.plotId, { preserveReturnContext: true });
+}
+
+function detailReturnButton() {
+  if (!state.detailReturnContext) return "";
+  const plot = plots.find((item) => Number(item.id) === Number(state.detailReturnContext.plotId));
+  return `
+    <button class="return-to-plot-btn" type="button">
+      <span aria-hidden="true">←</span>
+      <span>返回《${escapeHtml(plot?.title || "原章节")}》</span>
+    </button>
+  `;
 }
 
 function globalSearchText() {
@@ -1924,6 +2183,69 @@ function renderGlobalSearchResults() {
   });
 }
 
+function plotReferenceTerms(type, id) {
+  const candidates = type === "character" ? characterMentionCandidates() : entryMentionCandidates();
+  return candidates
+    .filter((candidate) => String(candidate.id) === String(id))
+    .map((candidate) => candidate.term)
+    .sort((a, b) => b.length - a.length);
+}
+
+function plotReferenceColor(type, id) {
+  if (type === "character") return getCharacter(id)?.color || "#2a9d8f";
+  return getPlace(id)?.accent || "#457b9d";
+}
+
+function applyPlotReferenceHighlights() {
+  const { highlightedReferenceType: type, highlightedReferenceId: id } = state;
+  const body = document.querySelector(".plot-detail-body");
+  if (!body || !type || !id) return;
+  const terms = plotReferenceTerms(type, id);
+  if (!terms.length) return;
+
+  const pattern = new RegExp(terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
+  const textNodes = [];
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    if (!node.parentElement?.closest("mark, pre, code")) textNodes.push(node);
+    node = walker.nextNode();
+  }
+
+  textNodes.forEach((textNode) => {
+    const text = textNode.nodeValue || "";
+    pattern.lastIndex = 0;
+    if (!pattern.test(text)) return;
+    pattern.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    text.replace(pattern, (match, offset) => {
+      fragment.append(text.slice(cursor, offset));
+      const mark = document.createElement("mark");
+      mark.className = "plot-reference-mark";
+      mark.style.setProperty("--reference-color", plotReferenceColor(type, id));
+      mark.textContent = match;
+      fragment.append(mark);
+      cursor = offset + match.length;
+      return match;
+    });
+    fragment.append(text.slice(cursor));
+    textNode.replaceWith(fragment);
+  });
+}
+
+function togglePlotReference(type, id) {
+  const isActive = state.highlightedReferenceType === type && String(state.highlightedReferenceId) === String(id);
+  state.highlightedReferenceType = isActive ? "" : type;
+  state.highlightedReferenceId = isActive ? "" : id;
+  const scrollY = window.scrollY;
+  renderPlotDetail();
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+    updateReadingProgress();
+  });
+}
+
 function renderPlotDetail() {
   const plot = plots.find((item) => item.id === Number(state.selectedPlotId)) || plots[0];
   if (!plot || !plotDetail || !plotPeopleRail) return;
@@ -1959,13 +2281,20 @@ function renderPlotDetail() {
             `;
           }
           return `
-            <button class="plot-person-item" data-id="${person.id}" type="button">
-              <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
-              <span>
-                <strong>${person.name}</strong>
-                <small>${person.group || "未分组"}</small>
-              </span>
-            </button>
+            <div class="plot-reference-row ${
+              state.highlightedReferenceType === "character" && state.highlightedReferenceId === person.id ? "is-active" : ""
+            }" style="--accent:${person.color || "#2a9d8f"}">
+              <button class="plot-person-item plot-reference-toggle" data-reference-type="character" data-id="${person.id}" type="button" aria-pressed="${
+                state.highlightedReferenceType === "character" && state.highlightedReferenceId === person.id
+              }">
+                <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+                <span>
+                  <strong>${person.name}</strong>
+                  <small>${person.group || "未分组"}</small>
+                </span>
+              </button>
+              <button class="plot-reference-open" data-reference-type="character" data-id="${person.id}" type="button" aria-label="查看${escapeHtml(person.name)}详情" title="查看人物详情">→</button>
+            </div>
           `;
         }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
       </div>
@@ -1988,13 +2317,20 @@ function renderPlotDetail() {
               `;
             }
             return `
-              <button class="plot-place-item" data-id="${place.id}" type="button" style="--accent:${place.accent}">
-                <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
-                <span>
-                  <strong>${place.name}</strong>
-                  <small>${place.type || "未分类"} · ${place.area || "未分区"}</small>
-                </span>
-              </button>
+              <div class="plot-reference-row ${
+                state.highlightedReferenceType === "place" && state.highlightedReferenceId === place.id ? "is-active" : ""
+              }" style="--accent:${place.accent}">
+                <button class="plot-place-item plot-reference-toggle" data-reference-type="place" data-id="${place.id}" type="button" aria-pressed="${
+                  state.highlightedReferenceType === "place" && state.highlightedReferenceId === place.id
+                }">
+                  <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
+                  <span>
+                    <strong>${place.name}</strong>
+                    <small>${place.type || "未分类"} · ${place.area || "未分区"}</small>
+                  </span>
+                </button>
+                <button class="plot-reference-open" data-reference-type="place" data-id="${place.id}" type="button" aria-label="查看${escapeHtml(place.name)}详情" title="查看设定详情">→</button>
+              </div>
             `;
           }).join("")}
         </div>
@@ -2047,17 +2383,18 @@ function renderPlotDetail() {
   document.querySelectorAll(".plot-nav-btn[data-plot-id]").forEach((button) => {
     button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
   });
-  document.querySelectorAll(".plot-person-item[data-id]").forEach((button) => {
-    button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
-  });
-  document.querySelectorAll(".plot-place-item[data-id]").forEach((button) => {
-    button.addEventListener("click", () => openPlaceDetail(button.dataset.id));
-  });
   document.querySelectorAll(".plot-toc-item").forEach((item) => {
     item.addEventListener("click", (event) => {
       event.preventDefault();
       document.querySelector(item.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  });
+  applyPlotReferenceHighlights();
+  document.querySelectorAll(".plot-reference-toggle").forEach((button) => {
+    button.addEventListener("click", () => togglePlotReference(button.dataset.referenceType, button.dataset.id));
+  });
+  document.querySelectorAll(".plot-reference-open").forEach((button) => {
+    button.addEventListener("click", () => openPlotReferenceDetail(button.dataset.referenceType, button.dataset.id));
   });
   window.requestAnimationFrame(updateReadingProgress);
 }
@@ -2141,6 +2478,7 @@ function renderCharacterDetail() {
   const personLinks = relationships.filter((link) => link.from === person.id || link.to === person.id);
 
   characterDetail.innerHTML = `
+    ${detailReturnButton()}
     <div class="character-hero">
       <div class="character-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</div>
       <div class="character-copy">
@@ -2187,6 +2525,8 @@ function renderCharacterDetail() {
       </div>
     </section>
   `;
+
+  characterDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
 }
 
 function renderPlaceList() {
@@ -2286,6 +2626,7 @@ function renderPlaceDetail() {
   const relatedPeople = relatedPeopleIds.map((id) => ({ id, person: getCharacter(id) }));
 
   placeDetail.innerHTML = `
+    ${detailReturnButton()}
     <div class="place-hero" style="--accent:${place.accent}">
       <div class="place-symbol">${escapeHtml(place.name).slice(0, 2)}</div>
       <div class="character-copy">
@@ -2350,11 +2691,14 @@ function renderPlaceDetail() {
   `;
 
   document.querySelectorAll(".place-person-grid .plot-person-item[data-id]").forEach((button) => {
-    button.addEventListener("click", () => openCharacterDetail(button.dataset.id));
+    button.addEventListener("click", () => openCharacterDetail(button.dataset.id, {
+      preserveReturnContext: Boolean(state.detailReturnContext),
+    }));
   });
   document.querySelectorAll(".place-plot-card[data-plot-id]").forEach((button) => {
     button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
   });
+  placeDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
 }
 
 function switchView(view) {
@@ -2388,6 +2732,9 @@ function switchView(view) {
   if (state.view === "fragments") {
     renderFragmentFilters();
     renderFragments();
+  }
+  if (state.view === "diagnostics") {
+    renderDiagnostics();
   }
   if (state.view === "story" && previousView !== "story" && previousView !== "plot-detail") {
     state.plotTags = allPlotTags();
@@ -3173,6 +3520,10 @@ window.addEventListener("resize", () => {
 
 document.querySelectorAll(".view-btn").forEach((button) => {
   button.addEventListener("click", () => {
+    rememberCurrentPlotPosition();
+    state.detailReturnContext = null;
+    state.highlightedReferenceType = "";
+    state.highlightedReferenceId = "";
     switchView(button.dataset.view);
   });
 });
@@ -3181,6 +3532,11 @@ timelineDirectionBtn?.addEventListener("click", () => {
   state.timelineReversed = !state.timelineReversed;
   hideTimelineFloat();
   renderTimeline();
+});
+
+diagnosticRefreshBtn?.addEventListener("click", () => {
+  configDiagnostics = validateProjectConfiguration();
+  renderDiagnostics();
 });
 
 profileDetailBtn.addEventListener("click", () => {
@@ -3210,6 +3566,7 @@ async function init() {
     renderCharacterDetail();
     renderPlaceList();
     renderPlaceDetail();
+    renderDiagnostics();
     renderProfile();
     renderGraphFilters();
     renderLinks();
