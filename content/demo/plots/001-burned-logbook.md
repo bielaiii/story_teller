@@ -2,8 +2,6 @@
 id: 1
 chapter: act1
 title: 烧焦的航海日记
-people: [lin, su]
-entries: [archive, radio-station, second-key]
 accent: #2a9d8f
 lanes: [主线, 电台线]
 status: 已接入

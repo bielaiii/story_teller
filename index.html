@@ -5,11 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=timeline-layout-roomy" />
+    <link rel="stylesheet" href="./styles.css?v=reserved-reading-rail" />
   </head>
   <body>
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
     <div class="timeline-floating-legend is-hidden" id="timelineLegend" aria-label="剧情线颜色图示"></div>
+    <aside
+      class="reading-progress is-hidden"
+      id="readingProgress"
+      style="--reading-progress:0%"
+      role="progressbar"
+      aria-label="阅读进度 0%"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow="0"
+    >
+      <span class="reading-progress-title">阅读进度</span>
+      <span class="reading-progress-track" aria-hidden="true">
+        <span class="reading-progress-fill"></span>
+        <span class="reading-progress-thumb"></span>
+      </span>
+      <strong class="reading-progress-value">0%</strong>
+    </aside>
 
     <main class="app-shell">
       <nav class="view-nav" aria-label="页面切换">
@@ -137,6 +154,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=timeline-layout-roomy"></script>
+    <script src="./app.js?v=rendered-card-excerpts-v2"></script>
   </body>
 </html>

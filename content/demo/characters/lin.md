@@ -1,6 +1,7 @@
 ---
 id: lin
 name: 林秋
+aliases: [阿秋]
 color: #2a9d8f
 gradient: linear-gradient(135deg, #2a9d8f, #264653)
 group: 主角团

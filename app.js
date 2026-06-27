@@ -7,10 +7,12 @@ let timelineModel = null;
 let timelineConfig = {};
 let graphLayoutConfig = {};
 let projectConfig = {};
-const DATA_VERSION = "timeline-layout-roomy";
+const DATA_VERSION = "auto-plot-references";
 const DEFAULT_PROJECT_ID = "demo";
-const PAGE_SIZE = 6;
+const PLOT_PAGE_SIZE = 9;
+const FRAGMENT_PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
+const AUTO_ROLE_MENTIONS = new Set(["男主", "女主"]);
 
 if ("scrollRestoration" in history) {
   history.scrollRestoration = "manual";
@@ -79,6 +81,111 @@ function parseMarkdownFile(text) {
   });
 
   return { meta, body: match[2].trim() };
+}
+
+function buildMentionCandidates(records, termsForRecord) {
+  const termCandidates = new Map();
+
+  records.forEach((record) => {
+    termsForRecord(record).forEach(({ value, priority }) => {
+      const term = String(value || "").trim();
+      if (term.length < 2) return;
+      const candidates = termCandidates.get(term) || [];
+      candidates.push({ id: record.id, term, priority });
+      termCandidates.set(term, candidates);
+    });
+  });
+
+  return [...termCandidates.entries()]
+    .map(([term, candidates]) => {
+      const highestPriority = Math.max(...candidates.map((candidate) => candidate.priority));
+      const strongest = candidates.filter((candidate) => candidate.priority === highestPriority);
+      const ids = [...new Set(strongest.map((candidate) => candidate.id))];
+      return ids.length === 1 ? { id: ids[0], term, priority: highestPriority } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.term.length - a.term.length || b.priority - a.priority);
+}
+
+function characterMentionCandidates() {
+  return buildMentionCandidates(characters, (person) => [
+    { value: person.name, priority: 3 },
+    ...(person.aliases || []).map((value) => ({ value, priority: 2 })),
+    ...(person.markers || [])
+      .filter((value) => AUTO_ROLE_MENTIONS.has(value))
+      .map((value) => ({ value, priority: 1 })),
+  ]);
+}
+
+function entryMentionCandidates() {
+  return buildMentionCandidates(places, (place) => [
+    { value: place.name, priority: 3 },
+    ...(place.aliases || []).map((value) => ({ value, priority: 2 })),
+  ]);
+}
+
+function mentionOccurrences(text, candidate) {
+  const occurrences = [];
+  const asciiTerm = /^[a-zA-Z0-9_-]+$/.test(candidate.term);
+  let start = text.indexOf(candidate.term);
+
+  while (start !== -1) {
+    const end = start + candidate.term.length;
+    const previous = text[start - 1] || "";
+    const next = text[end] || "";
+    const touchesAsciiWord = asciiTerm && (/[a-zA-Z0-9_-]/.test(previous) || /[a-zA-Z0-9_-]/.test(next));
+    if (!touchesAsciiWord) occurrences.push({ ...candidate, start, end });
+    start = text.indexOf(candidate.term, start + 1);
+  }
+
+  return occurrences;
+}
+
+function detectMentionedIds(text, candidates, records) {
+  const occurrences = candidates
+    .flatMap((candidate) => mentionOccurrences(text, candidate))
+    .sort((a, b) => b.term.length - a.term.length || b.priority - a.priority || a.start - b.start);
+  const claimedRanges = [];
+  const detectedIds = new Set();
+
+  occurrences.forEach((occurrence) => {
+    const overlaps = claimedRanges.some((range) => occurrence.start < range.end && occurrence.end > range.start);
+    if (overlaps) return;
+    claimedRanges.push({ start: occurrence.start, end: occurrence.end });
+    detectedIds.add(occurrence.id);
+  });
+
+  return records.filter((record) => detectedIds.has(record.id)).map((record) => record.id);
+}
+
+function connectPlotReferences() {
+  const peopleCandidates = characterMentionCandidates();
+  const entryCandidates = entryMentionCandidates();
+  plots = plots.map((plot) => ({
+    ...plot,
+    people: [...new Set([
+      ...(plot.people || []),
+      ...detectMentionedIds(`${plot.title || ""}\n${plot.text || ""}`, peopleCandidates, characters),
+    ])],
+    entries: [...new Set([
+      ...(plot.entries || []),
+      ...detectMentionedIds(`${plot.title || ""}\n${plot.text || ""}`, entryCandidates, places),
+    ])],
+  }));
+  characters = characters.map((person) => ({
+    ...person,
+    events: [...new Set([
+      ...(person.events || []),
+      ...plots.filter((plot) => plot.people.includes(person.id)).map((plot) => plot.id),
+    ])],
+  }));
+  places = places.map((place) => ({
+    ...place,
+    plots: [...new Set([
+      ...(place.plots || []),
+      ...plots.filter((plot) => plot.entries.includes(place.id)).map((plot) => plot.id),
+    ])],
+  }));
 }
 
 async function fetchText(path) {
@@ -186,6 +293,7 @@ async function loadMarkdownData() {
       intro: body,
       avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
       events: Array.isArray(meta.events) ? meta.events : [],
+      aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
       markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
     };
   }));
@@ -229,6 +337,7 @@ async function loadMarkdownData() {
       subtype: meta.subtype || "",
     };
   }));
+  connectPlotReferences();
 
   relationships = await Promise.all(relationshipPaths.map(async (path) => {
     const { meta } = parseMarkdownFile(await fetchText(path));
@@ -550,10 +659,27 @@ function renderMarkdownBody(text) {
   return renderMarkdownContent(text).html;
 }
 
+function markdownPlainText(text) {
+  if (!String(text || "").trim()) return "";
+  const container = document.createElement("div");
+  container.innerHTML = renderMarkdownContent(text).html;
+  container.querySelectorAll("br").forEach((breakElement) => breakElement.replaceWith(" "));
+  const blocks = [...container.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre, th, td")]
+    .map((element) => String(element.textContent || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return (blocks.length ? blocks.join(" ") : String(container.textContent || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function markdownExcerpt(text, limit = 86) {
+  const plainText = markdownPlainText(text);
+  if (plainText.length <= limit) return plainText;
+  return `${plainText.slice(0, limit).trimEnd()}...`;
+}
+
 function plotExcerpt(plot) {
-  const text = String(plot.text || "").replace(/\s+/g, " ").trim();
-  if (text.length <= 86) return text;
-  return `${text.slice(0, 86)}...`;
+  return markdownExcerpt(plot.text);
 }
 
 function tagBadges(tags = []) {
@@ -660,14 +786,14 @@ function clampPage(page, totalPages) {
   return Math.max(1, Math.min(totalPages || 1, page || 1));
 }
 
-function pagedItems(items, page) {
-  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+function pagedItems(items, page, pageSize) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const currentPage = clampPage(page, totalPages);
-  const start = (currentPage - 1) * PAGE_SIZE;
+  const start = (currentPage - 1) * pageSize;
   return {
     currentPage,
     totalPages,
-    items: items.slice(start, start + PAGE_SIZE),
+    items: items.slice(start, start + pageSize),
   };
 }
 
@@ -823,7 +949,7 @@ function renderPlots() {
     const tagMatch = matchesSelectedTags(plot.tags || [], state.plotTags, allPlotTags());
     return chapterMatch && statusMatch && tagMatch;
   });
-  const page = pagedItems(visible, state.plotPage);
+  const page = pagedItems(visible, state.plotPage, PLOT_PAGE_SIZE);
   state.plotPage = page.currentPage;
   plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => `
@@ -865,7 +991,7 @@ function renderFragments() {
   const visible = fragments.filter((fragment) => (
     matchesSelectedTags(fragment.tags || [], state.fragmentTags, allFragmentTags())
   ));
-  const page = pagedItems(visible, state.fragmentPage);
+  const page = pagedItems(visible, state.fragmentPage, FRAGMENT_PAGE_SIZE);
   state.fragmentPage = page.currentPage;
   fragmentBoard.innerHTML = page.items.length ? page.items.map((fragment, index) => `
     <article class="fragment-card" id="fragment-${fragment.id}" style="--accent:${fragment.accent || "#8a5cf6"}; animation-delay:${index * 55}ms">
@@ -902,7 +1028,6 @@ function plotNavigation(plot) {
   return {
     prev: currentIndex > 0 ? scopedPlots[currentIndex - 1] : null,
     next: currentIndex >= 0 && currentIndex < scopedPlots.length - 1 ? scopedPlots[currentIndex + 1] : null,
-    scopeLabel: chapterKeys().includes(state.chapter) ? "篇内导航" : "全部剧情",
   };
 }
 
@@ -1319,7 +1444,7 @@ function renderTimeline() {
       <button class="timeline-summary-card timeline-jump" data-plot-id="${plot.id}" data-primary-lane="${position.lane}" data-lanes="${position.lane}" type="button" style="--accent:${nodeColor}; --card-y:${Math.round(position.y)}px">
         <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
         <strong>${timelinePlotTitle(plot)}</strong>
-        <p>${timelinePlotSummary(plot)}</p>
+        <p>${escapeHtml(markdownExcerpt(timelinePlotSummary(plot), 120))}</p>
         <small class="timeline-read-hint">阅读全文</small>
       </button>
     `;
@@ -1806,6 +1931,15 @@ function renderPlotDetail() {
   const plotPlaces = (plot.entries || []).map((id) => ({ id, place: getPlace(id) }));
   const navigation = plotNavigation(plot);
   const markdown = renderMarkdownContent(plot.text);
+  const readingProgress = document.querySelector("#readingProgress");
+  if (readingProgress) {
+    readingProgress.classList.remove("is-hidden");
+    readingProgress.style.setProperty("--accent", plot.accent);
+    readingProgress.style.setProperty("--reading-progress", "0%");
+    readingProgress.setAttribute("aria-label", "阅读进度 0%");
+    readingProgress.setAttribute("aria-valuenow", "0");
+    readingProgress.querySelector(".reading-progress-value").textContent = "0%";
+  }
 
   plotPeopleRail.innerHTML = `
     <section class="plot-rail-section">
@@ -1898,14 +2032,13 @@ function renderPlotDetail() {
           <span>上一章</span>
           <strong>${navigation.prev ? navigation.prev.title : "没有上一章"}</strong>
         </button>
-        <span class="plot-nav-scope">${navigation.scopeLabel}</span>
         <button class="plot-nav-btn" id="plotNextBtn" type="button" ${navigation.next ? `data-plot-id="${navigation.next.id}"` : "disabled"}>
           <span>下一章</span>
           <strong>${navigation.next ? navigation.next.title : "没有下一章"}</strong>
         </button>
       </div>
     </div>
-    <div class="plot-detail-body">
+    <div class="plot-detail-body" style="--accent:${plot.accent}">
       ${markdown.html}
     </div>
   `;
@@ -1926,6 +2059,31 @@ function renderPlotDetail() {
       document.querySelector(item.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+  window.requestAnimationFrame(updateReadingProgress);
+}
+
+function updateReadingProgress() {
+  const progress = document.querySelector("#readingProgress");
+  const body = document.querySelector(".plot-detail-body");
+  if (!progress || !body || state.view !== "plot-detail") return;
+
+  const rect = body.getBoundingClientRect();
+  const bodyTop = rect.top + window.scrollY;
+  const bodyBottom = rect.bottom + window.scrollY;
+  const start = bodyTop - Math.min(130, window.innerHeight * 0.18);
+  const end = bodyBottom - window.innerHeight + Math.min(150, window.innerHeight * 0.2);
+  const atPageEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+  const ratio = atPageEnd
+    ? 1
+    : end <= start
+      ? (window.scrollY >= start ? 1 : 0)
+      : Math.max(0, Math.min(1, (window.scrollY - start) / (end - start)));
+  const percent = Math.round(ratio * 100);
+
+  progress.style.setProperty("--reading-progress", `${percent}%`);
+  progress.setAttribute("aria-label", `阅读进度 ${percent}%`);
+  progress.setAttribute("aria-valuenow", String(percent));
+  progress.querySelector(".reading-progress-value").textContent = `${percent}%`;
 }
 
 function renderCharacterList() {
@@ -2202,6 +2360,7 @@ function renderPlaceDetail() {
 function switchView(view) {
   const previousView = state.view;
   const activeNav = view === "plot-detail" ? "story" : view;
+  document.querySelector("#readingProgress")?.classList.toggle("is-hidden", view !== "plot-detail");
   document.querySelectorAll(".view-btn").forEach((item) => item.classList.toggle("is-active", item.dataset.view === activeNav));
   document.querySelectorAll(".page-view").forEach((page) => page.classList.toggle("is-active", page.dataset.page === view));
   state.view = view;
@@ -2260,7 +2419,7 @@ function renderProfile() {
     .map((plot, index) => `
       <article class="event-item" style="--accent:${plot.accent}; animation-delay:${index * 70}ms">
         <span class="event-dot"></span>
-        <p>${plot.title}：${plot.text}</p>
+        <p>${escapeHtml(plot.title)}：${escapeHtml(markdownExcerpt(plot.text, 120))}</p>
       </article>
     `)
     .join("");
@@ -2959,8 +3118,14 @@ placeSearch?.addEventListener("search", () => {
 });
 
 timelineList?.addEventListener("scroll", updateTimelineLegend);
-window.addEventListener("scroll", updateTimelineLegend);
-window.addEventListener("resize", updateTimelineLegend);
+window.addEventListener("scroll", () => {
+  updateTimelineLegend();
+  updateReadingProgress();
+});
+window.addEventListener("resize", () => {
+  updateTimelineLegend();
+  updateReadingProgress();
+});
 
 function runAmbientCanvas() {
   const canvas = document.querySelector("#ambientCanvas");

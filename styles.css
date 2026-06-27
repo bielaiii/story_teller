@@ -1180,6 +1180,8 @@ button.plot-place-item:focus-visible {
   display: grid;
   gap: 18px;
   align-content: start;
+  min-width: 0;
+  margin-right: 146px;
   padding: 24px;
 }
 
@@ -1218,7 +1220,7 @@ button.plot-place-item:focus-visible {
 
 .plot-nav-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(66px, auto) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
 }
@@ -1241,8 +1243,7 @@ button.plot-place-item:focus-visible {
   text-align: right;
 }
 
-.plot-nav-btn span,
-.plot-nav-scope {
+.plot-nav-btn span {
   color: var(--muted);
   font-size: 11px;
   font-weight: 850;
@@ -1271,17 +1272,93 @@ button.plot-place-item:focus-visible {
   box-shadow: none;
 }
 
-.plot-nav-scope {
-  min-width: max-content;
+.plot-detail-body {
+  --markdown-violet: #7558b7;
+  --markdown-coral: #c95f58;
+  --markdown-gold: #b77c18;
+  --markdown-green: #2f806d;
+  display: grid;
+  gap: 16px;
+  max-width: 820px;
+  color: #303b45;
+  line-height: 1.92;
+  font-size: 16.5px;
 }
 
-.plot-detail-body {
+.reading-progress {
+  position: fixed;
+  top: 50%;
+  right: clamp(24px, 3.8vw, 72px);
+  z-index: 110;
   display: grid;
-  gap: 12px;
-  max-width: 820px;
-  color: #35414c;
-  line-height: 1.72;
-  font-size: 16px;
+  justify-items: center;
+  gap: 14px;
+  width: 88px;
+  padding: 18px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 44px;
+  color: var(--ink);
+  background: rgba(255, 253, 247, 0.8);
+  box-shadow: 0 20px 54px rgba(31, 46, 58, 0.16);
+  backdrop-filter: blur(18px);
+  transform: translateY(-46%);
+}
+
+.reading-progress.is-hidden {
+  display: none;
+}
+
+.reading-progress-title {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.reading-progress-title {
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.reading-progress-value {
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 76%, var(--ink));
+  font-size: 18px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.reading-progress-track {
+  position: relative;
+  display: block;
+  width: 7px;
+  height: 248px;
+  overflow: visible;
+  border-radius: 999px;
+  background: rgba(25, 33, 42, 0.11);
+}
+
+.reading-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--reading-progress);
+  border-radius: inherit;
+  background: var(--accent, #2a9d8f);
+  transition: height 120ms ease-out;
+}
+
+.reading-progress-thumb {
+  position: absolute;
+  top: var(--reading-progress);
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border: 3px solid rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  background: var(--accent, #2a9d8f);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent, #2a9d8f) 32%, transparent);
+  transform: translate(-50%, -50%);
+  transition: top 120ms ease-out;
 }
 
 .plot-detail-body p,
@@ -1290,16 +1367,49 @@ button.plot-place-item:focus-visible {
   margin: 0;
 }
 
+.plot-detail-body p {
+  text-wrap: pretty;
+}
+
 .plot-detail-body h3 {
-  color: var(--ink);
-  font-size: 20px;
-  scroll-margin-top: 18px;
+  position: relative;
+  margin-top: 14px;
+  padding: 8px 0 9px 17px;
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 76%, #24313a);
+  font-size: 23px;
+  line-height: 1.35;
+  scroll-margin-top: 88px;
+}
+
+.plot-detail-body h3::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 5px;
+  border-radius: 999px;
+  background: var(--accent, #2a9d8f);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent, #2a9d8f) 12%, transparent);
+  content: "";
 }
 
 .plot-detail-body h4 {
-  color: var(--ink);
-  font-size: 17px;
-  scroll-margin-top: 18px;
+  margin-top: 8px;
+  color: var(--markdown-violet);
+  font-size: 18px;
+  line-height: 1.45;
+  scroll-margin-top: 88px;
+}
+
+.plot-detail-body h4::before {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 9px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 15%, white);
+  content: "";
 }
 
 .character-hero {
@@ -2215,6 +2325,25 @@ h3 {
   .plot-detail-page.is-active {
     grid-template-columns: 1fr;
   }
+
+  .reading-progress {
+    right: 16px;
+    gap: 11px;
+    width: 68px;
+    padding: 14px 9px;
+  }
+
+  .reading-progress-track {
+    height: 190px;
+  }
+
+  .reading-progress-value {
+    font-size: 15px;
+  }
+
+  .plot-detail {
+    margin-right: 88px;
+  }
 }
 
 @media (max-width: 620px) {
@@ -2294,8 +2423,27 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .plot-nav-scope {
-    justify-self: center;
+  .reading-progress {
+    right: 8px;
+    gap: 9px;
+    width: 58px;
+    padding: 12px 6px;
+  }
+
+  .reading-progress-track {
+    height: 132px;
+  }
+
+  .reading-progress-title {
+    font-size: 10px;
+  }
+
+  .reading-progress-value {
+    font-size: 13px;
+  }
+
+  .plot-detail {
+    margin-right: 72px;
   }
 
   .timeline-head {
@@ -2372,12 +2520,12 @@ h3 {
 .plot-detail-body blockquote,
 .fragment-body blockquote,
 .place-intro blockquote {
-  margin: 4px 0;
-  border-left: 4px solid color-mix(in srgb, var(--accent, #2a9d8f) 52%, transparent);
-  padding: 8px 12px;
+  margin: 6px 0;
+  border-left: 4px solid var(--markdown-gold, #b77c18);
+  padding: 13px 16px;
   border-radius: 0 6px 6px 0;
-  background: rgba(255, 255, 255, 0.48);
-  color: #3d4a55;
+  background: color-mix(in srgb, #f3c96d 15%, rgba(255, 255, 255, 0.72));
+  color: #594820;
 }
 
 .plot-detail-body blockquote p,
@@ -2395,7 +2543,7 @@ h3 {
   margin: 0;
   padding-left: 22px;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .plot-detail-body li,
@@ -2404,14 +2552,39 @@ h3 {
   padding-left: 2px;
 }
 
+.plot-detail-body ul li::marker {
+  color: var(--markdown-green);
+}
+
+.plot-detail-body ol li::marker {
+  color: var(--markdown-violet);
+  font-weight: 900;
+}
+
+.plot-detail-body strong {
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 78%, #26333c);
+}
+
+.plot-detail-body em {
+  color: var(--markdown-coral);
+}
+
 .plot-detail-body hr,
 .fragment-body hr,
 .place-intro hr {
   width: 100%;
-  height: 1px;
+  height: 3px;
   border: 0;
-  margin: 8px 0;
-  background: var(--line);
+  margin: 14px 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent, #2a9d8f),
+    var(--markdown-violet),
+    var(--markdown-coral),
+    transparent 88%
+  );
+  opacity: 0.58;
 }
 
 .plot-detail-body pre,
@@ -2419,10 +2592,10 @@ h3 {
 .place-intro pre {
   overflow: auto;
   margin: 0;
-  border: 1px solid rgba(25, 33, 42, 0.1);
+  border: 1px solid color-mix(in srgb, var(--markdown-violet, #7558b7) 24%, transparent);
   border-radius: 6px;
-  padding: 12px;
-  background: rgba(25, 33, 42, 0.06);
+  padding: 14px 16px;
+  background: color-mix(in srgb, #7561aa 9%, rgba(255, 255, 255, 0.75));
   color: #26323d;
   line-height: 1.55;
 }
@@ -2432,7 +2605,8 @@ h3 {
 .place-intro code {
   border-radius: 4px;
   padding: 1px 5px;
-  background: rgba(25, 33, 42, 0.08);
+  background: color-mix(in srgb, var(--markdown-coral, #c95f58) 12%, rgba(255, 255, 255, 0.75));
+  color: color-mix(in srgb, var(--markdown-coral, #c95f58) 78%, #26323d);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.92em;
 }
@@ -2447,7 +2621,7 @@ h3 {
 .markdown-table-wrap {
   overflow: auto;
   max-width: 100%;
-  border: 1px solid rgba(25, 33, 42, 0.1);
+  border: 1px solid color-mix(in srgb, var(--accent, #2a9d8f) 20%, rgba(25, 33, 42, 0.08));
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.48);
 }
@@ -2467,9 +2641,19 @@ h3 {
 }
 
 .markdown-table th {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.54);
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 76%, #26323d);
+  background: color-mix(in srgb, var(--accent, #2a9d8f) 10%, rgba(255, 255, 255, 0.72));
   font-weight: 900;
+}
+
+.markdown-table th:nth-child(3n + 2) {
+  color: var(--markdown-violet, #7558b7);
+  background: color-mix(in srgb, #7558b7 9%, rgba(255, 255, 255, 0.72));
+}
+
+.markdown-table th:nth-child(3n) {
+  color: var(--markdown-coral, #c95f58);
+  background: color-mix(in srgb, #c95f58 9%, rgba(255, 255, 255, 0.72));
 }
 
 .markdown-table tr:last-child td {
@@ -2480,7 +2664,7 @@ h3 {
 .fragment-body h5,
 .place-intro h5 {
   margin: 0;
-  color: var(--ink);
-  font-size: 15px;
-  scroll-margin-top: 18px;
+  color: var(--markdown-coral, #c95f58);
+  font-size: 16px;
+  scroll-margin-top: 88px;
 }
