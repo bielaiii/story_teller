@@ -1,5 +1,5 @@
 ---
-id: yan
+id: 6
 name: 严白
 color: #e9c46a
 gradient: linear-gradient(135deg, #e9c46a, #f77f00)

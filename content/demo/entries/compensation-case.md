@@ -7,7 +7,7 @@ area: 旧港
 accent: #6a994e
 aliases: [赔偿案, 空白证人案]
 tags: [旧案, 证人, 赔偿]
-people: [shen, han]
+people: [2, 5]
 plots: [2, 6]
 status: 已接入
 ---

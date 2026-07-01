@@ -7,7 +7,7 @@ area: 水闸区
 accent: #d58a35
 aliases: [恒闸, 水闸公司]
 tags: [水闸, 公司背景, 地下工程]
-people: [qiao, han]
+people: [4, 5]
 plots: [3, 9]
 status: 待展开
 ---

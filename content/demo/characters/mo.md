@@ -1,5 +1,5 @@
 ---
-id: mo
+id: 7
 name: 莫岚
 color: #8a5cf6
 gradient: linear-gradient(135deg, #8a5cf6, #2f184b)

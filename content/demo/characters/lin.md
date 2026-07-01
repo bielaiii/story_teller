@@ -1,5 +1,5 @@
 ---
-id: lin
+id: 1
 name: 林秋
 aliases: [阿秋]
 color: #2a9d8f

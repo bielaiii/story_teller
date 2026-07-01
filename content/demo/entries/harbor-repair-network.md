@@ -7,7 +7,7 @@ area: 修船厂后街
 accent: #c66b8c
 aliases: [修船厂圈子, 港区人脉]
 tags: [港区, 修船厂, 人脉]
-people: [qiao, mo]
+people: [4, 7]
 plots: [3, 5, 9]
 status: 待展开
 ---

@@ -7,7 +7,7 @@ area: 雾港
 accent: #457b9d
 aliases: [七分钟, 潮汐延迟]
 tags: [时间异常, 潮汐, 预言]
-people: [lin, han, su]
+people: [1, 5, 3]
 plots: [6, 8]
 status: 待解释
 ---

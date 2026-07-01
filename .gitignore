@@ -1,10 +1,12 @@
 .DS_Store
 node_modules/
+__pycache__/
 dist/
 build/
 *.log
 .env
 .env.*
+.story-teller/
 content/*
 !content/demo/
 !content/demo/**

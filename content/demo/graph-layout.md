@@ -11,7 +11,7 @@ nodeSpacing: 116
   centerY: 48
   radius: 190
   strength: 0.42
-  members: [lin, su, shen]
+  members: [1, 3, 2]
 
 - id: old-case
   label: 旧案相关
@@ -19,7 +19,7 @@ nodeSpacing: 116
   centerY: 58
   radius: 180
   strength: 0.34
-  members: [shen, han, yan]
+  members: [2, 5, 6]
 
 - id: harbor
   label: 港区相关
@@ -27,35 +27,35 @@ nodeSpacing: 116
   centerY: 56
   radius: 160
   strength: 0.46
-  members: [qiao, mo]
+  members: [4, 7]
 
 ## Distances
 
-- from: lin
-  to: su
+- from: 1
+  to: 3
   distance: 190
   strength: 0.7
 
-- from: shen
-  to: han
+- from: 2
+  to: 5
   distance: 220
   strength: 0.62
 
-- from: qiao
-  to: mo
+- from: 4
+  to: 7
   distance: 280
   strength: 0.9
 
 ## Nodes
 
-- id: mo
-  orbitOf: qiao
+- id: 7
+  orbitOf: 4
   orbitDistance: 300
   orbitAngle: -145
   strength: 0.03
 
-- id: yan
-  orbitOf: shen
+- id: 6
+  orbitOf: 2
   orbitDistance: 270
   orbitAngle: 35
   strength: 0.022

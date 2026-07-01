@@ -2,7 +2,7 @@
 id: 3
 chapter: act1
 title: 仓库里的第二把钥匙
-people: [qiao, lin, mo]
+people: [4, 1, 7]
 entries: [harbor-gate-company, archive, second-key, harbor-repair-network]
 accent: #c66b8c
 lanes: [港区线, 主线]

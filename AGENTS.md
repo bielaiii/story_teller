@@ -56,6 +56,9 @@ Rendering approach:
 * Use Canvas, DOM, and CSS for graph lines, timeline lines, nodes, ambient effects, layout, and interactions.
 * Avoid using SVG for the main relationship graph or timeline structure. SVG is acceptable only for small icons when there is a clear reason.
 * The experience should feel like elements are being drawn and managed by the frontend, not like a static exported vector diagram.
+* Treat WebGPU as progressive enhancement rather than a platform requirement. Detect `navigator.gpu`, handle adapter/device failure and device loss, and preserve a Canvas 2D fallback with the same interaction meaning.
+* Keep avatars, names, controls, and accessibility semantics in DOM even when GPU rendering is active.
+* Respect reduced-motion preferences in GPU and Canvas animation paths.
 
 Relationship graph:
 
@@ -74,6 +77,43 @@ Timeline / Git graph style:
 * Rounded corners must follow the actual direction of the line at each endpoint. A line can be a source in one connection and a target in another, so corner direction must be determined by the endpoint role for that specific connection, not by the lane globally.
 * Color transitions should be local: the part nearest a line should use that line's color, and only the space between lines should gradually transition toward the connected line's color.
 * Clicking a timeline line should highlight that line and hide unrelated story summaries. Clicking blank canvas should restore the default full view.
+
+## Performance and lazy rendering
+
+Treat hidden work as work that should not exist yet.
+
+* Do not render the contents of an inactive page during initial startup. Initialize each page when the user first opens its tab.
+* Defer page-specific configuration fetches, such as the timeline layout file, until that page or a dependent check is opened.
+* Timeline nodes, summary cards, connectors, and Canvas pixels must be virtualized by the current visible viewport.
+* Do not create DOM elements for timeline items that do not intersect the screen.
+* Do not allocate a full-height Canvas for a long timeline. Size and position the Canvas backing store to the currently visible timeline rectangle, and draw only intersecting lines.
+* When the timeline is hidden, release its visible DOM nodes and Canvas backing store while retaining only the lightweight data model needed to resume.
+* Lazy rendering applies in both vertical and horizontal directions.
+* Images outside immediate use should use native lazy loading and asynchronous decoding.
+* Preserve scroll position and interaction state when virtualized elements are removed and recreated.
+
+## Asynchronous work
+
+Prefer asynchronous, cancellable work whenever an operation crosses an I/O, rendering, or expensive-computation boundary.
+
+* Load independent Markdown collections and configuration files concurrently.
+* Yield to the main thread between expensive model-building phases so navigation and input remain responsive.
+* Batch scroll and resize rendering through `requestAnimationFrame`; do not render directly for every event.
+* Cancel or invalidate pending work when the user switches pages, reverses the timeline, or starts a newer render.
+* Build the data model separately from DOM generation. Reuse a valid model and regenerate only the visible presentation layer.
+* Do not wrap trivial synchronous value transformations in promises. Async boundaries should reduce blocking or coordinate real deferred work.
+
+## Local content mutation
+
+Treat novel content as user data rather than application source.
+
+* Serve the frontend and local mutation APIs from the same loopback-only process and port.
+* Never expose content mutation endpoints beyond `127.0.0.1` or `localhost`.
+* Restrict every write to the selected `content/<project>/` directory and Markdown files within it.
+* Require a preview before applying a bulk rename. Show affected files, lines, and replacement counts.
+* Keep stable IDs and filenames unchanged when renaming a display name so relationships and links remain valid.
+* Check that files still match the preview before writing, use atomic replacement, and retain one safe undo operation.
+* Public or static deployments must remain read-only without presenting failed write controls as available.
 
 ## After finishing
 

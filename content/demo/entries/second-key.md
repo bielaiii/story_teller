@@ -7,7 +7,7 @@ area: 旧港
 accent: #c66b8c
 aliases: [盐渍钥匙, 仓库钥匙]
 tags: [钥匙, 盐渍符号, 主线道具]
-people: [qiao, lin, mo]
+people: [4, 1, 7]
 plots: [1, 3]
 status: 关键
 ---

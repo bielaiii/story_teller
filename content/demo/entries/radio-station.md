@@ -7,7 +7,7 @@ area: 旧港北岸
 accent: #457b9d
 aliases: [午夜电台, 北岸发射塔]
 tags: [电台, 短波, 时间异常]
-people: [su, qiao]
+people: [3, 4]
 plots: [1, 5, 8]
 status: 已接入
 ---

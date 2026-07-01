@@ -9,7 +9,7 @@
 
 ```md
 ---
-id: new_person
+id: 8
 name: 新人物
 aliases: [昵称, 常用称呼]
 color: #8a5cf6
@@ -23,6 +23,8 @@ y: 40
 这里写人物设定。
 ```
 
+人物 `id` 使用自增数字。新建人物时取当前最大人物 ID 加一，例如现有最大值是 `7`，下一个人物就使用 `8`。ID 创建后保持不变；删除人物也不要复用旧 ID。
+
 `avatar` 可以不写。不写时，圆形头像里会显示完整人名；写了以后会使用这张图片作为圆形头像。建议你提供正方形图片，页面会自动用圆形裁切显示。
 
 `group` 用来做人物分组筛选，例如 `主角团`、`港区相关`、`旧案相关`、`神秘人物`。
@@ -33,11 +35,7 @@ y: 40
 
 `events` 不需要手动维护。页面会根据人物在章节中的出现情况，自动整理人物详情页的相关剧情。
 
-3. 在 `manifest.md` 的 `Characters` 下面加一行：
-
-```md
-- ./characters/new-person.md
-```
+3. 使用 `./run.sh` 启动时，刷新网页即可自动发现新人物，无需修改 `manifest.md`。
 
 ## 添加剧情
 
@@ -49,6 +47,7 @@ y: 40
 id: 10
 chapter: act2
 title: 新剧情标题
+summary: 一句话概括这一章发生了什么
 accent: #8a5cf6
 lanes: [主线, 感情线]
 status: 待串联
@@ -59,7 +58,9 @@ climax: false
 这里写剧情正文。
 ```
 
-`people` 可以不写。页面会扫描标题和正文，根据人物档案中的完整姓名、别名以及唯一的男主/女主称呼，自动生成出场人物。遇到只写“他”“母亲”这类无法判断的称呼时，仍可用 `people: [new_person, lin]` 手动补充。
+`people` 可以不写。页面会扫描标题和正文，根据人物档案中的完整姓名、别名以及唯一的男主/女主称呼，自动生成出场人物。遇到只写“他”“母亲”这类无法判断的称呼时，仍可用 `people: [8, 1]` 手动补充。
+
+`summary` 用于剧情全文顶部的简短概括。可以不写；不写时页面会自动从正文开头生成摘要。
 
 `lanes` 表示这段剧情属于哪些剧情线。第一个是主要落点，后面的线会在时间线图里用横线连接，适合表现伏笔、支线穿插、分支汇合。
 
@@ -73,11 +74,7 @@ climax: false
 
 `climax: true` 表示高潮剧情，比如大冲突、最终揭露、战斗、情绪爆发等。两个字段都可以不写；不写就是普通剧情。
 
-3. 在 `manifest.md` 的 `Plots` 下面加一行：
-
-```md
-- ./plots/010-new-plot.md
-```
+3. 使用 `./run.sh` 启动时，刷新网页即可自动发现新剧情，无需修改 `manifest.md`。
 
 ## 添加设定条目
 
@@ -94,7 +91,7 @@ area: 修船厂后街
 accent: #e76f51
 aliases: [后街餐厅, 半潮]
 tags: [修船厂, 夜间, 匿名包裹]
-people: [shen, yan]
+people: [2, 6]
 plots: [4, 7]
 status: 草稿
 ---
@@ -113,11 +110,7 @@ status: 草稿
 
 `plots` 不需要手动维护。页面会根据设定在章节中的出现情况，自动整理设定详情页的相关剧情；也可以保留 `plots` 或剧情文件中的 `entries` 作为手动补充。
 
-3. 在 `manifest.md` 的 `Entries` 下面加一行：
-
-```md
-- ./entries/night-restaurant.md
-```
+3. 使用 `./run.sh` 启动时，刷新网页即可自动发现新设定，无需修改 `manifest.md`。
 
 ## 添加灵感碎片
 
@@ -135,11 +128,7 @@ accent: #457b9d
 这里写还没整理成正式剧情点的画面、台词、设定或想法。
 ```
 
-3. 在 `manifest.md` 的 `Fragments` 下面加一行：
-
-```md
-- ./fragments/new-idea.md
-```
+3. 使用 `./run.sh` 启动时，刷新网页即可自动发现新碎片，无需修改 `manifest.md`。
 
 ## 添加人物关系
 
@@ -148,19 +137,15 @@ accent: #457b9d
 
 ```md
 ---
-from: new_person
-to: lin
+from: 8
+to: 1
 label: 师徒
 color: #8a5cf6
 type: 同盟
 ---
 ```
 
-3. 在 `manifest.md` 的 `Relationships` 下面加一行：
-
-```md
-- ./relationships/new-person-lin.md
-```
+3. 使用 `./run.sh` 启动时，刷新网页即可自动发现新关系，无需修改 `manifest.md`。
 
 如果一个人物只和一个人物有关系，只写这一条关系文件就可以。系统不会自动帮它连到其他人。
 
@@ -185,7 +170,7 @@ type: 同盟
 
 - id: lead-pair
   type: pair
-  members: [lin, su]
+  members: [1, 3]
   centerX: 50
   centerY: 50
   direction: horizontal
@@ -203,11 +188,11 @@ type: 同盟
 
 - id: old-case-cross
   type: cross
-  center: shen
-  north: yan
-  south: han
-  west: lin
-  east: qiao
+  center: 2
+  north: 6
+  south: 5
+  west: 1
+  east: 4
   centerX: 56
   centerY: 52
   spacing: 220
@@ -222,8 +207,8 @@ type: 同盟
 
 - id: qiao-star
   type: star
-  center: qiao
-  members: [mo, lin, su, han]
+  center: 4
+  members: [7, 1, 3, 5]
   centerX: 32
   centerY: 55
   radius: 230
@@ -239,7 +224,7 @@ type: 同盟
 
 - id: suspect-ring
   type: ring
-  members: [lin, su, shen, han, yan, qiao]
+  members: [1, 3, 2, 5, 6, 4]
   centerX: 55
   centerY: 52
   radius: 260
@@ -254,7 +239,7 @@ type: 同盟
 
 - id: clue-chain
   type: chain
-  members: [yan, shen, han, qiao]
+  members: [6, 2, 5, 4]
   centerX: 58
   centerY: 44
   direction: horizontal
@@ -270,7 +255,7 @@ type: 同盟
 
 - id: lead-triangle
   type: triangle
-  members: [lin, su, shen]
+  members: [1, 3, 2]
   centerX: 50
   centerY: 50
   radius: 190
@@ -301,7 +286,7 @@ nodeSpacing: 116
   centerY: 56
   radius: 160
   strength: 0.46
-  members: [qiao, mo]
+  members: [4, 7]
 ```
 
 `members` 会自然靠近。`centerX` 和 `centerY` 是这个团大概在画布中的位置百分比。`radius` 越大越松散，`strength` 越大越听配置。
@@ -312,7 +297,7 @@ nodeSpacing: 116
 ## Distances
 
 - from: qiao
-  to: mo
+  to: 7
   distance: 280
   strength: 0.9
 ```
@@ -324,8 +309,8 @@ nodeSpacing: 116
 ```md
 ## Nodes
 
-- id: mo
-  orbitOf: qiao
+- id: 7
+  orbitOf: 4
   orbitDistance: 300
   orbitAngle: -145
   strength: 0.03

@@ -4,16 +4,37 @@ let fragments = [];
 let places = [];
 let relationships = [];
 let timelineModel = null;
+let timelineRenderVersion = 0;
+let timelineViewportFrame = 0;
+let timelineViewportKey = "";
+let graphAnimationFrame = 0;
 let timelineConfig = {};
+let timelineConfigPath = "";
+let timelineConfigPromise = null;
+let timelineConfigLoaded = false;
 let graphLayoutConfig = {};
 let projectConfig = {};
 let configDiagnostics = [];
-const DATA_VERSION = "auto-plot-references";
+let refactorCapability = null;
+let refactorOperationId = "";
+let refactorCapabilityProject = "";
+const DATA_VERSION = "virtualized-timeline";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
 const FRAGMENT_PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
 const AUTO_ROLE_MENTIONS = new Set(["男主", "女主"]);
+const TIMELINE_VIEWPORT_BUFFER_Y = 280;
+const TIMELINE_VIEWPORT_BUFFER_X = 120;
+const TIMELINE_VIEWPORT_BUCKET = 140;
+
+async function yieldToMain() {
+  if (globalThis.scheduler?.yield) {
+    await globalThis.scheduler.yield();
+    return;
+  }
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
+}
 
 if ("scrollRestoration" in history) {
   history.scrollRestoration = "manual";
@@ -66,6 +87,14 @@ function parseValue(value) {
   if (trimmed === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
   return trimmed.replace(/^["']|["']$/g, "");
+}
+
+function characterId(value) {
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function characterIds(values) {
+  return Array.isArray(values) ? values.map(characterId).filter(Boolean) : [];
 }
 
 function parseMarkdownFile(text) {
@@ -159,20 +188,28 @@ function detectMentionedIds(text, candidates, records) {
   return records.filter((record) => detectedIds.has(record.id)).map((record) => record.id);
 }
 
-function connectPlotReferences() {
+async function connectPlotReferences() {
   const peopleCandidates = characterMentionCandidates();
   const entryCandidates = entryMentionCandidates();
-  plots = plots.map((plot) => ({
-    ...plot,
-    people: [...new Set([
-      ...(plot.people || []),
-      ...detectMentionedIds(`${plot.title || ""}\n${plot.text || ""}`, peopleCandidates, characters),
-    ])],
-    entries: [...new Set([
-      ...(plot.entries || []),
-      ...detectMentionedIds(`${plot.title || ""}\n${plot.text || ""}`, entryCandidates, places),
-    ])],
-  }));
+  const connectedPlots = [];
+  for (let index = 0; index < plots.length; index += 1) {
+    const plot = plots[index];
+    const searchableText = `${plot.title || ""}\n${markdownPlainText(plot.text || "")}`;
+    connectedPlots.push({
+      ...plot,
+      people: [...new Set([
+        ...(plot.people || []),
+        ...detectMentionedIds(searchableText, peopleCandidates, characters),
+      ])],
+      entries: [...new Set([
+        ...(plot.entries || []),
+        ...detectMentionedIds(searchableText, entryCandidates, places),
+      ])],
+    });
+    if (index > 0 && index % 24 === 0) await yieldToMain();
+  }
+  plots = connectedPlots;
+  await yieldToMain();
   characters = characters.map((person) => ({
     ...person,
     events: [...new Set([
@@ -180,6 +217,7 @@ function connectPlotReferences() {
       ...plots.filter((plot) => plot.people.includes(person.id)).map((plot) => plot.id),
     ])],
   }));
+  await yieldToMain();
   places = places.map((place) => ({
     ...place,
     plots: [...new Set([
@@ -243,6 +281,11 @@ function validateProjectConfiguration() {
   checkDuplicateIds(characters, "人物");
   checkDuplicateIds(plots, "剧情");
   checkDuplicateIds(places, "设定");
+  characters.forEach((person) => {
+    if (person.id && !/^\d+$/.test(person.id)) {
+      add("error", `人物 id 应为数字：${person.id}`, `${person.name || "未命名人物"}需要使用创建时分配的自增编号。`, "人物");
+    }
+  });
   checkAmbiguousTerms(characters, "人物");
   checkAmbiguousTerms(places, "设定");
 
@@ -359,6 +402,28 @@ function extractManifestSection(text, sectionName) {
   return paths;
 }
 
+async function loadLocalContentIndex() {
+  const response = await fetch(`/api/content-index?project=${encodeURIComponent(currentProjectId())}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("本地内容扫描不可用");
+  const result = await response.json();
+  if (!result?.ok || !result.collections) throw new Error("本地内容扫描结果无效");
+  return result.collections;
+}
+
+function manifestContentIndex(manifestBody) {
+  return {
+    characters: extractManifestSection(manifestBody, "Characters"),
+    plots: extractManifestSection(manifestBody, "Plots"),
+    fragments: extractManifestSection(manifestBody, "Fragments"),
+    entries: extractManifestSection(manifestBody, "Entries"),
+    relationships: extractManifestSection(manifestBody, "Relationships"),
+    timeline: extractManifestSection(manifestBody, "Timeline"),
+    graphLayout: extractManifestSection(manifestBody, "GraphLayout"),
+  };
+}
+
 function parseConfigBlocks(body, sectionName) {
   const lines = body.split("\n");
   const blocks = [];
@@ -397,15 +462,51 @@ async function loadTimelineConfig(path) {
   };
 }
 
+async function ensureTimelineConfig() {
+  if (timelineConfigLoaded) return timelineConfig;
+  if (!timelineConfigPromise) {
+    timelineConfigPromise = loadTimelineConfig(timelineConfigPath);
+  }
+  timelineConfig = await timelineConfigPromise;
+  timelineConfigLoaded = true;
+  configDiagnostics = validateProjectConfiguration();
+  return timelineConfig;
+}
+
 async function loadGraphLayoutConfig(path) {
   if (!path) return {};
   const { meta, body } = parseMarkdownFile(await fetchText(path));
+  const formations = parseConfigBlocks(body, "Formations").map((formation) => ({
+    ...formation,
+    members: characterIds(formation.members),
+    anchorNode: characterId(formation.anchorNode),
+    bindMember: characterId(formation.bindMember),
+    center: characterId(formation.center),
+    north: characterId(formation.north),
+    south: characterId(formation.south),
+    west: characterId(formation.west),
+    east: characterId(formation.east),
+  }));
+  const distances = parseConfigBlocks(body, "Distances").map((distance) => ({
+    ...distance,
+    from: characterId(distance.from),
+    to: characterId(distance.to),
+  }));
+  const clusters = parseConfigBlocks(body, "Clusters").map((cluster) => ({
+    ...cluster,
+    members: characterIds(cluster.members),
+  }));
+  const nodes = parseConfigBlocks(body, "Nodes").map((node) => ({
+    ...node,
+    id: characterId(node.id),
+    orbitOf: characterId(node.orbitOf),
+  }));
   return {
     ...meta,
-    formations: parseConfigBlocks(body, "Formations"),
-    distances: parseConfigBlocks(body, "Distances"),
-    clusters: parseConfigBlocks(body, "Clusters"),
-    nodes: parseConfigBlocks(body, "Nodes"),
+    formations,
+    distances,
+    clusters,
+    nodes,
   };
 }
 
@@ -423,74 +524,99 @@ async function loadMarkdownData() {
   };
   projectConfig.chapterLabels = chapterLabelMap(manifestMeta);
 
-  const characterPaths = extractManifestSection(manifestBody, "Characters").map(resolveContentPath);
-  const plotPaths = extractManifestSection(manifestBody, "Plots").map(resolveContentPath);
-  const fragmentPaths = extractManifestSection(manifestBody, "Fragments").map(resolveContentPath);
-  const placePaths = extractManifestSection(manifestBody, "Entries").map(resolveContentPath);
-  const relationshipPaths = extractManifestSection(manifestBody, "Relationships").map(resolveContentPath);
-  const timelinePaths = extractManifestSection(manifestBody, "Timeline").map(resolveContentPath);
-  const graphLayoutPaths = extractManifestSection(manifestBody, "GraphLayout").map(resolveContentPath);
+  let contentIndex;
+  try {
+    contentIndex = await loadLocalContentIndex();
+  } catch {
+    contentIndex = manifestContentIndex(manifestBody);
+  }
+  const characterPaths = (contentIndex.characters || []).map(resolveContentPath);
+  const plotPaths = (contentIndex.plots || []).map(resolveContentPath);
+  const fragmentPaths = (contentIndex.fragments || []).map(resolveContentPath);
+  const placePaths = (contentIndex.entries || []).map(resolveContentPath);
+  const relationshipPaths = (contentIndex.relationships || []).map(resolveContentPath);
+  const timelinePaths = (contentIndex.timeline || []).map(resolveContentPath);
+  const graphLayoutPaths = (contentIndex.graphLayout || []).map(resolveContentPath);
+  timelineConfigPath = timelinePaths[0] || "";
+  timelineConfig = {};
+  timelineConfigPromise = null;
+  timelineConfigLoaded = false;
 
-  characters = await Promise.all(characterPaths.map(async (path) => {
-    const { meta, body } = parseMarkdownFile(await fetchText(path));
-    return {
-      ...meta,
-      intro: body,
-      avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
-      events: Array.isArray(meta.events) ? meta.events : [],
-      aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
-      markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
-    };
-  }));
+  const [
+    loadedCharacters,
+    loadedPlots,
+    loadedFragments,
+    loadedPlaces,
+    loadedRelationships,
+    loadedGraphLayoutConfig,
+  ] = await Promise.all([
+    Promise.all(characterPaths.map(async (path) => {
+      const { meta, body } = parseMarkdownFile(await fetchText(path));
+      return {
+        ...meta,
+        id: characterId(meta.id),
+        intro: body,
+        avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
+        events: Array.isArray(meta.events) ? meta.events : [],
+        aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
+        markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
+      };
+    })),
+    Promise.all(plotPaths.map(async (path) => {
+      const { meta, body } = parseMarkdownFile(await fetchText(path));
+      return {
+        ...meta,
+        text: body,
+        people: characterIds(meta.people),
+        entries: Array.isArray(meta.entries) ? meta.entries : [],
+        tags: Array.isArray(meta.tags) ? meta.tags : [],
+        status: meta.status || "已接入",
+      };
+    })),
+    Promise.all(fragmentPaths.map(async (path, index) => {
+      const { meta, body } = parseMarkdownFile(await fetchText(path));
+      return {
+        ...meta,
+        id: meta.id || `fragment-${index + 1}`,
+        title: meta.title || "未命名碎片",
+        text: body,
+        tags: Array.isArray(meta.tags) ? meta.tags : [],
+        status: meta.status || "灵感",
+      };
+    })),
+    Promise.all(placePaths.map(async (path) => {
+      const { meta, body } = parseMarkdownFile(await fetchText(path));
+      return {
+        ...meta,
+        intro: body,
+        people: characterIds(meta.people),
+        plots: Array.isArray(meta.plots) ? meta.plots : [],
+        aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
+        tags: Array.isArray(meta.tags) ? meta.tags : [],
+        accent: meta.accent || meta.color || "#457b9d",
+        type: meta.type || "设定",
+        subtype: meta.subtype || "",
+      };
+    })),
+    Promise.all(relationshipPaths.map(async (path) => {
+      const { meta } = parseMarkdownFile(await fetchText(path));
+      return {
+        ...meta,
+        from: characterId(meta.from),
+        to: characterId(meta.to),
+      };
+    })),
+    loadGraphLayoutConfig(graphLayoutPaths[0]),
+  ]);
 
-  plots = await Promise.all(plotPaths.map(async (path) => {
-    const { meta, body } = parseMarkdownFile(await fetchText(path));
-    return {
-      ...meta,
-      text: body,
-      people: Array.isArray(meta.people) ? meta.people : [],
-      entries: Array.isArray(meta.entries) ? meta.entries : [],
-      tags: Array.isArray(meta.tags) ? meta.tags : [],
-      status: meta.status || "已接入",
-    };
-  }));
-  plots.sort((a, b) => a.id - b.id);
-
-  fragments = await Promise.all(fragmentPaths.map(async (path, index) => {
-    const { meta, body } = parseMarkdownFile(await fetchText(path));
-    return {
-      ...meta,
-      id: meta.id || `fragment-${index + 1}`,
-      title: meta.title || "未命名碎片",
-      text: body,
-      tags: Array.isArray(meta.tags) ? meta.tags : [],
-      status: meta.status || "灵感",
-    };
-  }));
-
-  places = await Promise.all(placePaths.map(async (path) => {
-    const { meta, body } = parseMarkdownFile(await fetchText(path));
-    return {
-      ...meta,
-      intro: body,
-      people: Array.isArray(meta.people) ? meta.people : [],
-      plots: Array.isArray(meta.plots) ? meta.plots : [],
-      aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
-      tags: Array.isArray(meta.tags) ? meta.tags : [],
-      accent: meta.accent || meta.color || "#457b9d",
-      type: meta.type || "设定",
-      subtype: meta.subtype || "",
-    };
-  }));
-  connectPlotReferences();
-
-  relationships = await Promise.all(relationshipPaths.map(async (path) => {
-    const { meta } = parseMarkdownFile(await fetchText(path));
-    return meta;
-  }));
-
-  timelineConfig = await loadTimelineConfig(timelinePaths[0]);
-  graphLayoutConfig = await loadGraphLayoutConfig(graphLayoutPaths[0]);
+  characters = loadedCharacters;
+  plots = loadedPlots.sort((a, b) => a.id - b.id);
+  fragments = loadedFragments;
+  places = loadedPlaces;
+  relationships = loadedRelationships;
+  graphLayoutConfig = loadedGraphLayoutConfig;
+  await connectPlotReferences();
+  await yieldToMain();
   configDiagnostics = validateProjectConfiguration();
 }
 
@@ -533,7 +659,18 @@ const state = {
 };
 
 const graphWrap = document.querySelector("#graphWrap");
-const linkLayer = document.querySelector("#linkLayer");
+const graphGpuCanvas = document.querySelector("#graphGpuCanvas");
+const graphFallbackCanvas = document.querySelector("#graphFallbackCanvas");
+function createGraphRenderer() {
+  if (!graphGpuCanvas || !graphFallbackCanvas || !window.GraphRenderer) return null;
+  try {
+    return new window.GraphRenderer(graphGpuCanvas, graphFallbackCanvas);
+  } catch (error) {
+    console.info("Graph effects unavailable; character nodes will still render.", error);
+    return null;
+  }
+}
+const graphRenderer = createGraphRenderer();
 const nodeLayer = document.querySelector("#nodeLayer");
 const storyEyebrow = document.querySelector("#storyEyebrow");
 const storyTitle = document.querySelector("#storyTitle");
@@ -573,6 +710,18 @@ const diagnosticSummary = document.querySelector("#diagnosticSummary");
 const diagnosticList = document.querySelector("#diagnosticList");
 const diagnosticNavCount = document.querySelector("#diagnosticNavCount");
 const diagnosticRefreshBtn = document.querySelector("#diagnosticRefreshBtn");
+const refactorWorkspace = document.querySelector("#refactorWorkspace");
+const refactorMode = document.querySelector("#refactorMode");
+const refactorType = document.querySelector("#refactorType");
+const refactorTarget = document.querySelector("#refactorTarget");
+const refactorNewName = document.querySelector("#refactorNewName");
+const refactorPreviewBtn = document.querySelector("#refactorPreviewBtn");
+const refactorUndoBtn = document.querySelector("#refactorUndoBtn");
+const refactorPreview = document.querySelector("#refactorPreview");
+const refactorPreviewSummary = document.querySelector("#refactorPreviewSummary");
+const refactorChangeList = document.querySelector("#refactorChangeList");
+const refactorCancelBtn = document.querySelector("#refactorCancelBtn");
+const refactorApplyBtn = document.querySelector("#refactorApplyBtn");
 
 function initial(name) {
   return name.slice(0, 1);
@@ -580,7 +729,7 @@ function initial(name) {
 
 function avatarContent(person) {
   if (person.avatar) {
-    return `<img src="${person.avatar}" alt="${person.name}" />`;
+    return `<img src="${person.avatar}" alt="${person.name}" loading="lazy" decoding="async" />`;
   }
   return `<span class="avatar-text">${person.name}</span>`;
 }
@@ -590,14 +739,29 @@ function characterMarkers(person) {
 }
 
 function markerTone(marker) {
-  return {
+  const semanticTones = {
     男主: "#2563a8",
     女主: "#c95f92",
     主角: "#2a9d8f",
     主角团: "#d58a35",
     反派: "#9d3f3f",
     中立: "#65717d",
-  }[marker] || "var(--accent)";
+    关键人物: "#457b9d",
+    家人: "#6a994e",
+    家属: "#6a994e",
+    对手: "#b05c48",
+    支线: "#7558b7",
+    支线主角: "#7558b7",
+    规则: "#b77c18",
+    反派群像: "#9d3f3f",
+  };
+  if (semanticTones[marker]) return semanticTones[marker];
+
+  const palette = ["#457b9d", "#2a9d8f", "#c66b8c", "#b77c18", "#6a994e", "#7558b7"];
+  const hash = [...String(marker)].reduce((total, character) => (
+    ((total * 31) + character.codePointAt(0)) >>> 0
+  ), 0);
+  return palette[hash % palette.length];
 }
 
 function markerBadges(person, limit = Infinity) {
@@ -1083,6 +1247,198 @@ function renderDiagnostics() {
     `;
 }
 
+function refactorRecords() {
+  return refactorType?.value === "entry" ? places : characters;
+}
+
+function setRefactorBusy(busy) {
+  [refactorType, refactorTarget, refactorNewName, refactorPreviewBtn, refactorUndoBtn, refactorCancelBtn, refactorApplyBtn]
+    .filter(Boolean)
+    .forEach((element) => {
+      element.disabled = busy
+        || (!refactorCapability?.writable && element !== refactorCancelBtn)
+        || (element === refactorApplyBtn && !refactorOperationId);
+    });
+}
+
+function closeRefactorPreview() {
+  refactorOperationId = "";
+  refactorPreview?.classList.add("is-hidden");
+  if (refactorPreviewSummary) refactorPreviewSummary.innerHTML = "";
+  if (refactorChangeList) refactorChangeList.innerHTML = "";
+}
+
+function refreshRefactorTargets() {
+  if (!refactorTarget) return;
+  const records = [...refactorRecords()].sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  refactorTarget.innerHTML = records
+    .map((record) => `<option value="${escapeHtml(record.id)}">${escapeHtml(record.name)}</option>`)
+    .join("");
+  refactorTarget.disabled = !refactorCapability?.writable || records.length === 0;
+  if (refactorNewName) {
+    refactorNewName.value = "";
+    refactorNewName.placeholder = records.length ? `将“${records[0].name}”改为…` : "当前类型没有档案";
+  }
+  closeRefactorPreview();
+}
+
+function updateRefactorTargetHint() {
+  const selected = refactorRecords().find((record) => String(record.id) === refactorTarget?.value);
+  if (refactorNewName) {
+    refactorNewName.value = "";
+    refactorNewName.placeholder = selected ? `将“${selected.name}”改为…` : "输入新名称";
+  }
+  closeRefactorPreview();
+}
+
+function setRefactorUnavailable(message) {
+  refactorCapability = null;
+  refactorCapabilityProject = currentProjectId();
+  if (refactorMode) {
+    refactorMode.textContent = "只读模式";
+    refactorMode.className = "refactor-mode is-readonly";
+  }
+  if (refactorPreviewSummary) {
+    refactorPreviewSummary.innerHTML = `<strong>无法修改本地文件</strong><span>${escapeHtml(message)}</span>`;
+  }
+  refactorPreview?.classList.remove("is-hidden");
+  refactorChangeList?.replaceChildren();
+  refactorUndoBtn?.classList.add("is-hidden");
+  setRefactorBusy(false);
+}
+
+async function refactorApi(path, body) {
+  const options = body
+    ? {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Story-Teller-Token": refactorCapability?.token || "",
+        },
+        body: JSON.stringify(body),
+      }
+    : {};
+  const response = await fetch(path, options);
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("当前是公开只读部署；请使用项目自带的本地启动命令");
+  }
+  const result = await response.json();
+  if (!response.ok || !result.ok) throw new Error(result.error || "本地操作失败");
+  return result;
+}
+
+async function initializeRefactorWorkspace(force = false) {
+  if (!refactorWorkspace) return;
+  const project = currentProjectId();
+  if (!force && refactorCapability?.writable && refactorCapabilityProject === project) return;
+  if (refactorMode) {
+    refactorMode.textContent = "正在连接本地服务";
+    refactorMode.className = "refactor-mode";
+  }
+  setRefactorBusy(true);
+  try {
+    const capability = await refactorApi(`/api/capabilities?project=${encodeURIComponent(project)}`);
+    refactorCapability = capability;
+    refactorCapabilityProject = project;
+    if (refactorMode) {
+      refactorMode.textContent = "本地可写";
+      refactorMode.className = "refactor-mode is-writable";
+    }
+    refactorUndoBtn?.classList.toggle("is-hidden", !capability.canUndo);
+    if (refactorUndoBtn && capability.undoLabel) {
+      refactorUndoBtn.textContent = `撤销：${capability.undoLabel}`;
+    }
+    refreshRefactorTargets();
+    setRefactorBusy(false);
+  } catch (error) {
+    setRefactorUnavailable(error.message);
+  }
+}
+
+function renderRefactorError(message) {
+  if (refactorPreviewSummary) {
+    refactorPreviewSummary.innerHTML = `<strong>没有应用任何修改</strong><span>${escapeHtml(message)}</span>`;
+  }
+  refactorChangeList?.replaceChildren();
+  refactorPreview?.classList.remove("is-hidden");
+}
+
+async function previewRefactor() {
+  const newName = refactorNewName?.value.trim() || "";
+  if (!newName) {
+    renderRefactorError("请先输入新名称");
+    refactorNewName?.focus();
+    return;
+  }
+  setRefactorBusy(true);
+  try {
+    const result = await refactorApi("/api/refactor/preview", {
+      project: currentProjectId(),
+      type: refactorType.value,
+      id: refactorTarget.value,
+      newName,
+    });
+    refactorOperationId = result.operationId;
+    refactorPreviewSummary.innerHTML = `
+      <strong>${escapeHtml(result.oldName)} → ${escapeHtml(result.newName)}</strong>
+      <span>${result.fileCount} 个文件，${result.matchCount} 处修改</span>
+    `;
+    refactorChangeList.innerHTML = result.samples.length
+      ? result.samples.map((sample) => `
+          <article class="refactor-change">
+            <small>${escapeHtml(sample.file)} · 第 ${sample.line} 行</small>
+            <del>${escapeHtml(sample.before)}</del>
+            <ins>${escapeHtml(sample.after)}</ins>
+          </article>
+        `).join("")
+      : '<p class="refactor-no-change">没有找到需要修改的引用。</p>';
+    refactorPreview.classList.remove("is-hidden");
+  } catch (error) {
+    refactorOperationId = "";
+    renderRefactorError(error.message);
+  } finally {
+    setRefactorBusy(false);
+  }
+}
+
+async function applyRefactor() {
+  if (!refactorOperationId) return;
+  setRefactorBusy(true);
+  try {
+    await refactorApi("/api/refactor/apply", { operationId: refactorOperationId });
+    window.location.reload();
+  } catch (error) {
+    renderRefactorError(error.message);
+    setRefactorBusy(false);
+  }
+}
+
+async function undoRefactor() {
+  setRefactorBusy(true);
+  try {
+    await refactorApi("/api/refactor/undo", { project: currentProjectId() });
+    window.location.reload();
+  } catch (error) {
+    renderRefactorError(error.message);
+    setRefactorBusy(false);
+  }
+}
+
+async function requestDiagnosticsRender() {
+  if (!timelineConfigLoaded && diagnosticList) {
+    diagnosticList.innerHTML = '<div class="diagnostic-clean"><strong>正在检查配置</strong><p>时间线配置会在这里按需加载。</p></div>';
+  }
+  try {
+    await Promise.all([ensureTimelineConfig(), initializeRefactorWorkspace()]);
+    if (state.view === "diagnostics") renderDiagnostics();
+  } catch (error) {
+    if (diagnosticList) {
+      diagnosticList.innerHTML = `<div class="diagnostic-clean"><strong>配置检查失败</strong><p>${escapeHtml(error.message)}</p></div>`;
+    }
+  }
+}
+
 function renderChapterSwitch() {
   if (!chapterSwitch) return;
   const chapterButtons = chapterKeys().map((chapter) => `
@@ -1403,8 +1759,26 @@ function resolvedBranchTrack(branchConfig, occupiedTracks) {
   return track;
 }
 
-function renderTimeline() {
+async function renderTimeline() {
+  const renderVersion = ++timelineRenderVersion;
+  if (!timelineConfigLoaded) {
+    timelineList.innerHTML = '<div class="timeline-loading">正在按需加载时间线配置…</div>';
+    await ensureTimelineConfig();
+    if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
+  }
   updateTimelineDirectionButton();
+  if (
+    timelineModel
+    && timelineModel.reversed === state.timelineReversed
+    && document.querySelector(".timeline-board")
+  ) {
+    scheduleTimelineViewportRender(true);
+    return;
+  }
+  timelineList.innerHTML = '<div class="timeline-loading">正在整理当前可见的剧情线…</div>';
+  await yieldToMain();
+  if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
+
   const mainLineName = timelineConfig.mainLine || "主线";
   const lines = Array.isArray(timelineConfig.lines) && timelineConfig.lines.length
     ? timelineConfig.lines
@@ -1418,7 +1792,6 @@ function renderTimeline() {
     : ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"];
   const branchConfigByLine = new Map(branchConfigs.map((item) => [item.line, item]));
   const nodeConfigByPlot = new Map((timelineConfig.nodes || []).map((item) => [Number(item.plotId), item]));
-  const plotIndexById = new Map(plots.map((plot, index) => [Number(plot.id), index]));
   let timelineColorMap = new Map();
   const baseLineColor = (line) => palette[Math.max(0, lines.indexOf(line)) % palette.length];
   const lineColor = (line) => timelineColorMap.get(line) || baseLineColor(line);
@@ -1543,6 +1916,8 @@ function renderTimeline() {
   const connectorLines = branchConfigs
     .map((branchConfig) => resolveConnector(branchConfig.line))
     .filter(Boolean);
+  await yieldToMain();
+  if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
   timelineColorMap = assignTimelineColors(lines, branchConfigs, connectorLines, palette, mainLineName);
   mainLine.color = lineColor(mainLineName);
   connectorLines.forEach((connector) => {
@@ -1617,95 +1992,212 @@ function renderTimeline() {
       priority: timelinePlotPriority(plot, nodeConfig),
     };
   });
+  await yieldToMain();
+  if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
 
   const summaryItems = selectTimelineSummaryItems(positionedPlots, lines, mainLineName);
   const summaryIds = new Set(summaryItems.map((item) => Number(item.plot.id)));
-  const nodes = positionedPlots.map((item) => {
-    const { plot, position, nodeColor, priority } = item;
-    const positionLabel = `${position.lane} · ${timelinePercentLabel(position.storyRatio)}`;
-    const nodeClass = [
-      "timeline-node",
-      "timeline-node-focus",
-      priority >= 4 || summaryIds.has(Number(plot.id)) ? "is-featured" : "is-minor",
-      plot.climax ? "is-climax" : "",
-      plot.key ? "is-key" : "",
-    ].filter(Boolean).join(" ");
-    return `<button class="${nodeClass}" data-plot-id="${plot.id}" data-lane="${position.lane}" type="button" aria-label="${timelinePlotTitle(plot)}，${positionLabel}" title="${positionLabel}" style="--accent:${nodeColor}; left:${position.x}px; top:${position.y}px">
-      <span class="timeline-dot" aria-hidden="true"></span>
-      <span class="timeline-node-tip">${positionLabel}</span>
-    </button>`;
-  }).join("");
-
-  const summaryCard = (item) => {
-    const { plot, position, nodeColor } = item;
-    return `
-      <button class="timeline-summary-card timeline-jump" data-plot-id="${plot.id}" data-primary-lane="${position.lane}" data-lanes="${position.lane}" type="button" style="--accent:${nodeColor}; --card-y:${Math.round(position.y)}px">
-        <span>${timelinePlotChapter(plot)} · ${plot.id}</span>
-        <strong>${timelinePlotTitle(plot)}</strong>
-        <p>${escapeHtml(markdownExcerpt(timelinePlotSummary(plot), 120))}</p>
-        <small class="timeline-read-hint">阅读全文</small>
-      </button>
-    `;
-  };
-  const leftSummaryCards = summaryItems.filter((item) => item.side === "left").map(summaryCard).join("");
-  const rightSummaryCards = summaryItems.filter((item) => item.side !== "left").map(summaryCard).join("");
-  const legendItems = laneLines
-    .filter((line) => line.lane !== mainLineName && connectorLines.some((connector) => connector.lane === line.lane))
-    .map((line) => `
-      <span class="timeline-legend-item" data-line="${line.lane}" style="--accent:${line.color}">
-        <i aria-hidden="true"></i>${line.lane}
-      </span>
-    `).join("");
+  const legendLines = laneLines
+    .filter((line) => line.lane !== mainLineName && connectorLines.some((connector) => connector.lane === line.lane));
 
   timelineModel = {
     width: graphWidth,
     height: graphHeight,
+    mainLineName,
     lanes: lines,
     laneLines,
     connectors: connectorLines,
+    positionedPlots,
+    summaryItems,
+    summaryIds,
+    legendLines,
     focusLane: "",
+    reversed: state.timelineReversed,
+    visibleRange: null,
+    viewportSettled: false,
   };
+  timelineViewportKey = "";
 
   timelineList.innerHTML = `
     <div class="timeline-board ${plots.length > 36 ? "is-dense" : ""}" style="--timeline-height:${graphHeight}px; --map-width:${graphWidth}px">
-      <div class="timeline-side timeline-side-left">
-        ${leftSummaryCards}
-      </div>
+      <div class="timeline-side timeline-side-left"></div>
       <div class="timeline-map">
-        <div class="timeline-orbit" aria-hidden="true"></div>
         <div class="timeline-canvas" id="timelineCanvasWrap" style="width:${graphWidth}px; height:${graphHeight}px" aria-label="剧情线画布">
-          <canvas class="timeline-drawing" id="timelineDrawing" width="${graphWidth}" height="${graphHeight}" aria-hidden="true"></canvas>
-          ${nodes}
+          <canvas class="timeline-drawing" id="timelineDrawing" aria-hidden="true"></canvas>
+          <div class="timeline-node-layer" id="timelineNodeLayer"></div>
         </div>
       </div>
-      <div class="timeline-side timeline-side-right">
-        ${rightSummaryCards}
-      </div>
-      <div class="timeline-float is-hidden" id="timelineFloat">
-        <span id="timelineFloatLane"></span>
-        <strong id="timelineFloatTitle"></strong>
-        <p id="timelineFloatText"></p>
-      </div>
+      <div class="timeline-side timeline-side-right"></div>
     </div>
   `;
-  if (timelineLegend) timelineLegend.innerHTML = legendItems;
+  if (timelineLegend) timelineLegend.innerHTML = "";
 
-  document.querySelectorAll(".timeline-jump").forEach((item) => {
-    item.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openPlotDetail(Number(item.dataset.plotId));
-    });
-  });
-  document.querySelectorAll(".timeline-node-focus").forEach((item) => {
-    item.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openPlotDetail(Number(item.dataset.plotId));
-    });
-  });
   document.querySelector("#timelineCanvasWrap")?.addEventListener("click", handleTimelineCanvasClick);
   document.querySelector(".timeline-board")?.addEventListener("click", handleTimelineBoardClick);
-  drawTimelineCanvas();
-  updateTimelineLegend();
+  scheduleTimelineViewportRender(true);
+}
+
+function requestTimelineRender() {
+  renderTimeline().catch((error) => {
+    if (state.view === "timeline") {
+      timelineList.innerHTML = `<div class="timeline-loading">时间线加载失败：${escapeHtml(error.message)}</div>`;
+    }
+    console.error(error);
+  });
+}
+
+function timelineNodeMarkup(item) {
+  const { plot, position, nodeColor, priority } = item;
+  const positionLabel = `${position.lane} · ${timelinePercentLabel(position.storyRatio)}`;
+  const nodeClass = [
+    "timeline-node",
+    "timeline-node-focus",
+    priority >= 4 || timelineModel.summaryIds.has(Number(plot.id)) ? "is-featured" : "is-minor",
+    plot.climax ? "is-climax" : "",
+    plot.key ? "is-key" : "",
+    timelineModel.focusLane && timelineModel.focusLane !== position.lane ? "is-muted-by-focus" : "",
+  ].filter(Boolean).join(" ");
+  return `<button class="${nodeClass}" data-plot-id="${plot.id}" data-lane="${escapeHtml(position.lane)}" type="button" aria-label="${escapeHtml(timelinePlotTitle(plot))}，${escapeHtml(positionLabel)}" title="${escapeHtml(positionLabel)}" style="--accent:${nodeColor}; left:${position.x}px; top:${position.y}px">
+    <span class="timeline-dot" aria-hidden="true"></span>
+    <span class="timeline-node-tip">${escapeHtml(positionLabel)}</span>
+  </button>`;
+}
+
+function timelineSummaryMarkup(item) {
+  const { plot, position, nodeColor } = item;
+  const hiddenByFocus = timelineModel.focusLane && timelineModel.focusLane !== position.lane;
+  const stableClass = timelineModel.viewportSettled ? "is-stable" : "";
+  return `
+    <button class="timeline-summary-card timeline-jump ${stableClass} ${hiddenByFocus ? "is-hidden-by-focus" : ""}" data-plot-id="${plot.id}" data-primary-lane="${escapeHtml(position.lane)}" type="button" style="--accent:${nodeColor}; --card-y:${Math.round(position.y)}px">
+      <span>${escapeHtml(timelinePlotChapter(plot))} · ${plot.id}</span>
+      <strong>${escapeHtml(timelinePlotTitle(plot))}</strong>
+      <p>${escapeHtml(markdownExcerpt(timelinePlotSummary(plot), 120))}</p>
+      <small class="timeline-read-hint">阅读全文</small>
+    </button>
+  `;
+}
+
+function timelineVisibleRange() {
+  if (!timelineModel || state.view !== "timeline") return null;
+  const canvasWrap = document.querySelector("#timelineCanvasWrap");
+  const canvasRect = canvasWrap?.getBoundingClientRect();
+  const listRect = timelineList?.getBoundingClientRect();
+  if (!canvasRect || !listRect || canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+
+  const clipTop = Math.max(0, listRect.top);
+  const clipBottom = Math.min(window.innerHeight, listRect.bottom);
+  const clipLeft = Math.max(0, listRect.left);
+  const clipRight = Math.min(window.innerWidth, listRect.right);
+  const visibleTop = Math.max(clipTop, canvasRect.top);
+  const visibleBottom = Math.min(clipBottom, canvasRect.bottom);
+  const visibleLeft = Math.max(clipLeft, canvasRect.left);
+  const visibleRight = Math.min(clipRight, canvasRect.right);
+  if (visibleBottom <= visibleTop || visibleRight <= visibleLeft) return null;
+
+  const scaleX = timelineModel.width / canvasRect.width;
+  const scaleY = timelineModel.height / canvasRect.height;
+  return {
+    top: (visibleTop - canvasRect.top) * scaleY,
+    bottom: (visibleBottom - canvasRect.top) * scaleY,
+    left: (visibleLeft - canvasRect.left) * scaleX,
+    right: (visibleRight - canvasRect.left) * scaleX,
+  };
+}
+
+function bufferedTimelineRange(range) {
+  if (!timelineModel || !range) return null;
+  const snapDown = (value) => Math.floor(value / TIMELINE_VIEWPORT_BUCKET) * TIMELINE_VIEWPORT_BUCKET;
+  const snapUp = (value) => Math.ceil(value / TIMELINE_VIEWPORT_BUCKET) * TIMELINE_VIEWPORT_BUCKET;
+  return {
+    top: Math.max(0, snapDown(range.top - TIMELINE_VIEWPORT_BUFFER_Y)),
+    bottom: Math.min(timelineModel.height, snapUp(range.bottom + TIMELINE_VIEWPORT_BUFFER_Y)),
+    left: Math.max(0, snapDown(range.left - TIMELINE_VIEWPORT_BUFFER_X)),
+    right: Math.min(timelineModel.width, snapUp(range.right + TIMELINE_VIEWPORT_BUFFER_X)),
+  };
+}
+
+function bindTimelineViewportEvents() {
+  document.querySelectorAll(".timeline-jump, .timeline-node-focus").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPlotDetail(Number(item.dataset.plotId));
+    });
+  });
+}
+
+function renderTimelineViewport(force = false) {
+  if (!timelineModel || state.view !== "timeline") return;
+  const range = timelineVisibleRange();
+  const renderRange = bufferedTimelineRange(range);
+  const nodeLayer = document.querySelector("#timelineNodeLayer");
+  const leftSide = document.querySelector(".timeline-side-left");
+  const rightSide = document.querySelector(".timeline-side-right");
+  if (!range || !renderRange || !nodeLayer || !leftSide || !rightSide) {
+    suspendTimelineViewport();
+    return;
+  }
+
+  const key = [
+    Math.round(renderRange.top),
+    Math.round(renderRange.bottom),
+    Math.round(renderRange.left),
+    Math.round(renderRange.right),
+    timelineModel.focusLane,
+  ].join(":");
+  timelineModel.visibleRange = range;
+  if (!force && key === timelineViewportKey) {
+    updateTimelineLegend(range);
+    return;
+  }
+  timelineViewportKey = key;
+
+  const visibleNodes = timelineModel.positionedPlots.filter(({ position }) => (
+    position.y + 18 >= renderRange.top
+    && position.y - 18 <= renderRange.bottom
+    && position.x + 18 >= renderRange.left
+    && position.x - 18 <= renderRange.right
+  ));
+  const visibleSummaries = timelineModel.summaryItems.filter(({ position }) => (
+    position.y + 96 >= renderRange.top && position.y - 96 <= renderRange.bottom
+  ));
+
+  nodeLayer.innerHTML = visibleNodes.map(timelineNodeMarkup).join("");
+  leftSide.innerHTML = visibleSummaries.filter((item) => item.side === "left").map(timelineSummaryMarkup).join("");
+  rightSide.innerHTML = visibleSummaries.filter((item) => item.side !== "left").map(timelineSummaryMarkup).join("");
+  timelineModel.viewportSettled = true;
+  bindTimelineViewportEvents();
+  drawTimelineCanvas(renderRange);
+  updateTimelineLegend(range);
+}
+
+function scheduleTimelineViewportRender(force = false) {
+  if (force) timelineViewportKey = "";
+  if (timelineViewportFrame || state.view !== "timeline") return;
+  timelineViewportFrame = window.requestAnimationFrame(() => {
+    timelineViewportFrame = 0;
+    renderTimelineViewport(force);
+  });
+}
+
+function suspendTimelineViewport() {
+  if (timelineViewportFrame) {
+    window.cancelAnimationFrame(timelineViewportFrame);
+    timelineViewportFrame = 0;
+  }
+  document.querySelector("#timelineNodeLayer")?.replaceChildren();
+  document.querySelector(".timeline-side-left")?.replaceChildren();
+  document.querySelector(".timeline-side-right")?.replaceChildren();
+  document.querySelector("#timelineFloat")?.remove();
+  if (timelineModel) timelineModel.focusLane = "";
+  const canvas = document.querySelector("#timelineDrawing");
+  if (canvas) {
+    canvas.width = 0;
+    canvas.height = 0;
+    canvas.style.width = "0px";
+    canvas.style.height = "0px";
+  }
+  if (timelineLegend) timelineLegend.innerHTML = "";
+  timelineViewportKey = "";
 }
 
 function drawRoundedConnector(ctx, connector) {
@@ -1746,21 +2238,34 @@ function drawRoundedConnector(ctx, connector) {
   ctx.stroke();
 }
 
-function drawTimelineCanvas() {
+function drawTimelineCanvas(range = timelineVisibleRange()) {
   const canvas = document.querySelector("#timelineDrawing");
-  if (!canvas || !timelineModel) return;
+  if (!canvas || !timelineModel || !range) return;
+  const drawLeft = Math.max(0, Math.floor(range.left));
+  const drawRight = Math.min(timelineModel.width, Math.ceil(range.right));
+  const drawTop = Math.max(0, Math.floor(range.top));
+  const drawBottom = Math.min(timelineModel.height, Math.ceil(range.bottom));
+  const drawWidth = Math.max(1, drawRight - drawLeft);
+  const drawHeight = Math.max(1, drawBottom - drawTop);
   const ratio = window.devicePixelRatio || 1;
-  canvas.width = timelineModel.width * ratio;
-  canvas.height = timelineModel.height * ratio;
-  canvas.style.width = `${timelineModel.width}px`;
-  canvas.style.height = `${timelineModel.height}px`;
+  canvas.width = Math.ceil(drawWidth * ratio);
+  canvas.height = Math.ceil(drawHeight * ratio);
+  canvas.style.left = `${drawLeft}px`;
+  canvas.style.top = `${drawTop}px`;
+  canvas.style.width = `${drawWidth}px`;
+  canvas.style.height = `${drawHeight}px`;
   const ctx = canvas.getContext("2d");
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, timelineModel.width, timelineModel.height);
+  ctx.setTransform(ratio, 0, 0, ratio, -drawLeft * ratio, -drawTop * ratio);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  timelineModel.laneLines.filter((line) => line.lane === "主线").forEach((line) => {
+  timelineModel.laneLines.filter((line) => (
+    line.lane === timelineModel.mainLineName
+    && line.x + 16 >= drawLeft
+    && line.x - 16 <= drawRight
+    && Math.max(line.y1, line.y2) >= drawTop
+    && Math.min(line.y1, line.y2) <= drawBottom
+  )).forEach((line) => {
     const isFocused = timelineModel.focusLane === line.lane;
     ctx.save();
     ctx.globalAlpha = timelineModel.focusLane && !isFocused ? 0.18 : 0.84;
@@ -1769,13 +2274,19 @@ function drawTimelineCanvas() {
     ctx.shadowColor = isFocused ? "rgba(25, 33, 42, 0.26)" : "rgba(31, 46, 58, 0.12)";
     ctx.shadowBlur = isFocused ? 16 : 8;
     ctx.beginPath();
-    ctx.moveTo(line.x, line.y1);
-    ctx.lineTo(line.x, line.y2);
+    ctx.moveTo(line.x, Math.max(drawTop, Math.min(line.y1, line.y2)));
+    ctx.lineTo(line.x, Math.min(drawBottom, Math.max(line.y1, line.y2)));
     ctx.stroke();
     ctx.restore();
   });
 
-  timelineModel.connectors.forEach((connector) => {
+  timelineModel.connectors.filter((connector) => {
+    const minX = Math.min(connector.x1, connector.x2, connector.x3 ?? connector.x1);
+    const maxX = Math.max(connector.x1, connector.x2, connector.x3 ?? connector.x1);
+    const minY = Math.min(connector.y1, connector.y2);
+    const maxY = Math.max(connector.y1, connector.y2);
+    return maxX + 20 >= drawLeft && minX - 20 <= drawRight && maxY + 20 >= drawTop && minY - 20 <= drawBottom;
+  }).forEach((connector) => {
     const isFocused = timelineModel.focusLane === connector.lane;
     const isRelated = connector.lane === timelineModel.focusLane;
     ctx.save();
@@ -1788,19 +2299,11 @@ function drawTimelineCanvas() {
   });
 }
 
-function updateTimelineLegend() {
+function updateTimelineLegend(range = timelineVisibleRange()) {
   if (!timelineModel || !timelineLegend) return;
   const visibleLines = new Set();
-  const canvasWrap = document.querySelector("#timelineCanvasWrap");
-  const canvasRect = canvasWrap?.getBoundingClientRect();
-  const listRect = timelineList?.getBoundingClientRect();
-  if (canvasRect && listRect && canvasRect.height > 0) {
-    const clipTop = Math.max(0, listRect.top);
-    const clipBottom = Math.min(window.innerHeight, listRect.bottom);
-    const scale = timelineModel.height / canvasRect.height;
-    const visibleTop = Math.max(0, (clipTop - canvasRect.top) * scale);
-    const visibleBottom = Math.min(timelineModel.height, (clipBottom - canvasRect.top) * scale);
-    const overlapsView = (start, end) => Math.max(start, visibleTop) <= Math.min(end, visibleBottom);
+  if (range) {
+    const overlapsView = (start, end) => Math.max(start, range.top) <= Math.min(end, range.bottom);
     timelineModel.laneLines.forEach((line) => {
       if (overlapsView(Math.min(line.y1, line.y2), Math.max(line.y1, line.y2))) visibleLines.add(line.lane);
     });
@@ -1809,15 +2312,15 @@ function updateTimelineLegend() {
     });
   }
 
-  let visibleCount = 0;
-  document.querySelectorAll(".timeline-legend-item").forEach((item) => {
-    const isVisible = timelineModel.focusLane
-      ? item.dataset.line === timelineModel.focusLane
-      : visibleLines.has(item.dataset.line);
-    item.classList.toggle("is-hidden-by-focus", !isVisible);
-    item.classList.toggle("is-active", item.dataset.line === timelineModel.focusLane);
-    if (isVisible) visibleCount += 1;
-  });
+  const visibleLegendLines = timelineModel.legendLines.filter((line) => (
+    timelineModel.focusLane ? line.lane === timelineModel.focusLane : visibleLines.has(line.lane)
+  ));
+  timelineLegend.innerHTML = visibleLegendLines.map((line) => `
+    <span class="timeline-legend-item ${line.lane === timelineModel.focusLane ? "is-active" : ""}" data-line="${escapeHtml(line.lane)}" style="--accent:${line.color}">
+      <i aria-hidden="true"></i>${escapeHtml(line.lane)}
+    </span>
+  `).join("");
+  const visibleCount = visibleLegendLines.length;
   const legendRows = visibleCount <= 3
     ? Math.max(1, visibleCount)
     : Math.ceil(Math.sqrt(visibleCount));
@@ -1877,15 +2380,29 @@ function handleTimelineBoardClick(event) {
   hideTimelineFloat();
 }
 
+function ensureTimelineFloat() {
+  let float = document.querySelector("#timelineFloat");
+  if (float) return float;
+  float = document.createElement("div");
+  float.className = "timeline-float";
+  float.id = "timelineFloat";
+  float.innerHTML = `
+    <span id="timelineFloatLane"></span>
+    <strong id="timelineFloatTitle"></strong>
+    <p id="timelineFloatText"></p>
+  `;
+  document.querySelector(".timeline-board")?.append(float);
+  return float;
+}
+
 function showTimelineFloat(target) {
-  const float = document.querySelector("#timelineFloat");
+  const float = ensureTimelineFloat();
   if (!float) return;
   const plot = plots.find((item) => item.id === Number(target.dataset.plotId));
   const lane = target.dataset.lane || "剧情线";
   const activeLane = lane.split(" / ").map((item) => item.trim()).filter(Boolean)[0] || lane;
   if (timelineModel) timelineModel.focusLane = plot ? activeLane : lane;
-  drawTimelineCanvas();
-  updateTimelineLegend();
+  scheduleTimelineViewportRender(true);
   document.querySelectorAll(".timeline-summary-card.is-hidden-by-focus").forEach((item) => item.classList.remove("is-hidden-by-focus"));
   document.querySelectorAll(".timeline-summary-card").forEach((item) => {
     const isRelated = plot
@@ -1902,14 +2419,12 @@ function showTimelineFloat(target) {
   document.querySelector("#timelineFloatLane").textContent = plot ? activeLane : lane;
   document.querySelector("#timelineFloatTitle").textContent = plot ? timelinePlotTitle(plot) : "剧情流向";
   document.querySelector("#timelineFloatText").textContent = plot ? timelinePlotSummary(plot) : "这条剧情线连接了相关事件，点击节点可跳到完整剧情。";
-  float.classList.remove("is-hidden");
 }
 
 function hideTimelineFloat() {
-  document.querySelector("#timelineFloat")?.classList.add("is-hidden");
+  document.querySelector("#timelineFloat")?.remove();
   if (timelineModel) timelineModel.focusLane = "";
-  drawTimelineCanvas();
-  updateTimelineLegend();
+  scheduleTimelineViewportRender(true);
   document.querySelectorAll(".timeline-summary-card.is-hidden-by-focus").forEach((item) => item.classList.remove("is-hidden-by-focus"));
   document.querySelectorAll(".timeline-node.is-muted-by-focus").forEach((item) => item.classList.remove("is-muted-by-focus"));
 }
@@ -2246,6 +2761,33 @@ function togglePlotReference(type, id) {
   });
 }
 
+function configureFloatingReadingTools(plot, navigation) {
+  const readingTools = document.querySelector("#readingProgress");
+  const progressMeter = document.querySelector("#readingProgressMeter");
+  const backButton = document.querySelector("#floatingPlotBack");
+  const prevButton = document.querySelector("#floatingPlotPrev");
+  const nextButton = document.querySelector("#floatingPlotNext");
+  if (!readingTools || !progressMeter || !backButton || !prevButton || !nextButton) return;
+
+  readingTools.classList.remove("is-hidden");
+  readingTools.style.setProperty("--accent", plot.accent);
+  readingTools.style.setProperty("--reading-progress", "0%");
+  progressMeter.setAttribute("aria-label", "阅读进度 0%");
+  progressMeter.setAttribute("aria-valuenow", "0");
+  readingTools.querySelectorAll(".reading-progress-value").forEach((value) => {
+    value.textContent = "0%";
+  });
+  document.querySelector("#floatingPlotChapter").textContent = `${chapterName(plot.chapter)} · ${plot.id}`;
+
+  backButton.onclick = () => openPlotInStory(plot.id);
+  prevButton.disabled = !navigation.prev;
+  nextButton.disabled = !navigation.next;
+  document.querySelector("#floatingPlotPrevTitle").textContent = navigation.prev?.title || "没有上一章";
+  document.querySelector("#floatingPlotNextTitle").textContent = navigation.next?.title || "没有下一章";
+  prevButton.onclick = navigation.prev ? () => openPlotDetail(navigation.prev.id) : null;
+  nextButton.onclick = navigation.next ? () => openPlotDetail(navigation.next.id) : null;
+}
+
 function renderPlotDetail() {
   const plot = plots.find((item) => item.id === Number(state.selectedPlotId)) || plots[0];
   if (!plot || !plotDetail || !plotPeopleRail) return;
@@ -2253,15 +2795,8 @@ function renderPlotDetail() {
   const plotPlaces = (plot.entries || []).map((id) => ({ id, place: getPlace(id) }));
   const navigation = plotNavigation(plot);
   const markdown = renderMarkdownContent(plot.text);
-  const readingProgress = document.querySelector("#readingProgress");
-  if (readingProgress) {
-    readingProgress.classList.remove("is-hidden");
-    readingProgress.style.setProperty("--accent", plot.accent);
-    readingProgress.style.setProperty("--reading-progress", "0%");
-    readingProgress.setAttribute("aria-label", "阅读进度 0%");
-    readingProgress.setAttribute("aria-valuenow", "0");
-    readingProgress.querySelector(".reading-progress-value").textContent = "0%";
-  }
+  const summary = markdownExcerpt(plot.summary || plot.text, 180);
+  configureFloatingReadingTools(plot, navigation);
 
   plotPeopleRail.innerHTML = `
     <section class="plot-rail-section">
@@ -2351,27 +2886,12 @@ function renderPlotDetail() {
 
   plotDetail.innerHTML = `
     <div class="plot-detail-head" style="--accent:${plot.accent}">
-      <div class="plot-detail-actions">
-        <button class="plot-back-btn" id="plotBackBtn" type="button">返回剧情列表</button>
-        <span class="chapter-chip">${chapterName(plot.chapter)} · ${plot.id}</span>
-      </div>
-      <div>
-        <h2>${plot.title}</h2>
-        <div class="badge-line">
-          ${statusBadge(plot.status)}
-          ${tagBadges(plot.tags)}
-          ${plotBadges(plot)}
-        </div>
-      </div>
-      <div class="plot-nav-row" aria-label="章节切换">
-        <button class="plot-nav-btn" id="plotPrevBtn" type="button" ${navigation.prev ? `data-plot-id="${navigation.prev.id}"` : "disabled"}>
-          <span>上一章</span>
-          <strong>${navigation.prev ? navigation.prev.title : "没有上一章"}</strong>
-        </button>
-        <button class="plot-nav-btn" id="plotNextBtn" type="button" ${navigation.next ? `data-plot-id="${navigation.next.id}"` : "disabled"}>
-          <span>下一章</span>
-          <strong>${navigation.next ? navigation.next.title : "没有下一章"}</strong>
-        </button>
+      <h2>${escapeHtml(plot.title)}</h2>
+      <p class="plot-detail-summary">${escapeHtml(summary)}</p>
+      <div class="badge-line">
+        ${statusBadge(plot.status)}
+        ${tagBadges(plot.tags)}
+        ${plotBadges(plot)}
       </div>
     </div>
     <div class="plot-detail-body" style="--accent:${plot.accent}">
@@ -2379,10 +2899,6 @@ function renderPlotDetail() {
     </div>
   `;
 
-  document.querySelector("#plotBackBtn")?.addEventListener("click", () => openPlotInStory(plot.id));
-  document.querySelectorAll(".plot-nav-btn[data-plot-id]").forEach((button) => {
-    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
-  });
   document.querySelectorAll(".plot-toc-item").forEach((item) => {
     item.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2401,8 +2917,9 @@ function renderPlotDetail() {
 
 function updateReadingProgress() {
   const progress = document.querySelector("#readingProgress");
+  const progressMeter = document.querySelector("#readingProgressMeter");
   const body = document.querySelector(".plot-detail-body");
-  if (!progress || !body || state.view !== "plot-detail") return;
+  if (!progress || !progressMeter || !body || state.view !== "plot-detail") return;
 
   const rect = body.getBoundingClientRect();
   const bodyTop = rect.top + window.scrollY;
@@ -2418,9 +2935,11 @@ function updateReadingProgress() {
   const percent = Math.round(ratio * 100);
 
   progress.style.setProperty("--reading-progress", `${percent}%`);
-  progress.setAttribute("aria-label", `阅读进度 ${percent}%`);
-  progress.setAttribute("aria-valuenow", String(percent));
-  progress.querySelector(".reading-progress-value").textContent = `${percent}%`;
+  progressMeter.setAttribute("aria-label", `阅读进度 ${percent}%`);
+  progressMeter.setAttribute("aria-valuenow", String(percent));
+  progress.querySelectorAll(".reading-progress-value").forEach((value) => {
+    value.textContent = `${percent}%`;
+  });
 }
 
 function renderCharacterList() {
@@ -2482,9 +3001,34 @@ function renderCharacterDetail() {
     <div class="character-hero">
       <div class="character-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</div>
       <div class="character-copy">
-        <p class="label">${person.group || "未分组"}</p>
-        <h2>${person.name}</h2>
-        <p>${person.intro}</p>
+        <p class="label">${escapeHtml(person.group || "未分组")}</p>
+        <div class="character-title-row">
+          <h2>${escapeHtml(person.name)}</h2>
+          <button
+            class="character-rename-trigger"
+            type="button"
+            aria-label="修改${escapeHtml(person.name)}的名字"
+            title="修改角色名"
+          >
+            <span aria-hidden="true">✎</span>
+          </button>
+        </div>
+        <div class="character-rename-editor is-hidden">
+          <div class="character-rename-input-row">
+            <input
+              class="character-rename-input"
+              type="text"
+              maxlength="80"
+              autocomplete="off"
+              placeholder="输入新的角色名"
+              aria-label="新的角色名"
+            />
+            <button class="character-rename-preview" type="button">预览修改</button>
+            <button class="character-rename-cancel" type="button">取消</button>
+          </div>
+          <div class="character-rename-result" aria-live="polite"></div>
+        </div>
+        <p>${escapeHtml(person.intro)}</p>
       </div>
       <aside class="character-marker-panel">
         ${markerBadges(person)}
@@ -2498,9 +3042,14 @@ function renderCharacterDetail() {
       </div>
       <div class="character-plot-list">
         ${personPlots.map((plot) => `
-          <article class="${storyCardClass(plot, "character-plot")}" style="--accent:${plot.accent}">
+          <button
+            class="${storyCardClass(plot, "character-plot detail-plot-card character-plot-card")}"
+            data-plot-id="${plot.id}"
+            type="button"
+            style="--accent:${plot.accent}"
+          >
             ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
-          </article>
+          </button>
         `).join("")}
       </div>
     </section>
@@ -2527,6 +3076,107 @@ function renderCharacterDetail() {
   `;
 
   characterDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
+  characterDetail.querySelectorAll(".character-plot-card[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  });
+  bindCharacterRename(person);
+}
+
+function bindCharacterRename(person) {
+  const trigger = characterDetail.querySelector(".character-rename-trigger");
+  const editor = characterDetail.querySelector(".character-rename-editor");
+  const input = characterDetail.querySelector(".character-rename-input");
+  const previewButton = characterDetail.querySelector(".character-rename-preview");
+  const cancelButton = characterDetail.querySelector(".character-rename-cancel");
+  const result = characterDetail.querySelector(".character-rename-result");
+  if (!trigger || !editor || !input || !previewButton || !cancelButton || !result) return;
+
+  const reset = () => {
+    refactorOperationId = "";
+    input.value = "";
+    result.innerHTML = "";
+    editor.classList.add("is-hidden");
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  const setBusy = (busy) => {
+    input.disabled = busy;
+    previewButton.disabled = busy;
+    cancelButton.disabled = busy;
+    result.querySelector(".character-rename-apply")?.toggleAttribute("disabled", busy);
+  };
+
+  const showError = (message) => {
+    refactorOperationId = "";
+    result.innerHTML = `<p class="character-rename-error">${escapeHtml(message)}</p>`;
+  };
+
+  const preview = async () => {
+    const newName = input.value.trim();
+    if (!newName) {
+      showError("请先输入新的角色名");
+      input.focus();
+      return;
+    }
+    setBusy(true);
+    try {
+      await initializeRefactorWorkspace();
+      if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+      const previewResult = await refactorApi("/api/refactor/preview", {
+        project: currentProjectId(),
+        type: "character",
+        id: person.id,
+        newName,
+      });
+      refactorOperationId = previewResult.operationId;
+      result.innerHTML = `
+        <div class="character-rename-confirm">
+          <span>
+            <strong>${escapeHtml(previewResult.oldName)} → ${escapeHtml(previewResult.newName)}</strong>
+            将修改 ${previewResult.fileCount} 个文件、${previewResult.matchCount} 处引用
+          </span>
+          <button class="character-rename-apply" type="button">确认应用</button>
+        </div>
+      `;
+      result.querySelector(".character-rename-apply")?.addEventListener("click", async (event) => {
+        event.currentTarget.disabled = true;
+        setBusy(true);
+        try {
+          await refactorApi("/api/refactor/apply", { operationId: refactorOperationId });
+          window.location.reload();
+        } catch (error) {
+          showError(error.message);
+          setBusy(false);
+        }
+      });
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.addEventListener("click", () => {
+    const opening = editor.classList.contains("is-hidden");
+    if (!opening) {
+      reset();
+      return;
+    }
+    editor.classList.remove("is-hidden");
+    trigger.setAttribute("aria-expanded", "true");
+    input.focus();
+  });
+  input.addEventListener("input", () => {
+    refactorOperationId = "";
+    result.innerHTML = "";
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") preview();
+    if (event.key === "Escape") reset();
+  });
+  previewButton.addEventListener("click", preview);
+  cancelButton.addEventListener("click", reset);
 }
 
 function renderPlaceList() {
@@ -2682,7 +3332,7 @@ function renderPlaceDetail() {
       </div>
       <div class="character-plot-list">
         ${placePlots.map((plot) => `
-          <button class="${storyCardClass(plot, "character-plot place-plot-card")}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}">
+          <button class="${storyCardClass(plot, "character-plot detail-plot-card place-plot-card")}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}">
             ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
           </button>
         `).join("") || '<p class="empty-state">这个设定还没有配置出现剧情。</p>'}
@@ -2713,10 +3363,13 @@ function switchView(view) {
     updateGraphBounds();
     if (state.selected) selectPerson(state.selected);
     drawGraph();
+    startGraphLoop();
   }
   if (state.view === "timeline") {
-    renderTimeline();
+    requestTimelineRender();
   } else {
+    timelineRenderVersion += 1;
+    suspendTimelineViewport();
     timelineLegend?.classList.add("is-hidden");
   }
   if (state.view === "characters") {
@@ -2734,11 +3387,12 @@ function switchView(view) {
     renderFragments();
   }
   if (state.view === "diagnostics") {
-    renderDiagnostics();
+    requestDiagnosticsRender();
   }
   if (state.view === "story" && previousView !== "story" && previousView !== "plot-detail") {
     state.plotTags = allPlotTags();
     state.plotPage = 1;
+    renderChapterSwitch();
     renderStoryFilters();
     renderPlots();
   }
@@ -2805,17 +3459,7 @@ function renderNodes() {
 }
 
 function renderLinks() {
-  linkLayer.innerHTML = "";
-  relationships.forEach((link) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.classList.add("relationship-path");
-    path.dataset.from = link.from;
-    path.dataset.to = link.to;
-    path.dataset.type = link.type || "";
-    path.style.setProperty("--accent", link.color);
-    linkLayer.appendChild(path);
-  });
-  applyGraphFilters();
+  drawGraph();
 }
 
 function selectPerson(id) {
@@ -2830,7 +3474,7 @@ function selectPerson(id) {
   markRelatedNodes();
 }
 
-function markRelatedNodes() {
+function graphReachability() {
   const direct = new Set(state.hasSelection ? [state.selected] : []);
   const reachable = new Set(state.hasSelection ? [state.selected] : []);
   if (state.hasSelection) {
@@ -2848,7 +3492,11 @@ function markRelatedNodes() {
       });
     }
   }
+  return { direct, reachable };
+}
 
+function markRelatedNodes() {
+  const { direct, reachable } = graphReachability();
   document.querySelectorAll(".person-node").forEach((node) => {
     const id = node.dataset.id;
     const person = getCharacter(id);
@@ -2857,11 +3505,6 @@ function markRelatedNodes() {
     node.classList.toggle("is-reachable", reachable.has(id) && id !== state.selected);
     node.classList.toggle("is-muted-by-selection", state.hasSelection && !reachable.has(id));
     node.classList.toggle("is-pinned", Boolean(person?.pinned));
-  });
-  document.querySelectorAll(".relationship-path").forEach((item) => {
-    const relatedEdge = state.hasSelection && reachable.has(item.dataset.from) && reachable.has(item.dataset.to);
-    item.classList.toggle("is-reachable", relatedEdge);
-    item.classList.toggle("is-muted-by-selection", state.hasSelection && !relatedEdge);
   });
   applyGraphFilters();
 }
@@ -2874,14 +3517,7 @@ function applyGraphFilters() {
     node.classList.toggle("is-search-match", Boolean(state.search && visible));
   });
 
-  document.querySelectorAll(".relationship-path").forEach((item) => {
-    const visible = isVisibleRelationship({
-      from: item.dataset.from,
-      to: item.dataset.to,
-      type: item.dataset.type,
-    });
-    item.classList.toggle("is-filtered-out", !visible);
-  });
+  drawGraph();
 }
 
 function updateGraphBounds() {
@@ -2926,9 +3562,6 @@ function centerViewportOn(person) {
 
 function updateGraphViewport() {
   if (!state.width || !state.height) return;
-  const worldX = -state.graphPanX / state.graphScale;
-  const worldY = -state.graphPanY / state.graphScale;
-  linkLayer.setAttribute("viewBox", `${worldX} ${worldY} ${state.width / state.graphScale} ${state.height / state.graphScale}`);
   nodeLayer.style.transform = `translate(${state.graphPanX}px, ${state.graphPanY}px) scale(${state.graphScale})`;
   graphWrap.classList.toggle("hide-labels", characters.length > 10 || state.graphScale < 0.75);
 }
@@ -3318,9 +3951,17 @@ window.addEventListener("pointerup", () => {
   state.panning = null;
 });
 
-function tick() {
+function startGraphLoop() {
+  if (!graphAnimationFrame && state.view === "graph") {
+    graphAnimationFrame = requestAnimationFrame(tick);
+  }
+}
+
+function tick(time) {
+  graphAnimationFrame = 0;
+  if (state.view !== "graph") return;
   if (!state.width || !state.height) {
-    requestAnimationFrame(tick);
+    startGraphLoop();
     return;
   }
 
@@ -3368,30 +4009,61 @@ function tick() {
     person.y = (person.py / state.height) * 100;
   });
 
-  drawGraph();
-  requestAnimationFrame(tick);
+  drawGraph(time);
+  startGraphLoop();
 }
 
-function drawGraph() {
+function graphRenderScene(time = performance.now()) {
+  const { direct, reachable } = graphReachability();
+  const hasPosition = (person) => Number.isFinite(person?.px) && Number.isFinite(person?.py);
+  const visibleCharacters = characters.filter((person) => isVisiblePerson(person) && hasPosition(person));
+  const nodes = visibleCharacters.map((person) => {
+    const isSelected = state.hasSelection && person.id === state.selected;
+    const isDirect = state.hasSelection && direct.has(person.id) && !isSelected;
+    const isReachable = state.hasSelection && reachable.has(person.id) && !isSelected && !isDirect;
+    return {
+      id: person.id,
+      x: person.px,
+      y: person.py,
+      color: person.color,
+      radius: isSelected ? 172 : isDirect ? 142 : isReachable ? 116 : 104,
+      strength: isSelected ? 0.92 : isDirect ? 0.56 : isReachable ? 0.3 : 0.18,
+    };
+  });
+  const edges = relationships.map((link) => {
+    const from = getCharacter(link.from);
+    const to = getCharacter(link.to);
+    const highlighted = state.hasSelection && reachable.has(link.from) && reachable.has(link.to);
+    return {
+      from: { id: from?.id, x: from?.px || 0, y: from?.py || 0 },
+      to: { id: to?.id, x: to?.px || 0, y: to?.py || 0 },
+      color: link.color || "#65717d",
+      visible: Boolean(from && to && hasPosition(from) && hasPosition(to) && isVisibleRelationship(link)),
+      highlighted,
+      muted: state.hasSelection && !highlighted,
+    };
+  });
+  return {
+    width: state.width,
+    height: state.height,
+    scale: state.graphScale,
+    panX: state.graphPanX,
+    panY: state.graphPanY,
+    time,
+    nodes,
+    edges,
+  };
+}
+
+function drawGraph(time = performance.now()) {
   updateGraphViewport();
   document.querySelectorAll(".person-node").forEach((node) => {
     const person = getCharacter(node.dataset.id);
+    if (!person || !Number.isFinite(person.px) || !Number.isFinite(person.py)) return;
     node.style.left = `${person.px}px`;
     node.style.top = `${person.py}px`;
   });
-
-  document.querySelectorAll(".relationship-path").forEach((path) => {
-    const a = getCharacter(path.dataset.from);
-    const b = getCharacter(path.dataset.to);
-    if (!a || !b) return;
-    const dx = b.px - a.px;
-    const dy = b.py - a.py;
-    const curve = Math.min(92, Math.hypot(dx, dy) * 0.24);
-    const cx = (a.px + b.px) / 2 - (dy / Math.max(1, Math.hypot(dx, dy))) * curve;
-    const cy = (a.py + b.py) / 2 + (dx / Math.max(1, Math.hypot(dx, dy))) * curve;
-    path.setAttribute("d", `M ${a.px} ${a.py} Q ${cx} ${cy} ${b.px} ${b.py}`);
-  });
-
+  graphRenderer?.render(graphRenderScene(time));
 }
 
 globalSearch?.addEventListener("input", () => {
@@ -3464,19 +4136,20 @@ placeSearch?.addEventListener("search", () => {
   renderPlaceDetail();
 });
 
-timelineList?.addEventListener("scroll", updateTimelineLegend);
+timelineList?.addEventListener("scroll", () => scheduleTimelineViewportRender());
 window.addEventListener("scroll", () => {
-  updateTimelineLegend();
+  scheduleTimelineViewportRender();
   updateReadingProgress();
 });
 window.addEventListener("resize", () => {
-  updateTimelineLegend();
+  scheduleTimelineViewportRender(true);
   updateReadingProgress();
 });
 
 function runAmbientCanvas() {
   const canvas = document.querySelector("#ambientCanvas");
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas?.getContext?.("2d");
+  if (!canvas || !ctx) return;
   const particles = Array.from({ length: 78 }, (_, index) => ({
     x: Math.random(),
     y: Math.random(),
@@ -3514,8 +4187,10 @@ function runAmbientCanvas() {
 }
 
 window.addEventListener("resize", () => {
-  updateGraphBounds();
-  drawGraph();
+  if (state.view === "graph") {
+    updateGraphBounds();
+    drawGraph();
+  }
 });
 
 document.querySelectorAll(".view-btn").forEach((button) => {
@@ -3531,13 +4206,24 @@ document.querySelectorAll(".view-btn").forEach((button) => {
 timelineDirectionBtn?.addEventListener("click", () => {
   state.timelineReversed = !state.timelineReversed;
   hideTimelineFloat();
-  renderTimeline();
+  requestTimelineRender();
 });
 
 diagnosticRefreshBtn?.addEventListener("click", () => {
-  configDiagnostics = validateProjectConfiguration();
-  renderDiagnostics();
+  refactorCapability = null;
+  requestDiagnosticsRender();
 });
+
+refactorType?.addEventListener("change", refreshRefactorTargets);
+refactorTarget?.addEventListener("change", updateRefactorTargetHint);
+refactorNewName?.addEventListener("input", closeRefactorPreview);
+refactorNewName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") previewRefactor();
+});
+refactorPreviewBtn?.addEventListener("click", previewRefactor);
+refactorCancelBtn?.addEventListener("click", closeRefactorPreview);
+refactorApplyBtn?.addEventListener("click", applyRefactor);
+refactorUndoBtn?.addEventListener("click", undoRefactor);
 
 profileDetailBtn.addEventListener("click", () => {
   if (!state.selected) return;
@@ -3556,24 +4242,13 @@ async function init() {
     state.fragmentTags = allFragmentTags();
     state.entryTags = allEntryTags();
     renderProjectChrome();
-    renderChapterSwitch();
-    renderStoryFilters();
-    renderPlots();
-    renderFragmentFilters();
-    renderFragments();
-    renderTimeline();
-    renderCharacterList();
-    renderCharacterDetail();
-    renderPlaceList();
-    renderPlaceDetail();
-    renderDiagnostics();
     renderProfile();
     renderGraphFilters();
-    renderLinks();
     renderNodes();
+    renderLinks();
     markRelatedNodes();
     switchView("graph");
-    requestAnimationFrame(tick);
+    startGraphLoop();
   } catch (error) {
     plotStrip.innerHTML = `
       <article class="plot-card" style="--accent:#e76f51">
@@ -3588,5 +4263,5 @@ async function init() {
   }
 }
 
-runAmbientCanvas();
 init();
+runAmbientCanvas();

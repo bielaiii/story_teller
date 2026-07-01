@@ -31,6 +31,17 @@ button {
   font: inherit;
 }
 
+.plot-card,
+.fragment-card,
+.character-plot,
+.diagnostic-item,
+.character-list-item,
+.place-list-item,
+.plot-detail-body > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
 #ambientCanvas {
   position: fixed;
   inset: 0;
@@ -244,6 +255,14 @@ button {
   overflow: auto;
 }
 
+.timeline-loading {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .timeline-actions {
   display: flex;
   align-items: center;
@@ -377,10 +396,22 @@ button {
 
 .timeline-drawing {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   z-index: 1;
   display: block;
   cursor: pointer;
+}
+
+.timeline-node-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.timeline-node-layer .timeline-node {
+  pointer-events: auto;
 }
 
 .timeline-line,
@@ -599,6 +630,10 @@ button {
   text-align: left;
   animation: riseIn 420ms ease both;
   transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.timeline-summary-card.is-stable {
+  animation: none;
 }
 
 .timeline-summary-card::before {
@@ -1257,7 +1292,7 @@ button.plot-place-item:focus-visible {
   gap: 18px;
   align-content: start;
   min-width: 0;
-  margin-right: 146px;
+  margin-right: 282px;
   padding: 24px;
 }
 
@@ -1268,84 +1303,13 @@ button.plot-place-item:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.plot-detail-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.plot-back-btn {
-  min-height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 12px;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.62);
-  cursor: pointer;
-  font-weight: 800;
-  transition: transform 180ms ease, background 180ms ease;
-}
-
-.plot-back-btn:hover,
-.plot-back-btn:focus-visible {
-  outline: none;
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.plot-nav-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  align-items: center;
-}
-
-.plot-nav-btn {
-  display: grid;
-  gap: 2px;
-  min-height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 8px;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.58);
-  cursor: pointer;
-  text-align: left;
-  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
-}
-
-.plot-nav-btn:last-child {
-  text-align: right;
-}
-
-.plot-nav-btn span {
+.plot-detail-summary {
+  max-width: 760px;
+  margin: 0;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 850;
-  line-height: 1;
-}
-
-.plot-nav-btn strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 1.2;
-}
-
-.plot-nav-btn:hover,
-.plot-nav-btn:focus-visible {
-  outline: none;
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(31, 46, 58, 0.1);
-}
-
-.plot-nav-btn:disabled {
-  cursor: default;
-  opacity: 0.42;
-  transform: none;
-  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.7;
+  text-wrap: pretty;
 }
 
 .plot-detail-body {
@@ -1364,52 +1328,190 @@ button.plot-place-item:focus-visible {
 .reading-progress {
   position: fixed;
   top: 50%;
-  right: clamp(24px, 3.8vw, 72px);
+  right: 24px;
   z-index: 110;
   display: grid;
-  justify-items: center;
   gap: 14px;
-  width: 88px;
-  padding: 18px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 44px;
+  width: 220px;
   color: var(--ink);
-  background: rgba(255, 253, 247, 0.8);
-  box-shadow: 0 20px 54px rgba(31, 46, 58, 0.16);
-  backdrop-filter: blur(18px);
-  transform: translateY(-46%);
+  transform: translateY(-48%);
 }
 
 .reading-progress.is-hidden {
   display: none;
 }
 
-.reading-progress-title {
-  font-size: 12px;
-  line-height: 1;
+.reading-tools-head {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-left: 4px solid var(--accent, #2a9d8f);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--accent, #2a9d8f) 10%, rgba(255, 253, 247, 0.94));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent, #2a9d8f) 12%, rgba(31, 46, 58, 0.1));
+  backdrop-filter: blur(16px);
+}
+
+.reading-tools-head span,
+.reading-progress-title,
+.reading-chapter-btn span {
+  color: #566572;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.reading-tools-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.reading-list-btn,
+.reading-chapter-btn {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 14px;
+  color: var(--ink);
+  box-shadow: 0 12px 30px rgba(31, 46, 58, 0.11);
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.reading-list-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  border-radius: 999px;
+  padding: 0 10px;
+  border-color: rgba(183, 124, 24, 0.22);
+  background: rgba(255, 247, 220, 0.92);
+  font-weight: 800;
+}
+
+.reading-list-btn span:first-child {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #8f5c0c;
+  background: rgba(233, 196, 106, 0.36);
+}
+
+.reading-chapter-nav {
+  display: grid;
+  gap: 12px;
+}
+
+.reading-chapter-btn {
+  display: grid;
+  gap: 4px;
+  min-height: 54px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.reading-chapter-btn strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+#floatingPlotPrev {
+  border-color: rgba(69, 123, 157, 0.24);
+  background: rgba(237, 246, 251, 0.94);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--blue) 68%, transparent),
+    0 12px 30px rgba(69, 123, 157, 0.12);
+}
+
+#floatingPlotPrev span {
+  color: #416f8e;
+}
+
+#floatingPlotNext {
+  border-color: color-mix(in srgb, var(--accent, #2a9d8f) 24%, transparent);
+  background: color-mix(in srgb, var(--accent, #2a9d8f) 10%, rgba(249, 255, 252, 0.96));
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--accent, #2a9d8f) 72%, transparent),
+    0 12px 30px color-mix(in srgb, var(--accent, #2a9d8f) 14%, rgba(31, 46, 58, 0.08));
+}
+
+#floatingPlotNext span {
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 72%, #33414d);
+}
+
+.reading-list-btn:hover,
+.reading-list-btn:focus-visible,
+.reading-chapter-btn:hover,
+.reading-chapter-btn:focus-visible {
+  outline: none;
+  filter: saturate(1.08) brightness(1.015);
+  box-shadow: 0 10px 24px rgba(31, 46, 58, 0.1);
+  transform: translateY(-1px);
+}
+
+.reading-chapter-btn:disabled {
+  cursor: default;
+  opacity: 0.42;
+  filter: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.reading-progress-meter {
+  display: grid;
+  justify-items: center;
+  gap: 11px;
+  justify-self: center;
+  width: 92px;
+  border: 1px solid rgba(117, 88, 183, 0.2);
+  border-radius: 999px;
+  padding: 16px 13px;
+  background: rgba(247, 243, 252, 0.92);
+  box-shadow: 0 14px 34px rgba(117, 88, 183, 0.12);
+  backdrop-filter: blur(16px);
 }
 
 .reading-progress-title {
-  color: var(--muted);
-  font-weight: 800;
+  color: #6d5aa0;
   white-space: nowrap;
 }
 
 .reading-progress-value {
-  color: color-mix(in srgb, var(--accent, #2a9d8f) 76%, var(--ink));
-  font-size: 18px;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: #283743;
+  font-size: 14px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.reading-progress-value.is-filled {
+  color: #fff;
+  clip-path: inset(0 0 calc(100% - var(--reading-progress)) 0);
+  text-shadow: 0 1px 3px rgba(25, 33, 42, 0.24);
+  transition: clip-path 120ms ease-out;
 }
 
 .reading-progress-track {
   position: relative;
   display: block;
-  width: 7px;
-  height: 248px;
-  overflow: visible;
+  width: 54px;
+  height: 142px;
+  overflow: hidden;
   border-radius: 999px;
-  background: rgba(25, 33, 42, 0.11);
+  background: rgba(117, 88, 183, 0.11);
 }
 
 .reading-progress-fill {
@@ -1419,22 +1521,8 @@ button.plot-place-item:focus-visible {
   width: 100%;
   height: var(--reading-progress);
   border-radius: inherit;
-  background: var(--accent, #2a9d8f);
+  background: color-mix(in srgb, var(--accent, #2a9d8f) 54%, #24313a);
   transition: height 120ms ease-out;
-}
-
-.reading-progress-thumb {
-  position: absolute;
-  top: var(--reading-progress);
-  left: 50%;
-  width: 16px;
-  height: 16px;
-  border: 3px solid rgba(255, 255, 255, 0.94);
-  border-radius: 50%;
-  background: var(--accent, #2a9d8f);
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent, #2a9d8f) 32%, transparent);
-  transform: translate(-50%, -50%);
-  transition: top 120ms ease-out;
 }
 
 .plot-detail-body p,
@@ -1494,6 +1582,209 @@ button.plot-place-item:focus-visible {
   background: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   font-weight: 800;
+}
+
+.refactor-workspace {
+  display: grid;
+  gap: 16px;
+  border: 1px solid rgba(42, 157, 143, 0.18);
+  border-left: 5px solid var(--teal);
+  border-radius: 6px;
+  padding: 18px;
+  background:
+    linear-gradient(110deg, rgba(255, 255, 255, 0.7), rgba(232, 246, 241, 0.5)),
+    rgba(255, 255, 255, 0.48);
+  box-shadow: 0 14px 34px rgba(31, 46, 58, 0.07);
+}
+
+.refactor-head,
+.refactor-preview-summary,
+.refactor-preview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.refactor-head h3 {
+  margin: 2px 0 0;
+  font-size: 21px;
+}
+
+.refactor-mode {
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: rgba(101, 113, 125, 0.1);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.refactor-mode.is-writable {
+  color: #176c62;
+  background: rgba(42, 157, 143, 0.14);
+}
+
+.refactor-mode.is-readonly {
+  color: #8b4c36;
+  background: rgba(231, 111, 81, 0.13);
+}
+
+.refactor-controls {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(170px, 1fr) minmax(220px, 1.5fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.refactor-controls label {
+  display: grid;
+  gap: 6px;
+}
+
+.refactor-controls label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.refactor-controls select,
+.refactor-controls input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(25, 33, 42, 0.13);
+  border-radius: 6px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  outline: none;
+}
+
+.refactor-controls select:focus,
+.refactor-controls input:focus {
+  border-color: rgba(42, 157, 143, 0.58);
+  box-shadow: 0 0 0 4px rgba(42, 157, 143, 0.1);
+}
+
+.refactor-preview-btn,
+.refactor-apply-btn,
+.refactor-cancel-btn,
+.refactor-undo-btn {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 15px;
+  cursor: pointer;
+  font-weight: 850;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.refactor-preview-btn,
+.refactor-apply-btn {
+  color: #fff;
+  background: var(--teal);
+  box-shadow: 0 9px 20px rgba(42, 157, 143, 0.2);
+}
+
+.refactor-cancel-btn,
+.refactor-undo-btn {
+  border-color: rgba(25, 33, 42, 0.12);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.refactor-undo-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 34px;
+  color: #9b553c;
+}
+
+.refactor-preview-btn:hover,
+.refactor-apply-btn:hover,
+.refactor-cancel-btn:hover,
+.refactor-undo-btn:hover {
+  transform: translateY(-1px);
+}
+
+.refactor-preview-btn:disabled,
+.refactor-apply-btn:disabled,
+.refactor-cancel-btn:disabled,
+.refactor-undo-btn:disabled,
+.refactor-controls select:disabled,
+.refactor-controls input:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+.refactor-preview {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(25, 33, 42, 0.1);
+  padding-top: 15px;
+}
+
+.refactor-preview.is-hidden,
+.refactor-undo-btn.is-hidden {
+  display: none;
+}
+
+.refactor-preview-summary strong {
+  font-size: 16px;
+}
+
+.refactor-preview-summary span,
+.refactor-no-change {
+  color: var(--muted);
+}
+
+.refactor-preview-summary span {
+  text-align: right;
+}
+
+.refactor-change-list {
+  display: grid;
+  gap: 7px;
+  max-height: 330px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.refactor-change {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.55fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid rgba(25, 33, 42, 0.08);
+  padding: 9px 4px 11px;
+}
+
+.refactor-change small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.refactor-change del,
+.refactor-change ins {
+  border-radius: 4px;
+  padding: 5px 7px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.refactor-change del {
+  color: #8f4939;
+  background: rgba(231, 111, 81, 0.1);
+}
+
+.refactor-change ins {
+  color: #176c62;
+  background: rgba(42, 157, 143, 0.12);
+}
+
+.refactor-preview-actions {
+  justify-content: flex-end;
 }
 
 .diagnostic-summary {
@@ -1645,6 +1936,145 @@ button.plot-place-item:focus-visible {
   min-width: 0;
 }
 
+.character-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.character-title-row h2 {
+  margin: 0;
+}
+
+.character-rename-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(42, 157, 143, 0.2);
+  border-radius: 50%;
+  padding: 0;
+  color: var(--teal);
+  background: rgba(42, 157, 143, 0.08);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.character-rename-trigger:hover,
+.character-rename-trigger:focus-visible,
+.character-rename-trigger[aria-expanded="true"] {
+  color: #fff;
+  background: var(--teal);
+  box-shadow: 0 9px 22px rgba(42, 157, 143, 0.22);
+  outline: none;
+  transform: rotate(-7deg);
+}
+
+.character-rename-editor {
+  display: grid;
+  gap: 9px;
+  max-width: 620px;
+  margin: 10px 0 12px;
+  border-left: 3px solid var(--teal);
+  padding: 10px 0 10px 12px;
+  animation: characterRenameReveal 180ms ease both;
+}
+
+.character-rename-editor.is-hidden {
+  display: none;
+}
+
+.character-rename-input-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto auto;
+  gap: 8px;
+}
+
+.character-rename-input {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid rgba(25, 33, 42, 0.14);
+  border-radius: 6px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.82);
+  outline: none;
+}
+
+.character-rename-input:focus {
+  border-color: rgba(42, 157, 143, 0.56);
+  box-shadow: 0 0 0 4px rgba(42, 157, 143, 0.1);
+}
+
+.character-rename-preview,
+.character-rename-cancel,
+.character-rename-apply {
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.character-rename-preview,
+.character-rename-apply {
+  color: #fff;
+  background: var(--teal);
+}
+
+.character-rename-cancel {
+  border-color: rgba(25, 33, 42, 0.12);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.character-rename-preview:disabled,
+.character-rename-cancel:disabled,
+.character-rename-apply:disabled,
+.character-rename-input:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.character-rename-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #176c62;
+  background: rgba(42, 157, 143, 0.1);
+  font-size: 12px;
+}
+
+.character-rename-confirm span {
+  display: grid;
+  gap: 3px;
+}
+
+.character-rename-confirm strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.character-rename-error {
+  margin: 0;
+  color: #a04f39;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@keyframes characterRenameReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+
 .character-marker-panel {
   justify-self: end;
   display: grid;
@@ -1753,7 +2183,7 @@ button.plot-place-item:focus-visible {
   gap: 10px;
 }
 
-.place-plot-card {
+.detail-plot-card {
   width: 100%;
   color: var(--ink);
   cursor: pointer;
@@ -1761,8 +2191,8 @@ button.plot-place-item:focus-visible {
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
-.place-plot-card:hover,
-.place-plot-card:focus-visible {
+.detail-plot-card:hover,
+.detail-plot-card:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
   outline: none;
   transform: translateY(-2px);
@@ -2259,7 +2689,7 @@ h3 {
   cursor: grabbing;
 }
 
-#linkLayer,
+.graph-render-layer,
 #nodeLayer {
   position: absolute;
   inset: 0;
@@ -2267,34 +2697,15 @@ h3 {
   height: 100%;
 }
 
-#nodeLayer {
-  overflow: visible;
-  transform-origin: 0 0;
-}
-
-.relationship-path {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-dasharray: 8 12;
-  opacity: 0.72;
-  animation: dashFlow 1.6s linear infinite;
-}
-
-.relationship-path.is-filtered-out {
-  opacity: 0;
+.graph-render-layer {
+  z-index: 0;
   pointer-events: none;
 }
 
-.relationship-path.is-muted-by-selection {
-  opacity: 0.1;
-}
-
-.relationship-path.is-reachable {
-  stroke-width: 3.5;
-  opacity: 0.86;
-  filter: drop-shadow(0 0 9px rgba(31, 46, 58, 0.16));
+#nodeLayer {
+  z-index: 1;
+  overflow: visible;
+  transform-origin: 0 0;
 }
 
 .person-node.is-filtered-out {
@@ -2429,12 +2840,6 @@ h3 {
   font-weight: 800;
 }
 
-@keyframes dashFlow {
-  to {
-    stroke-dashoffset: -20;
-  }
-}
-
 @keyframes floatIn {
   from {
     opacity: 0;
@@ -2559,14 +2964,12 @@ h3 {
   }
 
   .reading-progress {
-    right: 16px;
-    gap: 11px;
-    width: 68px;
-    padding: 14px 9px;
+    right: 12px;
+    width: 180px;
   }
 
   .reading-progress-track {
-    height: 190px;
+    height: 118px;
   }
 
   .reading-progress-value {
@@ -2574,11 +2977,15 @@ h3 {
   }
 
   .plot-detail {
-    margin-right: 88px;
+    margin-right: 210px;
   }
 
   .diagnostic-summary {
     grid-template-columns: 1fr repeat(2, minmax(110px, 0.65fr));
+  }
+
+  .refactor-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2646,8 +3053,7 @@ h3 {
   .timeline-head,
   .character-hero,
   .place-hero,
-  .relation-row,
-  .plot-nav-row {
+  .relation-row {
     grid-template-columns: 1fr;
   }
 
@@ -2661,14 +3067,13 @@ h3 {
   }
 
   .reading-progress {
-    right: 8px;
-    gap: 9px;
-    width: 58px;
-    padding: 12px 6px;
+    right: 6px;
+    gap: 8px;
+    width: 76px;
   }
 
   .reading-progress-track {
-    height: 132px;
+    height: 84px;
   }
 
   .reading-progress-title {
@@ -2679,11 +3084,58 @@ h3 {
     font-size: 13px;
   }
 
+  .reading-tools-head {
+    display: none;
+  }
+
+  .reading-list-btn {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .reading-list-btn span:last-child,
+  .reading-chapter-btn strong {
+    display: none;
+  }
+
+  .reading-chapter-btn {
+    min-height: 38px;
+    padding: 6px 4px;
+    text-align: center;
+  }
+
+  .reading-progress-meter {
+    width: 66px;
+    padding: 12px 8px;
+  }
+
+  .reading-progress-track {
+    width: 42px;
+  }
+
   .plot-detail {
-    margin-right: 72px;
+    margin-right: 90px;
   }
 
   .diagnostic-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .refactor-head,
+  .refactor-preview-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .refactor-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .refactor-preview-summary span {
+    text-align: left;
+  }
+
+  .refactor-change {
     grid-template-columns: 1fr;
   }
 
@@ -2703,6 +3155,15 @@ h3 {
   .character-avatar {
     width: 92px;
     height: 92px;
+  }
+
+  .character-rename-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .character-rename-confirm {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

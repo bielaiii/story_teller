@@ -7,7 +7,7 @@ area: 修船厂后街
 accent: #e76f51
 aliases: [后街餐厅, 半潮]
 tags: [修船厂, 夜间, 匿名包裹]
-people: [shen, yan]
+people: [2, 6]
 plots: [4, 7]
 status: 草稿
 ---

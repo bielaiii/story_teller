@@ -2,7 +2,7 @@
 id: 2
 chapter: act1
 title: 赔偿案的空白证人
-people: [shen, han]
+people: [2, 5]
 entries: [night-restaurant, compensation-case]
 accent: #e76f51
 lanes: [旧案线]

@@ -7,7 +7,7 @@ area: 旧港
 accent: #2a9d8f
 aliases: [档案馆, 海事档案室]
 tags: [旧港, 档案, 船队]
-people: [lin, su]
+people: [1, 3]
 plots: [1, 6]
 status: 已接入
 ---

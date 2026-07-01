@@ -2,7 +2,7 @@
 id: 8
 chapter: act3
 title: 尚未发生的广播
-people: [su, yan]
+people: [3, 6]
 entries: [radio-station, seven-minute-delay]
 accent: #457b9d
 lanes: [电台线, 手稿线, 主线]
