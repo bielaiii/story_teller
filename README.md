@@ -18,11 +18,19 @@ http://127.0.0.1:4180/
 
 页面和本地内容操作共用这一个服务，不需要再启动第二个端口。使用普通静态托管时，阅读、图谱和时间线仍然可用，但安全重命名会保持只读。
 
+作为其他小说仓库的子模块使用时，可以通过 `STORY_TELLER_CONTENT_ROOT` 指定父仓库中的内容目录：
+
+```sh
+STORY_TELLER_CONTENT_ROOT=/path/to/novel/content ./run.sh
+```
+
 ## 编辑数据
 
 小说数据按内容包放在 `content/` 目录中。当前仓库只跟踪 `content/demo/` 作为开发样例，真实小说内容包可以放在 `content/你的项目名/`，默认不会被提交。
 
-使用 `./run.sh` 启动 localhost 后，服务会自动扫描当前内容包中的 `characters/`、`plots/`、`fragments/`、`entries/` 和 `relationships/` 目录。新增或删除 Markdown 文件后刷新网页即可同步，不需要再把文件路径登记到 `manifest.md`。`manifest.md` 只需保留项目标题、篇章等项目配置；静态部署时，其中的文件清单仍作为兼容备用。
+使用 `./run.sh` 启动 localhost 后，服务会自动扫描当前内容包中的 `characters/`、`plots/`、`fragments/`、`entries/` 和 `relationships/` 目录。新增或删除 Markdown 文件后刷新网页即可同步，不需要再把文件路径登记到 `manifest.md`。
+
+扫描结果会同时写入当前内容包的 `content-index.json`。localhost 和静态部署读取同一份索引结构，不再维护两套文件清单；准备静态部署前，先在 localhost 刷新一次对应项目即可更新索引。
 
 访问不同内容包：
 

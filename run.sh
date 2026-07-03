@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PORT=4180
+CONTENT_ROOT=${STORY_TELLER_CONTENT_ROOT:-"$ROOT/content"}
 
 listener_pids() {
   lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true
@@ -60,4 +61,4 @@ done
 
 cd "$ROOT"
 printf '正在启动 Story Teller：http://127.0.0.1:%s/\n' "$PORT"
-exec python3 server.py --bind 127.0.0.1 --port "$PORT"
+exec python3 server.py --bind 127.0.0.1 --port "$PORT" --content-root "$CONTENT_ROOT"

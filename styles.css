@@ -516,83 +516,117 @@ button {
   z-index: 2;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: 0;
   padding: 0;
-  --node-size: 13px;
-  --node-alpha: 0.82;
-  --node-ring: 5px;
+  --node-size: 8px;
+  --node-alpha: 0.8;
   background: transparent;
   cursor: pointer;
   opacity: var(--node-alpha);
-  filter: drop-shadow(0 8px 10px rgba(31, 46, 58, 0.1));
+  filter: drop-shadow(0 6px 9px rgba(31, 46, 58, 0.13));
   transform: translate(-50%, -50%);
   transition: opacity 160ms ease, filter 160ms ease;
 }
 
 .timeline-node.is-minor {
-  --node-size: 11px;
-  --node-alpha: 0.58;
-  --node-ring: 4px;
+  --node-size: 7px;
+  --node-alpha: 0.7;
 }
 
 .timeline-node.is-featured,
 .timeline-node.is-key,
 .timeline-node.is-climax {
-  --node-size: 14px;
-  --node-alpha: 0.9;
-  --node-ring: 6px;
+  --node-size: 11px;
+  --node-alpha: 0.96;
 }
 
 .timeline-dot {
   position: relative;
+  display: block;
   width: var(--node-size);
   height: var(--node-size);
-  border: 2px solid rgba(255, 253, 247, 0.96);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 36% 30%, rgba(255, 255, 255, 0.86), transparent 28%),
-    color-mix(in srgb, var(--accent) 88%, var(--ink));
+  border: 1.5px solid rgba(255, 253, 247, 0.96);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
   box-shadow:
-    0 0 0 var(--node-ring) color-mix(in srgb, var(--accent) 10%, transparent),
-    inset 0 -2px 4px rgba(25, 33, 42, 0.14);
-  transition: width 160ms ease, height 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    0 0 0 2.5px rgba(255, 253, 247, 0.88),
+    0 5px 10px color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: width 180ms ease, height 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.timeline-dot::before,
+.timeline-dot::after {
+  position: absolute;
+  content: "";
+}
+
+.timeline-dot::before {
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: none;
+  transform: translate(-50%, -50%);
+}
+
+.timeline-dot::after {
+  inset: -6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  opacity: 0;
+  transform: rotate(18deg) scale(0.82);
+  transition: opacity 180ms ease, transform 220ms ease;
 }
 
 .timeline-node:hover,
 .timeline-node:focus-visible {
   --node-alpha: 1;
-  filter: drop-shadow(0 10px 16px rgba(31, 46, 58, 0.16));
+  filter: drop-shadow(0 9px 14px color-mix(in srgb, var(--accent) 24%, rgba(31, 46, 58, 0.12)));
   outline: none;
 }
 
 .timeline-node:hover .timeline-dot,
 .timeline-node:focus-visible .timeline-dot,
-.timeline-node.is-selected .timeline-dot {
-  transform: scale(1.22);
+.timeline-node.is-selected .timeline-dot,
+.timeline-node.is-focused .timeline-dot {
+  transform: scale(1.18);
   box-shadow:
-    0 0 0 calc(var(--node-ring) + 2px) color-mix(in srgb, var(--accent) 15%, transparent),
-    inset 0 -2px 4px rgba(25, 33, 42, 0.14);
+    0 0 0 3px rgba(255, 253, 247, 0.94),
+    0 7px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.timeline-node:hover .timeline-dot::after,
+.timeline-node:focus-visible .timeline-dot::after,
+.timeline-node.is-selected .timeline-dot::after {
+  opacity: 0.72;
+  transform: rotate(132deg) scale(1);
 }
 
 .timeline-node-tip {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 7px);
   z-index: 4;
   min-width: max-content;
-  border: 1px solid rgba(25, 33, 42, 0.12);
-  border-radius: 999px;
-  padding: 5px 9px;
+  border: 0;
+  border-left: 2px solid var(--accent);
+  border-radius: 2px;
+  padding: 4px 7px;
   color: var(--ink);
-  background: rgba(255, 253, 247, 0.9);
-  box-shadow: 0 12px 28px rgba(31, 46, 58, 0.14);
+  background: rgba(255, 253, 247, 0.88);
+  box-shadow: 0 10px 24px rgba(31, 46, 58, 0.1);
+  backdrop-filter: blur(10px);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 800;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 6px);
+  transform: translate(-50%, 5px);
   transition: opacity 160ms ease, transform 160ms ease;
   white-space: nowrap;
 }
@@ -2100,8 +2134,7 @@ button.plot-place-item:focus-visible {
   box-shadow: 0 18px 44px rgba(31, 46, 58, 0.2);
 }
 
-.place-mini-symbol,
-.place-symbol {
+.place-mini-symbol {
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -2120,28 +2153,112 @@ button.plot-place-item:focus-visible {
 }
 
 .place-symbol {
-  position: relative;
-  width: 108px;
-  height: 108px;
-  font-size: 24px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+  gap: 7px;
+  width: 58px;
+  min-height: 64px;
+  padding-top: 2px;
+  color: color-mix(in srgb, var(--accent) 76%, var(--ink));
+  text-align: center;
+  animation: entryMarkerDrift 4.8s ease-in-out infinite;
 }
 
-.place-symbol::after {
-  position: absolute;
-  right: 16px;
-  bottom: 13px;
-  width: 20px;
-  height: 20px;
-  border: 3px solid rgba(255, 255, 255, 0.76);
+.place-symbol-glyph {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  border: 2px solid color-mix(in srgb, var(--accent) 78%, var(--ink));
   border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.82));
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 18%, transparent),
+    inset 0 0 0 6px rgba(255, 255, 255, 0.5);
+}
+
+.place-symbol-glyph::before,
+.place-symbol-glyph::after {
+  position: absolute;
   content: "";
+}
+
+.place-symbol-glyph::before {
+  inset: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 17%, transparent);
+}
+
+.place-symbol-glyph::after {
+  inset: -8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-top-color: transparent;
+  border-left-color: transparent;
+  border-radius: 50%;
+  animation: entryMarkerOrbit 7s linear infinite;
+}
+
+.place-symbol.is-location .place-symbol-glyph {
+  width: 31px;
+  height: 31px;
+  margin-top: 2px;
+  border-radius: 50% 50% 50% 9px;
+  transform: rotate(-45deg);
+}
+
+.place-symbol.is-location .place-symbol-glyph::before {
+  inset: 8px;
+}
+
+.place-symbol.is-location .place-symbol-glyph::after {
+  inset: -7px;
+}
+
+.place-symbol.is-object .place-symbol-glyph {
+  border-radius: 9px 50% 9px 50%;
+  transform: rotate(14deg);
+}
+
+.place-symbol.is-organization .place-symbol-glyph,
+.place-symbol.is-faction .place-symbol-glyph {
+  border-radius: 42% 58% 48% 52%;
+}
+
+.place-symbol.is-rule .place-symbol-glyph {
+  border-style: double;
+  border-width: 4px;
+}
+
+.place-symbol-label {
+  color: color-mix(in srgb, var(--accent) 68%, var(--ink));
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+@keyframes entryMarkerDrift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(1.5deg);
+  }
+}
+
+@keyframes entryMarkerOrbit {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .place-hero {
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr) minmax(160px, auto);
-  gap: 18px;
-  align-items: center;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
 }
@@ -2156,25 +2273,24 @@ button.plot-place-item:focus-visible {
 }
 
 .place-facts {
-  justify-self: end;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
-  min-width: 160px;
+  margin-top: 14px;
 }
 
 .place-facts span {
   display: inline-grid;
   place-items: center;
-  min-height: 30px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  min-height: 26px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   border-radius: 999px;
-  padding: 5px 12px;
+  padding: 4px 9px;
   color: color-mix(in srgb, var(--accent) 72%, var(--ink));
   background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.8));
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .place-person-grid {
@@ -3322,6 +3438,33 @@ h3 {
   font-size: 0.92em;
 }
 
+.plot-detail-body a,
+.fragment-body a,
+.place-intro a {
+  color: color-mix(in srgb, var(--accent, #2a9d8f) 76%, #23445d);
+  text-decoration-color: color-mix(in srgb, currentColor 42%, transparent);
+  text-underline-offset: 3px;
+}
+
+.plot-detail-body a:hover,
+.fragment-body a:hover,
+.place-intro a:hover {
+  text-decoration-color: currentColor;
+}
+
+.plot-detail-body img,
+.fragment-body img,
+.place-intro img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: min(68vh, 760px);
+  margin: 16px auto;
+  border-radius: 6px;
+  box-shadow: 0 16px 36px rgba(31, 46, 58, 0.14);
+  object-fit: contain;
+}
+
 .plot-detail-body pre code,
 .fragment-body pre code,
 .place-intro pre code {
@@ -3378,4 +3521,15 @@ h3 {
   color: var(--markdown-coral, #c95f58);
   font-size: 16px;
   scroll-margin-top: 88px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

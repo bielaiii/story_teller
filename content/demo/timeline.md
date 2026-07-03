@@ -4,7 +4,7 @@ lineSpacing: 54
 topPadding: 54
 sidePadding: 34
 lines: [主线, 电台线, 旧案线, 港区线, 手稿线]
-palette: [#1d9bf0, #c95f92, #3f9b72, #d58a35, #7868c7, #2d9ca0, #c9685f, #71869d]
+palette: ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"]
 ---
 
 # Timeline Layout

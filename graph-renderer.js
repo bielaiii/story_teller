@@ -98,8 +98,17 @@
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
   };
 
+  const colorContext = document.createElement("canvas").getContext("2d");
+
   function colorComponents(value) {
-    const hex = String(value || "#65717d").replace("#", "");
+    if (colorContext) {
+      colorContext.fillStyle = "#65717d";
+      colorContext.fillStyle = String(value || "#65717d");
+    }
+    const normalizedValue = colorContext?.fillStyle || "#65717d";
+    const rgb = normalizedValue.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (rgb) return rgb.slice(1, 4).map((part) => Number(part) / 255);
+    const hex = normalizedValue.replace("#", "");
     const normalized = hex.length === 3
       ? [...hex].map((part) => `${part}${part}`).join("")
       : hex.padEnd(6, "0").slice(0, 6);

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "collections": {
+    "characters": [
+      "./characters/han.md",
+      "./characters/lin.md",
+      "./characters/mo.md",
+      "./characters/qiao.md",
+      "./characters/shen.md",
+      "./characters/su.md",
+      "./characters/yan.md"
+    ],
+    "plots": [
+      "./plots/001-burned-logbook.md",
+      "./plots/002-missing-witness.md",
+      "./plots/003-second-key.md",
+      "./plots/004-published-death.md",
+      "./plots/005-midnight-frequency.md",
+      "./plots/006-reverse-tide.md",
+      "./plots/007-old-photo.md",
+      "./plots/008-unhappened-broadcast.md",
+      "./plots/009-harbor-gate.md"
+    ],
+    "fragments": [
+      "./fragments/future-broadcast.md",
+      "./fragments/hidden-ship.md",
+      "./fragments/rain-knocking.md"
+    ],
+    "entries": [
+      "./entries/archive.md",
+      "./entries/compensation-case.md",
+      "./entries/harbor-gate-company.md",
+      "./entries/harbor-repair-network.md",
+      "./entries/night-restaurant.md",
+      "./entries/radio-station.md",
+      "./entries/second-key.md",
+      "./entries/seven-minute-delay.md"
+    ],
+    "relationships": [
+      "./relationships/lin-qiao.md",
+      "./relationships/lin-shen.md",
+      "./relationships/lin-su.md",
+      "./relationships/mo-qiao.md",
+      "./relationships/qiao-han.md",
+      "./relationships/shen-han.md",
+      "./relationships/shen-yan.md",
+      "./relationships/su-qiao.md",
+      "./relationships/su-yan.md"
+    ],
+    "timeline": [
+      "./timeline.md"
+    ],
+    "graphLayout": [
+      "./graph-layout.md"
+    ]
+  }
+}

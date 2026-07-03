@@ -8,6 +8,10 @@ let timelineRenderVersion = 0;
 let timelineViewportFrame = 0;
 let timelineViewportKey = "";
 let graphAnimationFrame = 0;
+let graphSimulationActive = true;
+let graphSimulationTicks = 0;
+let graphStableFrames = 0;
+let graphLastRenderTime = 0;
 let timelineConfig = {};
 let timelineConfigPath = "";
 let timelineConfigPromise = null;
@@ -18,7 +22,7 @@ let configDiagnostics = [];
 let refactorCapability = null;
 let refactorOperationId = "";
 let refactorCapabilityProject = "";
-const DATA_VERSION = "virtualized-timeline";
+const DATA_VERSION = "content-index-v1";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
 const FRAGMENT_PAGE_SIZE = 6;
@@ -27,6 +31,10 @@ const AUTO_ROLE_MENTIONS = new Set(["男主", "女主"]);
 const TIMELINE_VIEWPORT_BUFFER_Y = 280;
 const TIMELINE_VIEWPORT_BUFFER_X = 120;
 const TIMELINE_VIEWPORT_BUCKET = 140;
+const GRAPH_EFFECT_FRAME_INTERVAL = 1000 / 30;
+const GRAPH_STABLE_FRAME_TARGET = 72;
+const GRAPH_MAX_SIMULATION_TICKS = 900;
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 async function yieldToMain() {
   if (globalThis.scheduler?.yield) {
@@ -98,19 +106,28 @@ function characterIds(values) {
 }
 
 function parseMarkdownFile(text) {
-  const match = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { meta: {}, body: text.trim() };
-
-  const meta = {};
-  match[1].split("\n").forEach((line) => {
-    const separator = line.indexOf(":");
-    if (separator === -1) return;
-    const key = line.slice(0, separator).trim();
-    const value = line.slice(separator + 1);
-    meta[key] = parseValue(value);
-  });
-
-  return { meta, body: match[2].trim() };
+  const normalized = String(text || "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
+  if (!match) return { meta: {}, body: normalized.trim() };
+  if (!window.jsyaml?.load) throw new Error("YAML 解析器没有正确加载");
+  const compatibleFrontmatter = match[1].split("\n").map((line) => {
+    const paletteField = line.match(/^(\s*palette:\s*)\[(.*#.*)\]\s*$/);
+    if (paletteField) {
+      const colors = paletteField[2].split(",").map((color) => {
+        const trimmed = color.trim();
+        return /^["']/.test(trimmed) ? trimmed : JSON.stringify(trimmed);
+      });
+      return `${paletteField[1]}[${colors.join(", ")}]`;
+    }
+    const cssField = line.match(/^(\s*(?:color|accent|gradient):\s*)(.+)$/);
+    if (!cssField || !cssField[2].includes("#") || /^["']/.test(cssField[2].trim())) return line;
+    return `${cssField[1]}${JSON.stringify(cssField[2].trim())}`;
+  }).join("\n");
+  const parsed = window.jsyaml.load(compatibleFrontmatter) || {};
+  if (Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error("Markdown frontmatter 必须是键值对象");
+  }
+  return { meta: parsed, body: match[2].trim() };
 }
 
 function buildMentionCandidates(records, termsForRecord) {
@@ -383,25 +400,6 @@ async function fetchText(path) {
   return response.text();
 }
 
-function extractManifestSection(text, sectionName) {
-  const lines = text.split("\n");
-  const paths = [];
-  let inSection = false;
-
-  lines.forEach((line) => {
-    const heading = line.match(/^##\s+(.+)$/);
-    if (heading) {
-      inSection = heading[1].trim() === sectionName;
-      return;
-    }
-    if (!inSection) return;
-    const item = line.match(/^-\s+(.+\.md)\s*$/);
-    if (item) paths.push(item[1].trim());
-  });
-
-  return paths;
-}
-
 async function loadLocalContentIndex() {
   const response = await fetch(`/api/content-index?project=${encodeURIComponent(currentProjectId())}`, {
     cache: "no-store",
@@ -412,16 +410,13 @@ async function loadLocalContentIndex() {
   return result.collections;
 }
 
-function manifestContentIndex(manifestBody) {
-  return {
-    characters: extractManifestSection(manifestBody, "Characters"),
-    plots: extractManifestSection(manifestBody, "Plots"),
-    fragments: extractManifestSection(manifestBody, "Fragments"),
-    entries: extractManifestSection(manifestBody, "Entries"),
-    relationships: extractManifestSection(manifestBody, "Relationships"),
-    timeline: extractManifestSection(manifestBody, "Timeline"),
-    graphLayout: extractManifestSection(manifestBody, "GraphLayout"),
-  };
+async function loadStaticContentIndex() {
+  const path = `${contentBasePath()}/content-index.json`;
+  const response = await fetch(`${path}?v=${DATA_VERSION}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`无法加载 ${path}`);
+  const result = await response.json();
+  if (!result?.collections) throw new Error("静态内容索引无效");
+  return result.collections;
 }
 
 function parseConfigBlocks(body, sectionName) {
@@ -515,7 +510,7 @@ async function loadMarkdownData() {
     id: currentProjectId(),
   };
   const manifestPath = `${contentBasePath()}/manifest.md`;
-  const { meta: manifestMeta, body: manifestBody } = parseMarkdownFile(await fetchText(manifestPath));
+  const { meta: manifestMeta } = parseMarkdownFile(await fetchText(manifestPath));
   projectConfig = {
     ...projectConfig,
     title: manifestMeta.title || "小说剧情记录器",
@@ -528,7 +523,7 @@ async function loadMarkdownData() {
   try {
     contentIndex = await loadLocalContentIndex();
   } catch {
-    contentIndex = manifestContentIndex(manifestBody);
+    contentIndex = await loadStaticContentIndex();
   }
   const characterPaths = (contentIndex.characters || []).map(resolveContentPath);
   const plotPaths = (contentIndex.plots || []).map(resolveContentPath);
@@ -557,6 +552,8 @@ async function loadMarkdownData() {
         id: characterId(meta.id),
         intro: body,
         avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
+        color: safeCssColor(meta.color, "#457b9d"),
+        gradient: safeCssGradient(meta.gradient),
         events: Array.isArray(meta.events) ? meta.events : [],
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
@@ -571,6 +568,7 @@ async function loadMarkdownData() {
         entries: Array.isArray(meta.entries) ? meta.entries : [],
         tags: Array.isArray(meta.tags) ? meta.tags : [],
         status: meta.status || "已接入",
+        accent: safeCssColor(meta.accent, "#457b9d"),
       };
     })),
     Promise.all(fragmentPaths.map(async (path, index) => {
@@ -582,6 +580,7 @@ async function loadMarkdownData() {
         text: body,
         tags: Array.isArray(meta.tags) ? meta.tags : [],
         status: meta.status || "灵感",
+        accent: safeCssColor(meta.accent, "#8a5cf6"),
       };
     })),
     Promise.all(placePaths.map(async (path) => {
@@ -593,7 +592,7 @@ async function loadMarkdownData() {
         plots: Array.isArray(meta.plots) ? meta.plots : [],
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         tags: Array.isArray(meta.tags) ? meta.tags : [],
-        accent: meta.accent || meta.color || "#457b9d",
+        accent: safeCssColor(meta.accent || meta.color, "#457b9d"),
         type: meta.type || "设定",
         subtype: meta.subtype || "",
       };
@@ -604,6 +603,7 @@ async function loadMarkdownData() {
         ...meta,
         from: characterId(meta.from),
         to: characterId(meta.to),
+        color: safeCssColor(meta.color, "#65717d"),
       };
     })),
     loadGraphLayoutConfig(graphLayoutPaths[0]),
@@ -729,9 +729,9 @@ function initial(name) {
 
 function avatarContent(person) {
   if (person.avatar) {
-    return `<img src="${person.avatar}" alt="${person.name}" loading="lazy" decoding="async" />`;
+    return `<img src="${escapeHtml(safeImageUrl(person.avatar))}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" />`;
   }
-  return `<span class="avatar-text">${person.name}</span>`;
+  return `<span class="avatar-text">${escapeHtml(person.name)}</span>`;
 }
 
 function characterMarkers(person) {
@@ -782,6 +782,33 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function safeCssColor(value, fallback = "#65717d") {
+  const color = String(value || "").trim();
+  if (!color || /[;{}"'<>]/.test(color) || !globalThis.CSS?.supports?.("color", color)) return fallback;
+  return color;
+}
+
+function safeCssGradient(value, fallback = "linear-gradient(135deg, #8fa3b5, #52606d)") {
+  const gradient = String(value || "").trim();
+  if (
+    !gradient
+    || /[;{}"'<>]/.test(gradient)
+    || !/^(?:linear|radial)-gradient\(/i.test(gradient)
+    || !globalThis.CSS?.supports?.("background-image", gradient)
+  ) return fallback;
+  return gradient;
+}
+
+function safeImageUrl(value, resolveRelative = false) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  if (/^data:/i.test(source)) {
+    return /^data:image\/(?:png|jpe?g|gif|webp|avif);/i.test(source) ? source : "";
+  }
+  if (/^(?:https?:|\/|#)/i.test(source)) return source;
+  return resolveRelative ? resolveContentPath(source) : source;
+}
+
 function slugifyHeading(text, index) {
   const base = String(text || "")
     .trim()
@@ -791,186 +818,56 @@ function slugifyHeading(text, index) {
   return base || `section-${index + 1}`;
 }
 
-function inlineMarkdown(value) {
-  return escapeHtml(value)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
-}
+const markdownRenderer = window.markdownit?.({
+  html: false,
+  breaks: true,
+  linkify: true,
+  typographer: false,
+});
 
-function splitTableRow(line) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-function renderMarkdownTable(lines) {
-  const rows = lines.filter((line) => line.trim());
-  if (rows.length < 2) return "";
-  const header = splitTableRow(rows[0]);
-  const bodyRows = rows.slice(2).map(splitTableRow);
-  return `
-    <div class="markdown-table-wrap">
-      <table class="markdown-table">
-        <thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead>
-        <tbody>
-          ${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderMarkdownList(lines, ordered = false) {
-  const tag = ordered ? "ol" : "ul";
-  const pattern = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
-  return `<${tag}>${lines.map((line) => `<li>${inlineMarkdown(line.replace(pattern, "").trim())}</li>`).join("")}</${tag}>`;
+if (markdownRenderer) {
+  markdownRenderer.renderer.rules.table_open = () => '<div class="markdown-table-wrap"><table class="markdown-table">';
+  markdownRenderer.renderer.rules.table_close = () => "</table></div>";
+  const defaultLinkOpen = markdownRenderer.renderer.rules.link_open
+    || ((tokens, index, options, environment, renderer) => renderer.renderToken(tokens, index, options));
+  markdownRenderer.renderer.rules.link_open = (tokens, index, options, environment, renderer) => {
+    const href = tokens[index].attrGet("href") || "";
+    if (/^https?:/i.test(href)) {
+      tokens[index].attrSet("target", "_blank");
+      tokens[index].attrSet("rel", "noopener noreferrer");
+    }
+    return defaultLinkOpen(tokens, index, options, environment, renderer);
+  };
 }
 
 function renderMarkdownContent(text) {
-  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
-  if (!lines.some((line) => line.trim())) return { html: "<p>暂无正文。</p>", toc: [] };
-
+  const source = String(text || "").trim();
+  if (!source) return { html: "<p>暂无正文。</p>", toc: [] };
+  if (!markdownRenderer) throw new Error("Markdown 解析器没有正确加载");
   const toc = [];
-  const html = [];
-  let paragraph = [];
-  let quote = [];
-  let unordered = [];
-  let ordered = [];
-  let table = [];
-  let code = [];
-  let inCode = false;
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    html.push(`<p>${paragraph.map(inlineMarkdown).join("<br />")}</p>`);
-    paragraph = [];
-  };
-  const flushQuote = () => {
-    if (!quote.length) return;
-    html.push(`<blockquote>${quote.map((line) => `<p>${inlineMarkdown(line)}</p>`).join("")}</blockquote>`);
-    quote = [];
-  };
-  const flushUnordered = () => {
-    if (!unordered.length) return;
-    html.push(renderMarkdownList(unordered));
-    unordered = [];
-  };
-  const flushOrdered = () => {
-    if (!ordered.length) return;
-    html.push(renderMarkdownList(ordered, true));
-    ordered = [];
-  };
-  const flushTable = () => {
-    if (!table.length) return;
-    html.push(renderMarkdownTable(table));
-    table = [];
-  };
-  const flushBlocks = () => {
-    flushParagraph();
-    flushQuote();
-    flushUnordered();
-    flushOrdered();
-    flushTable();
-  };
-
-  lines.forEach((rawLine, lineIndex) => {
-    const line = rawLine.replace(/\s+$/, "");
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith("```")) {
-      if (inCode) {
-        html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
-        code = [];
-        inCode = false;
-      } else {
-        flushBlocks();
-        inCode = true;
-      }
-      return;
-    }
-
-    if (inCode) {
-      code.push(rawLine);
-      return;
-    }
-
-    if (!trimmed) {
-      flushBlocks();
-      return;
-    }
-
-    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      flushBlocks();
-      const depth = heading[1].length;
-      const title = heading[2].trim();
-      const id = slugifyHeading(title, toc.length);
-      const tag = depth <= 2 ? "h3" : depth === 3 ? "h4" : "h5";
-      toc.push({ id, title, level: depth <= 2 ? 2 : 3 });
-      html.push(`<${tag} id="${id}">${inlineMarkdown(title)}</${tag}>`);
-      return;
-    }
-
-    if (/^[-*_]{3,}$/.test(trimmed)) {
-      flushBlocks();
-      html.push("<hr />");
-      return;
-    }
-
-    if (trimmed.startsWith(">")) {
-      flushParagraph();
-      flushUnordered();
-      flushOrdered();
-      flushTable();
-      quote.push(trimmed.replace(/^>\s?/, ""));
-      return;
-    }
-
-    if (/^\s*[-*+]\s+/.test(line)) {
-      flushParagraph();
-      flushQuote();
-      flushOrdered();
-      flushTable();
-      unordered.push(line);
-      return;
-    }
-
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      flushParagraph();
-      flushQuote();
-      flushUnordered();
-      flushTable();
-      ordered.push(line);
-      return;
-    }
-
-    if (trimmed.includes("|") && /^\s*\|?\s*:?-{2,}:?/.test(lines[lineIndex + 1] || "")) {
-      flushBlocks();
-      table.push(line);
-      return;
-    }
-
-    if (table.length || (/^\s*\|?\s*:?-{2,}:?/.test(trimmed) && trimmed.includes("|"))) {
-      table.push(line);
-      return;
-    }
-
-    flushQuote();
-    flushUnordered();
-    flushOrdered();
-    flushTable();
-    paragraph.push(line);
+  const headingCounts = new Map();
+  const tokens = markdownRenderer.parse(source, {});
+  tokens.forEach((token, index) => {
+    (token.children || []).filter((child) => child.type === "image").forEach((image) => {
+      image.attrSet("src", safeImageUrl(image.attrGet("src"), true));
+      image.attrSet("loading", "lazy");
+      image.attrSet("decoding", "async");
+    });
+    if (token.type !== "heading_open") return;
+    const depth = Number(token.tag.slice(1)) || 1;
+    const title = tokens[index + 1]?.content?.trim() || `章节 ${toc.length + 1}`;
+    const baseId = slugifyHeading(title, toc.length);
+    const count = headingCounts.get(baseId) || 0;
+    headingCounts.set(baseId, count + 1);
+    const id = count ? `${baseId}-${count + 1}` : baseId;
+    const renderedTag = depth <= 2 ? "h3" : depth === 3 ? "h4" : "h5";
+    token.tag = renderedTag;
+    token.attrSet("id", id);
+    const closing = tokens.slice(index + 1).find((candidate) => candidate.type === "heading_close");
+    if (closing) closing.tag = renderedTag;
+    toc.push({ id, title, level: depth <= 2 ? 2 : 3 });
   });
-
-  if (inCode) html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
-  flushBlocks();
-
-  return { html: html.join(""), toc };
+  return { html: markdownRenderer.renderer.render(tokens, markdownRenderer.options, {}), toc };
 }
 
 function renderMarkdownBody(text) {
@@ -1064,7 +961,7 @@ function renderChipFilter({ container, label, items, selected, mode = "single", 
   }
   const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
   container.innerHTML = `
-    <span class="filter-label">${label}</span>
+    <span class="filter-label">${escapeHtml(label)}</span>
     ${mode === "single" ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
     ${items.map((item) => `
       <button class="filter-chip ${
@@ -1156,6 +1053,17 @@ function getPlace(id) {
   return places.find((place) => place.id === id);
 }
 
+function entrySymbolClass(type) {
+  return {
+    地点: "is-location",
+    物品: "is-object",
+    组织: "is-organization",
+    势力: "is-faction",
+    事件背景: "is-event",
+    规则: "is-rule",
+  }[type] || "is-entry";
+}
+
 function personMatchesSearch(person) {
   if (!state.search) return true;
   const keyword = state.search.toLowerCase();
@@ -1190,10 +1098,10 @@ function renderGraphFilters() {
   const relationTypes = [...new Set(relationships.map((link) => link.type).filter(Boolean))];
 
   groupFilter.innerHTML = '<option value="all">全部分组</option>' + groups
-    .map((group) => `<option value="${group}">${group}</option>`)
+    .map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
     .join("");
   relationFilter.innerHTML = '<option value="all">全部关系</option>' + relationTypes
-    .map((type) => `<option value="${type}">${type}</option>`)
+    .map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`)
     .join("");
 }
 
@@ -1442,7 +1350,7 @@ async function requestDiagnosticsRender() {
 function renderChapterSwitch() {
   if (!chapterSwitch) return;
   const chapterButtons = chapterKeys().map((chapter) => `
-    <button class="chapter-btn ${state.chapter === chapter ? "is-active" : ""}" data-chapter="${chapter}" type="button">
+    <button class="chapter-btn ${state.chapter === chapter ? "is-active" : ""}" data-chapter="${escapeHtml(chapter)}" type="button">
       ${escapeHtml(chapterName(chapter))}
     </button>
   `).join("");
@@ -1507,8 +1415,8 @@ function renderPlots() {
   state.plotPage = page.currentPage;
   plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => `
-      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}; animation-delay:${index * 55}ms">
-        <div class="plot-index">${plot.id}</div>
+      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
+        <div class="plot-index">${escapeHtml(plot.id)}</div>
         <div>${renderStoryCardContent(plot)}</div>
       </button>
     `)
@@ -1548,9 +1456,9 @@ function renderFragments() {
   const page = pagedItems(visible, state.fragmentPage, FRAGMENT_PAGE_SIZE);
   state.fragmentPage = page.currentPage;
   fragmentBoard.innerHTML = page.items.length ? page.items.map((fragment, index) => `
-    <article class="fragment-card" id="fragment-${fragment.id}" style="--accent:${fragment.accent || "#8a5cf6"}; animation-delay:${index * 55}ms">
+    <article class="fragment-card" id="fragment-${escapeHtml(fragment.id)}" style="--accent:${escapeHtml(fragment.accent)}; animation-delay:${index * 55}ms">
       <div class="fragment-head">
-        <span class="status-badge">${fragment.status || "灵感"}</span>
+        <span class="status-badge">${escapeHtml(fragment.status || "灵感")}</span>
         ${tagBadges(fragment.tags)}
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
@@ -1627,6 +1535,25 @@ function timelineRangesOverlap(first, second) {
   return first.start < second.end && second.start < first.end;
 }
 
+function timelineDensityLength(nodeConfigs, minimumGap = 24) {
+  const positionsByLine = new Map();
+  nodeConfigs.forEach((node) => {
+    if (!node.line || node.linePosition === undefined) return;
+    if (!positionsByLine.has(node.line)) positionsByLine.set(node.line, []);
+    positionsByLine.get(node.line).push(asTimelineRatio(node.linePosition));
+  });
+
+  let requiredLength = 0;
+  positionsByLine.forEach((positions) => {
+    positions.sort((a, b) => a - b);
+    for (let index = 1; index < positions.length; index += 1) {
+      const gap = positions[index] - positions[index - 1];
+      if (gap > 0.002) requiredLength = Math.max(requiredLength, minimumGap / gap);
+    }
+  });
+  return Math.min(12000, Math.ceil(requiredLength));
+}
+
 function generatedTimelineColor(index) {
   const hues = [206, 329, 151, 36, 257, 184, 4, 96, 284, 222];
   const hue = hues[index % hues.length];
@@ -1637,7 +1564,7 @@ function generatedTimelineColor(index) {
 function assignTimelineColors(lines, branchConfigs, connectors, palette, mainLineName) {
   const colorMap = new Map();
   const basePalette = palette.length
-    ? palette
+    ? palette.map((color, index) => safeCssColor(color, generatedTimelineColor(index)))
     : ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"];
   colorMap.set(mainLineName, basePalette[0] || "#1d9bf0");
   const branchConfigByLine = new Map(branchConfigs.map((item) => [item.line, item]));
@@ -1652,7 +1579,7 @@ function assignTimelineColors(lines, branchConfigs, connectors, palette, mainLin
   connectorRanges.forEach((range) => {
     const branchConfig = branchConfigByLine.get(range.lane);
     if (branchConfig?.color) {
-      colorMap.set(range.lane, branchConfig.color);
+      colorMap.set(range.lane, safeCssColor(branchConfig.color, generatedTimelineColor(colorMap.size)));
       return;
     }
     const usedColors = new Set(connectorRanges
@@ -1788,13 +1715,13 @@ async function renderTimeline() {
   const topPadding = timelineConfig.topPadding || 54;
   const sidePadding = timelineConfig.sidePadding || 34;
   const palette = Array.isArray(timelineConfig.palette) && timelineConfig.palette.length
-    ? timelineConfig.palette
+    ? timelineConfig.palette.map((color, index) => safeCssColor(color, generatedTimelineColor(index)))
     : ["#1d9bf0", "#c95f92", "#3f9b72", "#d58a35", "#7868c7", "#2d9ca0", "#c9685f", "#71869d"];
   const branchConfigByLine = new Map(branchConfigs.map((item) => [item.line, item]));
   const nodeConfigByPlot = new Map((timelineConfig.nodes || []).map((item) => [Number(item.plotId), item]));
   let timelineColorMap = new Map();
   const baseLineColor = (line) => palette[Math.max(0, lines.indexOf(line)) % palette.length];
-  const lineColor = (line) => timelineColorMap.get(line) || baseLineColor(line);
+  const lineColor = (line) => safeCssColor(timelineColorMap.get(line) || baseLineColor(line), "#65717d");
   const occupiedTracks = new Set();
   const branchTrackByLine = new Map(branchConfigs.map((branchConfig) => [
     branchConfig.line,
@@ -1808,7 +1735,7 @@ async function renderTimeline() {
     return 460;
   };
   const nodeGap = Math.max(40, Number(timelineConfig.nodeGap || 56) || 56);
-  const mainDisplayLength = Math.max(680, ...branchConfigs
+  const mainDisplayLength = Math.max(680, timelineDensityLength(timelineConfig.nodes || []), ...branchConfigs
     .map((branchConfig) => branchDisplayLength(branchConfig) * 1.8), ...branchConfigs
     .filter((branchConfig) => (branchConfig.startLine || mainLineName) === mainLineName && (branchConfig.endLine || mainLineName) === mainLineName)
     .map((branchConfig) => {
@@ -2055,9 +1982,10 @@ function timelineNodeMarkup(item) {
     priority >= 4 || timelineModel.summaryIds.has(Number(plot.id)) ? "is-featured" : "is-minor",
     plot.climax ? "is-climax" : "",
     plot.key ? "is-key" : "",
+    timelineModel.focusLane && timelineModel.focusLane === position.lane ? "is-focused" : "",
     timelineModel.focusLane && timelineModel.focusLane !== position.lane ? "is-muted-by-focus" : "",
   ].filter(Boolean).join(" ");
-  return `<button class="${nodeClass}" data-plot-id="${plot.id}" data-lane="${escapeHtml(position.lane)}" type="button" aria-label="${escapeHtml(timelinePlotTitle(plot))}，${escapeHtml(positionLabel)}" title="${escapeHtml(positionLabel)}" style="--accent:${nodeColor}; left:${position.x}px; top:${position.y}px">
+  return `<button class="${nodeClass}" data-plot-id="${escapeHtml(plot.id)}" data-lane="${escapeHtml(position.lane)}" type="button" aria-label="${escapeHtml(timelinePlotTitle(plot))}，${escapeHtml(positionLabel)}" title="${escapeHtml(positionLabel)}" style="--accent:${escapeHtml(nodeColor)}; left:${position.x}px; top:${position.y}px">
     <span class="timeline-dot" aria-hidden="true"></span>
     <span class="timeline-node-tip">${escapeHtml(positionLabel)}</span>
   </button>`;
@@ -2068,8 +1996,8 @@ function timelineSummaryMarkup(item) {
   const hiddenByFocus = timelineModel.focusLane && timelineModel.focusLane !== position.lane;
   const stableClass = timelineModel.viewportSettled ? "is-stable" : "";
   return `
-    <button class="timeline-summary-card timeline-jump ${stableClass} ${hiddenByFocus ? "is-hidden-by-focus" : ""}" data-plot-id="${plot.id}" data-primary-lane="${escapeHtml(position.lane)}" type="button" style="--accent:${nodeColor}; --card-y:${Math.round(position.y)}px">
-      <span>${escapeHtml(timelinePlotChapter(plot))} · ${plot.id}</span>
+    <button class="timeline-summary-card timeline-jump ${stableClass} ${hiddenByFocus ? "is-hidden-by-focus" : ""}" data-plot-id="${escapeHtml(plot.id)}" data-primary-lane="${escapeHtml(position.lane)}" type="button" style="--accent:${escapeHtml(nodeColor)}; --card-y:${Math.round(position.y)}px">
+      <span>${escapeHtml(timelinePlotChapter(plot))} · ${escapeHtml(plot.id)}</span>
       <strong>${escapeHtml(timelinePlotTitle(plot))}</strong>
       <p>${escapeHtml(markdownExcerpt(timelinePlotSummary(plot), 120))}</p>
       <small class="timeline-read-hint">阅读全文</small>
@@ -2316,7 +2244,7 @@ function updateTimelineLegend(range = timelineVisibleRange()) {
     timelineModel.focusLane ? line.lane === timelineModel.focusLane : visibleLines.has(line.lane)
   ));
   timelineLegend.innerHTML = visibleLegendLines.map((line) => `
-    <span class="timeline-legend-item ${line.lane === timelineModel.focusLane ? "is-active" : ""}" data-line="${escapeHtml(line.lane)}" style="--accent:${line.color}">
+    <span class="timeline-legend-item ${line.lane === timelineModel.focusLane ? "is-active" : ""}" data-line="${escapeHtml(line.lane)}" style="--accent:${escapeHtml(line.color)}">
       <i aria-hidden="true"></i>${escapeHtml(line.lane)}
     </span>
   `).join("");
@@ -2668,10 +2596,10 @@ function renderGlobalSearchResults() {
     return;
   }
   globalSearchResults.innerHTML = results.map((result) => `
-    <button class="global-search-result" type="button" data-type="${result.type}" data-id="${result.id}" data-from="${result.from || ""}" data-to="${result.to || ""}">
-      <span>${result.meta}</span>
-      <strong>${result.title}</strong>
-      <small>${result.text || ""}</small>
+    <button class="global-search-result" type="button" data-type="${escapeHtml(result.type)}" data-id="${escapeHtml(result.id)}" data-from="${escapeHtml(result.from || "")}" data-to="${escapeHtml(result.to || "")}">
+      <span>${escapeHtml(result.meta)}</span>
+      <strong>${escapeHtml(result.title)}</strong>
+      <small>${escapeHtml(markdownExcerpt(result.text || "", 86))}</small>
     </button>
   `).join("");
   globalSearchResults.classList.remove("is-hidden");
@@ -2818,17 +2746,17 @@ function renderPlotDetail() {
           return `
             <div class="plot-reference-row ${
               state.highlightedReferenceType === "character" && state.highlightedReferenceId === person.id ? "is-active" : ""
-            }" style="--accent:${person.color || "#2a9d8f"}">
-              <button class="plot-person-item plot-reference-toggle" data-reference-type="character" data-id="${person.id}" type="button" aria-pressed="${
+            }" style="--accent:${escapeHtml(person.color)}">
+              <button class="plot-person-item plot-reference-toggle" data-reference-type="character" data-id="${escapeHtml(person.id)}" type="button" aria-pressed="${
                 state.highlightedReferenceType === "character" && state.highlightedReferenceId === person.id
               }">
-                <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+                <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
                 <span>
-                  <strong>${person.name}</strong>
-                  <small>${person.group || "未分组"}</small>
+                  <strong>${escapeHtml(person.name)}</strong>
+                  <small>${escapeHtml(person.group || "未分组")}</small>
                 </span>
               </button>
-              <button class="plot-reference-open" data-reference-type="character" data-id="${person.id}" type="button" aria-label="查看${escapeHtml(person.name)}详情" title="查看人物详情">→</button>
+              <button class="plot-reference-open" data-reference-type="character" data-id="${escapeHtml(person.id)}" type="button" aria-label="查看${escapeHtml(person.name)}详情" title="查看人物详情">→</button>
             </div>
           `;
         }).join("") || '<p class="empty-state">这个剧情点还没有配置出场人物。</p>'}
@@ -2854,17 +2782,17 @@ function renderPlotDetail() {
             return `
               <div class="plot-reference-row ${
                 state.highlightedReferenceType === "place" && state.highlightedReferenceId === place.id ? "is-active" : ""
-              }" style="--accent:${place.accent}">
-                <button class="plot-place-item plot-reference-toggle" data-reference-type="place" data-id="${place.id}" type="button" aria-pressed="${
+              }" style="--accent:${escapeHtml(place.accent)}">
+                <button class="plot-place-item plot-reference-toggle" data-reference-type="place" data-id="${escapeHtml(place.id)}" type="button" aria-pressed="${
                   state.highlightedReferenceType === "place" && state.highlightedReferenceId === place.id
                 }">
                   <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
                   <span>
-                    <strong>${place.name}</strong>
-                    <small>${place.type || "未分类"} · ${place.area || "未分区"}</small>
+                    <strong>${escapeHtml(place.name)}</strong>
+                    <small>${escapeHtml(place.type || "未分类")} · ${escapeHtml(place.area || "未分区")}</small>
                   </span>
                 </button>
-                <button class="plot-reference-open" data-reference-type="place" data-id="${place.id}" type="button" aria-label="查看${escapeHtml(place.name)}详情" title="查看设定详情">→</button>
+                <button class="plot-reference-open" data-reference-type="place" data-id="${escapeHtml(place.id)}" type="button" aria-label="查看${escapeHtml(place.name)}详情" title="查看设定详情">→</button>
               </div>
             `;
           }).join("")}
@@ -2885,7 +2813,7 @@ function renderPlotDetail() {
   `;
 
   plotDetail.innerHTML = `
-    <div class="plot-detail-head" style="--accent:${plot.accent}">
+    <div class="plot-detail-head" style="--accent:${escapeHtml(plot.accent)}">
       <h2>${escapeHtml(plot.title)}</h2>
       <p class="plot-detail-summary">${escapeHtml(summary)}</p>
       <div class="badge-line">
@@ -2894,7 +2822,7 @@ function renderPlotDetail() {
         ${plotBadges(plot)}
       </div>
     </div>
-    <div class="plot-detail-body" style="--accent:${plot.accent}">
+    <div class="plot-detail-body" style="--accent:${escapeHtml(plot.accent)}">
       ${markdown.html}
     </div>
   `;
@@ -2963,11 +2891,11 @@ function renderCharacterList() {
 
   characterList.innerHTML = visibleCharacters
     .map((person) => `
-      <button class="character-list-item ${person.id === state.selectedCharacter ? "is-active" : ""}" data-id="${person.id}" type="button">
-        <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+      <button class="character-list-item ${person.id === state.selectedCharacter ? "is-active" : ""}" data-id="${escapeHtml(person.id)}" type="button">
+        <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
         <span>
-          <strong>${person.name}</strong>
-          <small>${person.group || "未分组"}</small>
+          <strong>${escapeHtml(person.name)}</strong>
+          <small>${escapeHtml(person.group || "未分组")}</small>
         </span>
       </button>
     `)
@@ -2999,7 +2927,7 @@ function renderCharacterDetail() {
   characterDetail.innerHTML = `
     ${detailReturnButton()}
     <div class="character-hero">
-      <div class="character-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</div>
+      <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
         <p class="label">${escapeHtml(person.group || "未分组")}</p>
         <div class="character-title-row">
@@ -3044,9 +2972,9 @@ function renderCharacterDetail() {
         ${personPlots.map((plot) => `
           <button
             class="${storyCardClass(plot, "character-plot detail-plot-card character-plot-card")}"
-            data-plot-id="${plot.id}"
+            data-plot-id="${escapeHtml(plot.id)}"
             type="button"
-            style="--accent:${plot.accent}"
+            style="--accent:${escapeHtml(plot.accent)}"
           >
             ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
           </button>
@@ -3064,10 +2992,10 @@ function renderCharacterDetail() {
           const otherId = link.from === person.id ? link.to : link.from;
           const other = getCharacter(otherId);
           return `
-            <div class="relation-row" style="--accent:${link.color}">
-              <span>${other?.name || otherId}</span>
-              <strong>${link.label}</strong>
-              <small>${link.type || "未分类"}</small>
+            <div class="relation-row" style="--accent:${escapeHtml(link.color)}">
+              <span>${escapeHtml(other?.name || otherId)}</span>
+              <strong>${escapeHtml(link.label)}</strong>
+              <small>${escapeHtml(link.type || "未分类")}</small>
             </div>
           `;
         }).join("")}
@@ -3237,11 +3165,11 @@ function renderPlaceList() {
 
   placeList.innerHTML = visiblePlaces
     .map((place) => `
-      <button class="place-list-item ${place.id === state.selectedPlace ? "is-active" : ""}" data-id="${place.id}" type="button" style="--accent:${place.accent}">
+      <button class="place-list-item ${place.id === state.selectedPlace ? "is-active" : ""}" data-id="${escapeHtml(place.id)}" type="button" style="--accent:${escapeHtml(place.accent)}">
         <span class="place-mini-symbol">${escapeHtml(place.name).slice(0, 2)}</span>
         <span>
-          <strong>${place.name}</strong>
-          <small>${place.type || "未分类"}${place.subtype ? ` · ${place.subtype}` : ""} · ${place.area || "未分区"}</small>
+          <strong>${escapeHtml(place.name)}</strong>
+          <small>${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</small>
         </span>
       </button>
     `)
@@ -3277,21 +3205,21 @@ function renderPlaceDetail() {
 
   placeDetail.innerHTML = `
     ${detailReturnButton()}
-    <div class="place-hero" style="--accent:${place.accent}">
-      <div class="place-symbol">${escapeHtml(place.name).slice(0, 2)}</div>
-      <div class="character-copy">
-        <p class="label">${place.type || "未分类"}${place.subtype ? ` · ${place.subtype}` : ""} · ${place.area || "未分区"}</p>
-        <h2>${place.name}</h2>
-        <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
+    <div class="place-hero" style="--accent:${escapeHtml(place.accent)}">
+      <div class="place-symbol ${entrySymbolClass(place.type)}" aria-label="${escapeHtml(place.type || "设定")}">
+        <span class="place-symbol-glyph" aria-hidden="true"></span>
+        <span class="place-symbol-label">${escapeHtml(place.type || "设定")}</span>
       </div>
-      <aside class="place-facts">
-        <span>${escapeHtml(place.type || "未分类")}</span>
-        ${place.subtype ? `<span>${escapeHtml(place.subtype)}</span>` : ""}
-        ${place.area ? `<span>${escapeHtml(place.area)}</span>` : ""}
-        ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
-        ${(place.aliases || []).map((alias) => `<span>${escapeHtml(alias)}</span>`).join("")}
-        ${place.status ? `<span>${escapeHtml(place.status)}</span>` : ""}
-      </aside>
+      <div class="character-copy">
+        <p class="label">${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</p>
+        <h2>${escapeHtml(place.name)}</h2>
+        <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
+        <div class="place-facts">
+          ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+          ${(place.aliases || []).map((alias) => `<span>别名：${escapeHtml(alias)}</span>`).join("")}
+          ${place.status ? `<span>${escapeHtml(place.status)}</span>` : ""}
+        </div>
+      </div>
     </div>
 
     <section class="character-section">
@@ -3313,11 +3241,11 @@ function renderPlaceDetail() {
             `;
           }
           return `
-            <button class="plot-person-item" data-id="${person.id}" type="button">
-              <span class="mini-avatar" style="--avatar-gradient:${person.gradient}">${avatarContent(person)}</span>
+            <button class="plot-person-item" data-id="${escapeHtml(person.id)}" type="button">
+              <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
               <span>
-                <strong>${person.name}</strong>
-                <small>${person.group || "未分组"}</small>
+                <strong>${escapeHtml(person.name)}</strong>
+                <small>${escapeHtml(person.group || "未分组")}</small>
               </span>
             </button>
           `;
@@ -3332,7 +3260,7 @@ function renderPlaceDetail() {
       </div>
       <div class="character-plot-list">
         ${placePlots.map((plot) => `
-          <button class="${storyCardClass(plot, "character-plot detail-plot-card place-plot-card")}" data-plot-id="${plot.id}" type="button" style="--accent:${plot.accent}">
+          <button class="${storyCardClass(plot, "character-plot detail-plot-card place-plot-card")}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}">
             ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
           </button>
         `).join("") || '<p class="empty-state">这个设定还没有配置出现剧情。</p>'}
@@ -3418,7 +3346,7 @@ function renderProfile() {
 
   eventList.innerHTML = items
     .map((plot, index) => `
-      <article class="event-item" style="--accent:${plot.accent}; animation-delay:${index * 70}ms">
+      <article class="event-item" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 70}ms">
         <span class="event-dot"></span>
         <p>${escapeHtml(plot.title)}：${escapeHtml(markdownExcerpt(plot.text, 120))}</p>
       </article>
@@ -3439,7 +3367,7 @@ function renderNodes() {
     node.style.animationDelay = `${index * 90}ms, ${index * 170}ms`;
     node.innerHTML = `
       <span class="avatar ${person.avatar ? "has-image" : ""}">${avatarContent(person)}</span>
-      <span class="node-name">${person.name}</span>
+      <span class="node-name">${escapeHtml(person.name)}</span>
     `;
     node.addEventListener("pointerdown", startDrag);
     node.addEventListener("click", () => {
@@ -3468,9 +3396,15 @@ function selectPerson(id) {
   state.selected = id;
   state.hasSelection = true;
   state.selectedCharacter = id;
-  person.pinned = false;
   centerViewportOn(person);
   renderProfile();
+  markRelatedNodes();
+}
+
+function clearGraphSelection() {
+  state.selected = "";
+  state.hasSelection = false;
+  profileFloat.classList.add("is-hidden");
   markRelatedNodes();
 }
 
@@ -3526,11 +3460,22 @@ function updateGraphBounds() {
   state.width = bounds.width;
   state.height = bounds.height;
 
-  characters.forEach((person) => {
-    if (typeof person.px !== "number" || typeof person.py !== "number") {
+  characters.forEach((person, index) => {
+    if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) {
+      const hasConfiguredPosition = Number.isFinite(Number(person.x)) && Number.isFinite(Number(person.y));
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      const progress = Math.sqrt((index + 0.5) / Math.max(1, characters.length));
+      const radius = Math.min(state.width, state.height) * (0.08 + progress * 0.34);
+      const angle = index * goldenAngle + stableNoise(person.id, "initial-angle") * 0.28;
+      const baseX = hasConfiguredPosition
+        ? (Number(person.x) / 100) * state.width
+        : state.width / 2 + Math.cos(angle) * radius;
+      const baseY = hasConfiguredPosition
+        ? (Number(person.y) / 100) * state.height
+        : state.height / 2 + Math.sin(angle) * radius;
       const point = jitterPoint(
-        (person.x / 100) * state.width,
-        (person.y / 100) * state.height,
+        baseX,
+        baseY,
         person.id,
         Number(graphLayoutConfig.initialJitter || 34),
         "initial",
@@ -3543,6 +3488,7 @@ function updateGraphBounds() {
     person.pinned = Boolean(person.pinned);
   });
   updateGraphViewport();
+  wakeGraphSimulation();
 }
 
 function clientToWorld(clientX, clientY) {
@@ -3844,36 +3790,84 @@ function applyGraphLayoutForces() {
   applyOrbitForces();
 }
 
-function separateOverlappingNodes() {
-  const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
-  characters.forEach((a, index) => {
-    characters.slice(index + 1).forEach((b) => {
-      const dx = b.px - a.px;
-      const dy = b.py - a.py;
-      const distance = Math.max(0.1, Math.hypot(dx, dy));
-      if (distance >= minDistance) return;
-      const overlap = (minDistance - distance) * 0.52;
-      const nx = dx / distance;
-      const ny = dy / distance;
-      const aCanMove = canMovePerson(a);
-      const bCanMove = canMovePerson(b);
-      if (aCanMove && bCanMove) {
-        a.px -= nx * overlap * 0.5;
-        a.py -= ny * overlap * 0.5;
-        b.px += nx * overlap * 0.5;
-        b.py += ny * overlap * 0.5;
-        return;
-      }
-      if (aCanMove) {
-        a.px -= nx * overlap;
-        a.py -= ny * overlap;
-      }
-      if (bCanMove) {
-        b.px += nx * overlap;
-        b.py += ny * overlap;
+function forEachNearbyCharacterPair(maxDistance, callback) {
+  const cellSize = Math.max(1, maxDistance);
+  const buckets = new Map();
+  characters.forEach((person, index) => {
+    if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) return;
+    const cellX = Math.floor(person.px / cellSize);
+    const cellY = Math.floor(person.py / cellSize);
+    const key = `${cellX}:${cellY}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push({ person, index, cellX, cellY });
+  });
+
+  buckets.forEach((items) => {
+    items.forEach((first) => {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          const nearby = buckets.get(`${first.cellX + offsetX}:${first.cellY + offsetY}`) || [];
+          nearby.forEach((second) => {
+            if (second.index <= first.index) return;
+            callback(first.person, second.person);
+          });
+        }
       }
     });
   });
+}
+
+function separationVector(a, b) {
+  const dx = b.px - a.px;
+  const dy = b.py - a.py;
+  const rawDistance = Math.hypot(dx, dy);
+  if (rawDistance > 0.001) {
+    return { distance: rawDistance, nx: dx / rawDistance, ny: dy / rawDistance };
+  }
+  const angle = (stableNoise(`${a.id}:${b.id}`, "overlap") + 1) * Math.PI;
+  return { distance: 0, nx: Math.cos(angle), ny: Math.sin(angle) };
+}
+
+function separateOverlappingNodes() {
+  const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
+  forEachNearbyCharacterPair(minDistance, (a, b) => {
+    const { distance, nx, ny } = separationVector(a, b);
+    if (distance >= minDistance) return;
+    const overlap = (minDistance - distance) * 0.52;
+    const aCanMove = canMovePerson(a);
+    const bCanMove = canMovePerson(b);
+    if (aCanMove && bCanMove) {
+      a.px -= nx * overlap * 0.5;
+      a.py -= ny * overlap * 0.5;
+      b.px += nx * overlap * 0.5;
+      b.py += ny * overlap * 0.5;
+      return;
+    }
+    if (aCanMove) {
+      a.px -= nx * overlap;
+      a.py -= ny * overlap;
+    }
+    if (bCanMove) {
+      b.px += nx * overlap;
+      b.py += ny * overlap;
+    }
+  });
+}
+
+function resolvePinnedNodeOverlap(person) {
+  const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
+  for (let pass = 0; pass < 4; pass += 1) {
+    let moved = false;
+    characters.forEach((other) => {
+      if (other === person || !Number.isFinite(other.px) || !Number.isFinite(other.py)) return;
+      const vector = separationVector(other, person);
+      if (vector.distance >= minDistance) return;
+      person.px += vector.nx * (minDistance - vector.distance + 2);
+      person.py += vector.ny * (minDistance - vector.distance + 2);
+      moved = true;
+    });
+    if (!moved) break;
+  }
 }
 
 function startDrag(event) {
@@ -3886,16 +3880,18 @@ function startDrag(event) {
     startClientY: event.clientY,
     moved: false,
   };
+  wakeGraphSimulation();
   event.currentTarget.setPointerCapture(event.pointerId);
 }
 
 graphWrap.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".person-node")) return;
+  if (event.target.closest(".person-node, .profile-float")) return;
   state.panning = {
     startClientX: event.clientX,
     startClientY: event.clientY,
     startPanX: state.graphPanX,
     startPanY: state.graphPanY,
+    moved: false,
   };
 });
 
@@ -3915,6 +3911,9 @@ graphWrap.addEventListener("wheel", (event) => {
 
 window.addEventListener("pointermove", (event) => {
   if (state.panning) {
+    if (Math.hypot(event.clientX - state.panning.startClientX, event.clientY - state.panning.startClientY) > 5) {
+      state.panning.moved = true;
+    }
     state.graphPanX = state.panning.startPanX + event.clientX - state.panning.startClientX;
     state.graphPanY = state.panning.startPanY + event.clientY - state.panning.startClientY;
     updateGraphViewport();
@@ -3923,6 +3922,7 @@ window.addEventListener("pointermove", (event) => {
 
   if (state.dragging) {
     const person = getCharacter(state.dragging.id);
+    if (!person) return;
     const moveDistance = Math.hypot(event.clientX - state.dragging.startClientX, event.clientY - state.dragging.startClientY);
     if (moveDistance > 5) state.dragging.moved = true;
     const point = clientToWorld(event.clientX, event.clientY);
@@ -3934,9 +3934,11 @@ window.addEventListener("pointermove", (event) => {
 });
 
 window.addEventListener("pointerup", () => {
+  if (state.panning && !state.panning.moved) clearGraphSelection();
   if (state.dragging?.moved) {
     const person = getCharacter(state.dragging.id);
     if (person) {
+      resolvePinnedNodeOverlap(person);
       person.pinned = true;
       person.vx = 0;
       person.vy = 0;
@@ -3946,42 +3948,37 @@ window.addEventListener("pointerup", () => {
     state.suppressClickId = state.dragging.id;
     state.suppressClickUntil = Date.now() + 250;
     markRelatedNodes();
+    wakeGraphSimulation();
   }
   state.dragging = null;
   state.panning = null;
 });
 
+function wakeGraphSimulation() {
+  graphSimulationActive = true;
+  graphSimulationTicks = 0;
+  graphStableFrames = 0;
+  startGraphLoop();
+}
+
 function startGraphLoop() {
-  if (!graphAnimationFrame && state.view === "graph") {
+  if (!graphAnimationFrame && state.view === "graph" && !document.hidden) {
     graphAnimationFrame = requestAnimationFrame(tick);
   }
 }
 
-function tick(time) {
-  graphAnimationFrame = 0;
-  if (state.view !== "graph") return;
-  if (!state.width || !state.height) {
-    startGraphLoop();
-    return;
-  }
-
-  characters.forEach((a, index) => {
-    characters.forEach((b, bIndex) => {
-      if (index >= bIndex) return;
-      const dx = a.px - b.px;
-      const dy = a.py - b.py;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      const push = Math.max(0, 150 - distance) * 0.0009;
-      const nx = dx / distance;
-      const ny = dy / distance;
-      const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.004 : 0;
-      pushPerson(a, nx * push, ny * push);
-      pushPerson(b, -nx * push, -ny * push);
-      if (selectedPush) {
-        pushPerson(a, nx * selectedPush, ny * selectedPush);
-        pushPerson(b, -nx * selectedPush, -ny * selectedPush);
-      }
-    });
+function stepGraphSimulation() {
+  forEachNearbyCharacterPair(150, (a, b) => {
+    const { distance: rawDistance, nx, ny } = separationVector(b, a);
+    const distance = Math.max(1, rawDistance);
+    const push = Math.max(0, 150 - distance) * 0.0009;
+    const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.004 : 0;
+    pushPerson(a, nx * push, ny * push);
+    pushPerson(b, -nx * push, -ny * push);
+    if (selectedPush) {
+      pushPerson(a, nx * selectedPush, ny * selectedPush);
+      pushPerson(b, -nx * selectedPush, -ny * selectedPush);
+    }
   });
 
   relationships.forEach((link) => {
@@ -3993,12 +3990,14 @@ function tick(time) {
 
   applyGraphLayoutForces();
 
+  let maxSpeed = 0;
   characters.forEach((person) => {
     if (canMovePerson(person)) {
       person.vx *= 0.91;
       person.vy *= 0.91;
       person.px += person.vx;
       person.py += person.vy;
+      maxSpeed = Math.max(maxSpeed, Math.hypot(person.vx, person.vy));
     }
   });
 
@@ -4009,8 +4008,27 @@ function tick(time) {
     person.y = (person.py / state.height) * 100;
   });
 
-  drawGraph(time);
-  startGraphLoop();
+  graphSimulationTicks += 1;
+  graphStableFrames = maxSpeed < 0.018 ? graphStableFrames + 1 : 0;
+  if (graphStableFrames >= GRAPH_STABLE_FRAME_TARGET || graphSimulationTicks >= GRAPH_MAX_SIMULATION_TICKS) {
+    graphSimulationActive = false;
+  }
+}
+
+function tick(time) {
+  graphAnimationFrame = 0;
+  if (state.view !== "graph" || document.hidden) return;
+  if (!state.width || !state.height) {
+    startGraphLoop();
+    return;
+  }
+
+  if (graphSimulationActive) stepGraphSimulation();
+  if (graphSimulationActive || time - graphLastRenderTime >= GRAPH_EFFECT_FRAME_INTERVAL) {
+    drawGraph(time);
+    graphLastRenderTime = time;
+  }
+  if (graphSimulationActive || !reducedMotionQuery.matches) startGraphLoop();
 }
 
 function graphRenderScene(time = performance.now()) {
@@ -4150,6 +4168,8 @@ function runAmbientCanvas() {
   const canvas = document.querySelector("#ambientCanvas");
   const ctx = canvas?.getContext?.("2d");
   if (!canvas || !ctx) return;
+  let ambientFrame = 0;
+  let lastPaint = 0;
   const particles = Array.from({ length: 78 }, (_, index) => ({
     x: Math.random(),
     y: Math.random(),
@@ -4160,30 +4180,48 @@ function runAmbientCanvas() {
   }));
 
   function resize() {
-    canvas.width = window.innerWidth * window.devicePixelRatio;
-    canvas.height = window.innerHeight * window.devicePixelRatio;
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = window.innerWidth * ratio;
+    canvas.height = window.innerHeight * ratio;
     canvas.style.width = `${window.innerWidth}px`;
     canvas.style.height = `${window.innerHeight}px`;
-    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
 
   function paint(time) {
+    ambientFrame = 0;
+    if (document.hidden) return;
+    if (!reducedMotionQuery.matches && time - lastPaint < GRAPH_EFFECT_FRAME_INTERVAL) {
+      ambientFrame = requestAnimationFrame(paint);
+      return;
+    }
+    lastPaint = time;
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     particles.forEach((particle) => {
-      const drift = Math.sin(time * particle.speed + particle.phase) * 26;
+      const motionTime = reducedMotionQuery.matches ? 0 : time;
+      const drift = Math.sin(motionTime * particle.speed + particle.phase) * 26;
       const x = particle.x * window.innerWidth + drift;
-      const y = ((particle.y + time * particle.speed * 0.018) % 1) * window.innerHeight;
+      const y = ((particle.y + motionTime * particle.speed * 0.018) % 1) * window.innerHeight;
       ctx.beginPath();
       ctx.fillStyle = particle.color;
       ctx.arc(x, y, particle.r, 0, Math.PI * 2);
       ctx.fill();
     });
-    requestAnimationFrame(paint);
+    if (!reducedMotionQuery.matches) ambientFrame = requestAnimationFrame(paint);
   }
 
-  window.addEventListener("resize", resize);
+  function start() {
+    if (!ambientFrame && !document.hidden) ambientFrame = requestAnimationFrame(paint);
+  }
+
+  window.addEventListener("resize", () => {
+    resize();
+    start();
+  });
+  document.addEventListener("visibilitychange", start);
+  reducedMotionQuery.addEventListener("change", start);
   resize();
-  requestAnimationFrame(paint);
+  start();
 }
 
 window.addEventListener("resize", () => {
@@ -4191,6 +4229,16 @@ window.addEventListener("resize", () => {
     updateGraphBounds();
     drawGraph();
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.view === "graph") startGraphLoop();
+});
+
+reducedMotionQuery.addEventListener("change", (event) => {
+  if (graphRenderer) graphRenderer.reducedMotion = event.matches;
+  drawGraph();
+  if (!event.matches) startGraphLoop();
 });
 
 document.querySelectorAll(".view-btn").forEach((button) => {
@@ -4255,7 +4303,7 @@ async function init() {
         <div class="plot-index">!</div>
         <div>
           <h4>内容加载失败</h4>
-          <p>${error.message}</p>
+          <p>${escapeHtml(error.message)}</p>
         </div>
       </article>
     `;

@@ -10,7 +10,7 @@ import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
@@ -33,6 +33,7 @@ CONTENT_CONFIG_FILES = {
     "timeline": "timeline.md",
     "graphLayout": "graph-layout.md",
 }
+CONTENT_INDEX_NAME = "content-index.json"
 
 
 def parse_frontmatter(text):
@@ -58,7 +59,7 @@ def replace_name(text, old_name, new_name):
 
 
 def atomic_write(path, content):
-    mode = path.stat().st_mode
+    mode = path.stat().st_mode if path.exists() else 0o644
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",
@@ -72,10 +73,46 @@ def atomic_write(path, content):
     os.replace(temporary_path, path)
 
 
+def build_content_index(project_root):
+    project_root = project_root.resolve()
+    collections = {}
+    for key, directory_name in CONTENT_DIRECTORIES.items():
+        directory = project_root / directory_name
+        paths = []
+        if directory.is_dir():
+            for path in sorted(directory.rglob("*.md")):
+                resolved_path = path.resolve()
+                if project_root not in resolved_path.parents or not path.is_file():
+                    continue
+                paths.append(f"./{path.relative_to(project_root).as_posix()}")
+        collections[key] = paths
+
+    for key, file_name in CONTENT_CONFIG_FILES.items():
+        path = project_root / file_name
+        collections[key] = [f"./{file_name}"] if path.is_file() else []
+    return collections
+
+
+def write_content_index(project_root, collections):
+    path = project_root / CONTENT_INDEX_NAME
+    content = json.dumps(
+        {"version": 1, "collections": collections},
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+    if path.is_file() and path.read_text(encoding="utf-8") == content:
+        return
+    atomic_write(path, content)
+
+
 class StoryTellerServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, server_address, handler_class):
+    def __init__(self, server_address, handler_class, content_root=CONTENT_ROOT):
+        resolved_content_root = Path(content_root).expanduser().resolve()
+        if not resolved_content_root.is_dir():
+            raise ValueError(f"内容目录不存在：{resolved_content_root}")
+        self.content_root = resolved_content_root
         super().__init__(server_address, handler_class)
         self.api_token = secrets.token_urlsafe(24)
         self.previews = {}
@@ -94,6 +131,17 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def translate_path(self, path):
+        request_path = unquote(urlparse(path).path)
+        if request_path == "/content" or request_path.startswith("/content/"):
+            relative_path = request_path.removeprefix("/content").lstrip("/")
+            candidate = (self.server.content_root / relative_path).resolve()
+            content_root = self.server.content_root.resolve()
+            if candidate == content_root or content_root in candidate.parents:
+                return str(candidate)
+            return str(content_root / ".invalid-path")
+        return super().translate_path(path)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
@@ -138,8 +186,9 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
     def project_root(self, project):
         if not PROJECT_PATTERN.fullmatch(str(project or "")):
             raise ValueError("项目名称不合法")
-        root = (CONTENT_ROOT / project).resolve()
-        if CONTENT_ROOT.resolve() not in root.parents or not root.is_dir():
+        content_root = self.server.content_root.resolve()
+        root = (content_root / project).resolve()
+        if content_root not in root.parents or not root.is_dir():
             raise ValueError("找不到当前内容包")
         return root
 
@@ -188,22 +237,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
 
-        collections = {}
-        for key, directory_name in CONTENT_DIRECTORIES.items():
-            directory = project_root / directory_name
-            paths = []
-            if directory.is_dir():
-                for path in sorted(directory.rglob("*.md")):
-                    resolved_path = path.resolve()
-                    if project_root not in resolved_path.parents or not path.is_file():
-                        continue
-                    paths.append(f"./{path.relative_to(project_root).as_posix()}")
-            collections[key] = paths
-
-        for key, file_name in CONTENT_CONFIG_FILES.items():
-            path = project_root / file_name
-            collections[key] = [f"./{file_name}"] if path.is_file() else []
-
+        collections = build_content_index(project_root)
+        write_content_index(project_root, collections)
         self.send_json({"ok": True, "project": project, "collections": collections})
 
     def do_POST(self):
@@ -231,14 +266,15 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.send_api_error(f"文件操作失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def locate_target(self, project_root, target_type, target_id):
+        project_root = project_root.resolve()
         directory_name = {"character": "characters", "entry": "entries"}.get(target_type)
         if not directory_name:
             raise ValueError("只支持人物和设定名称重构")
         candidates = []
         target_directory = project_root / directory_name
-        for path in sorted(target_directory.glob("*.md")):
+        for path in sorted(target_directory.rglob("*.md")):
             resolved_path = path.resolve()
-            if project_root not in resolved_path.parents:
+            if project_root not in resolved_path.parents or not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8")
             fields = parse_frontmatter(text)
@@ -419,8 +455,13 @@ def main():
     parser = argparse.ArgumentParser(description="Story Teller local content server")
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4180)
+    parser.add_argument("--content-root", default=str(CONTENT_ROOT))
     args = parser.parse_args()
-    server = StoryTellerServer((args.bind, args.port), StoryTellerHandler)
+    server = StoryTellerServer(
+        (args.bind, args.port),
+        StoryTellerHandler,
+        content_root=args.content_root,
+    )
     print(f"Story Teller: http://{args.bind}:{args.port}/", flush=True)
     try:
         server.serve_forever()

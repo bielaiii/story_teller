@@ -91,6 +91,8 @@ Treat hidden work as work that should not exist yet.
 * Lazy rendering applies in both vertical and horizontal directions.
 * Images outside immediate use should use native lazy loading and asynchronous decoding.
 * Preserve scroll position and interaction state when virtualized elements are removed and recreated.
+* Run graph layout physics only while positions are changing. Wake it for new nodes, relationship changes, dragging, and resizing; let it sleep after the layout settles while lightweight visual effects continue independently.
+* Pause continuous Canvas and GPU work while the document is hidden, and reduce or stop it when the user prefers reduced motion.
 
 ## Asynchronous work
 
@@ -114,6 +116,7 @@ Treat novel content as user data rather than application source.
 * Keep stable IDs and filenames unchanged when renaming a display name so relationships and links remain valid.
 * Check that files still match the preview before writing, use atomic replacement, and retain one safe undo operation.
 * Public or static deployments must remain read-only without presenting failed write controls as available.
+* Use the generated `content-index.json` as the shared discovery format for localhost and static deployment. Local scanning refreshes this file; `manifest.md` contains project metadata rather than a second hand-maintained file list.
 
 ## After finishing
 
