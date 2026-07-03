@@ -99,6 +99,20 @@ function normalizeFacts(value) {
     .filter((fact) => fact.label && fact.value);
 }
 
+function normalizeRelationship(meta) {
+  const endpoints = Array.isArray(meta.people) ? meta.people : [];
+  const [fromEndpoint = {}, toEndpoint = {}] = endpoints;
+  return {
+    ...meta,
+    endpointCount: endpoints.length,
+    from: characterId(fromEndpoint.id),
+    to: characterId(toEndpoint.id),
+    fromRole: String(fromEndpoint.role || "").trim(),
+    toRole: String(toEndpoint.role || "").trim(),
+    color: safeCssColor(meta.color, "#65717d"),
+  };
+}
+
 function parseValue(value) {
   const trimmed = value.trim();
   if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
@@ -358,6 +372,14 @@ function validateProjectConfiguration() {
   });
 
   relationships.forEach((relationship) => {
+    if (relationship.endpointCount !== 2) {
+      add(
+        "error",
+        "人物关系必须配置两个端点",
+        `${relationship.label || relationship.type || "未命名关系"}的 people 必须恰好包含两个人物。`,
+        "人物关系",
+      );
+    }
     ["from", "to"].forEach((field) => {
       if (!hasId(characters, relationship[field])) {
         add(
@@ -368,6 +390,14 @@ function validateProjectConfiguration() {
         );
       }
     });
+    if (!relationship.fromRole || !relationship.toRole) {
+      add(
+        "warning",
+        "人物关系缺少端点角色",
+        `${relationship.label || relationship.type || "未命名关系"}应为双方分别填写 role。`,
+        "人物关系",
+      );
+    }
   });
 
   const timelineLines = new Set(Array.isArray(timelineConfig.lines) ? timelineConfig.lines : []);
@@ -621,12 +651,7 @@ async function loadMarkdownData() {
     })),
     Promise.all(relationshipPaths.map(async (path) => {
       const { meta } = parseMarkdownFile(await fetchText(path));
-      return {
-        ...meta,
-        from: characterId(meta.from),
-        to: characterId(meta.to),
-        color: safeCssColor(meta.color, "#65717d"),
-      };
+      return normalizeRelationship(meta);
     })),
     loadGraphLayoutConfig(graphLayoutPaths[0]),
   ]);
@@ -1075,6 +1100,30 @@ function getCharacter(id) {
   return characters.find((person) => person.id === id);
 }
 
+function relationshipPerspective(link, personId) {
+  const isFrom = link.from === personId;
+  return {
+    otherId: isFrom ? link.to : link.from,
+    selfRole: isFrom ? link.fromRole : link.toRole,
+    otherRole: isFrom ? link.toRole : link.fromRole,
+  };
+}
+
+function characterRelationshipSearchValues(person) {
+  return relationships
+    .filter((link) => link.from === person?.id || link.to === person?.id)
+    .flatMap((link) => {
+      const perspective = relationshipPerspective(link, person.id);
+      return [
+        getCharacter(perspective.otherId)?.name,
+        perspective.selfRole,
+        perspective.otherRole,
+        link.label,
+        link.type,
+      ];
+    });
+}
+
 function getPlace(id) {
   return places.find((place) => place.id === id);
 }
@@ -1101,6 +1150,7 @@ function personMatchesSearch(person) {
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
+    ...characterRelationshipSearchValues(person),
     ...relatedPlots.map((plot) => `${plot.title} ${plot.text}`),
   ]
     .filter(Boolean)
@@ -2514,6 +2564,7 @@ function globalSearchMatches() {
       person.intro,
       ...characterMarkers(person),
       ...characterFactSearchValues(person),
+      ...characterRelationshipSearchValues(person),
     ], keyword))
     .map((person) => ({
       type: "character",
@@ -2583,6 +2634,8 @@ function globalSearchMatches() {
       return matchesKeyword([
         link.label,
         link.type,
+        link.fromRole,
+        link.toRole,
         from?.name,
         to?.name,
         link.from,
@@ -2909,6 +2962,7 @@ function renderCharacterList() {
       person.intro,
       ...characterMarkers(person),
       ...characterFactSearchValues(person),
+      ...characterRelationshipSearchValues(person),
     ]
       .filter(Boolean)
       .some((text) => String(text).toLowerCase().includes(keyword));
@@ -2939,6 +2993,7 @@ function renderCharacterList() {
       state.selectedCharacter = button.dataset.id;
       renderCharacterList();
       renderCharacterDetail();
+      scrollPageToTop();
     });
   });
 }
@@ -3004,6 +3059,41 @@ function renderCharacterDetail() {
 
     <section class="character-section">
       <div class="section-title">
+        <p class="label">人物关系</p>
+        <h3>${personLinks.length} 条关系</h3>
+      </div>
+      <div class="relation-list">
+        ${personLinks.map((link) => {
+          const perspective = relationshipPerspective(link, person.id);
+          const other = getCharacter(perspective.otherId);
+          return `
+            <button
+              class="relation-row"
+              data-character-id="${escapeHtml(perspective.otherId)}"
+              type="button"
+              style="--accent:${escapeHtml(link.color)}"
+              aria-label="查看${escapeHtml(other?.name || perspective.otherId)}的人物详情"
+            >
+              <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(other?.gradient || "linear-gradient(135deg, #9aa6b2, #65717d)")}">
+                ${other ? avatarContent(other) : escapeHtml(perspective.otherId)}
+              </span>
+              <span class="relation-person">
+                <strong>${escapeHtml(other?.name || perspective.otherId)}</strong>
+                <span class="relation-role">${escapeHtml(perspective.otherRole || "关系人物")}</span>
+              </span>
+              <span class="relation-meta">
+                <span>${escapeHtml(link.label || "人物关系")}</span>
+                <small>${escapeHtml(link.type || "未分类")}</small>
+              </span>
+              <span class="relation-arrow" aria-hidden="true">→</span>
+            </button>
+          `;
+        }).join("") || '<p class="empty-state">这个人物还没有配置关系。</p>'}
+      </div>
+    </section>
+
+    <section class="character-section">
+      <div class="section-title">
         <p class="label">出场剧情</p>
         <h3>${personPlots.length} 个剧情点</h3>
       </div>
@@ -3018,26 +3108,6 @@ function renderCharacterDetail() {
             ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
           </button>
         `).join("")}
-      </div>
-    </section>
-
-    <section class="character-section">
-      <div class="section-title">
-        <p class="label">人物关系</p>
-        <h3>${personLinks.length} 条关系</h3>
-      </div>
-      <div class="relation-list">
-        ${personLinks.map((link) => {
-          const otherId = link.from === person.id ? link.to : link.from;
-          const other = getCharacter(otherId);
-          return `
-            <div class="relation-row" style="--accent:${escapeHtml(link.color)}">
-              <span>${escapeHtml(other?.name || otherId)}</span>
-              <strong>${escapeHtml(link.label)}</strong>
-              <small>${escapeHtml(link.type || "未分类")}</small>
-            </div>
-          `;
-        }).join("")}
       </div>
     </section>
   `;
@@ -4316,6 +4386,17 @@ profileDetailBtn.addEventListener("click", () => {
   if (!state.selected) return;
   state.selectedCharacter = state.selected;
   switchView("characters");
+});
+
+characterDetail.addEventListener("click", (event) => {
+  const button = event.target.closest(".relation-row[data-character-id]");
+  if (!button || !characterDetail.contains(button)) return;
+  state.selectedCharacter = button.dataset.characterId;
+  state.characterSearch = "";
+  if (characterSearch) characterSearch.value = "";
+  renderCharacterList();
+  renderCharacterDetail();
+  scrollPageToTop();
 });
 
 async function init() {

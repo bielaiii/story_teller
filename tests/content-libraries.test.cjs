@@ -40,3 +40,19 @@ test("Markdown supports rich structure without executing raw HTML", () => {
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
 });
+
+test("Relationship endpoints keep a role for each person", () => {
+  const result = yaml.load(`
+people:
+  - id: 9
+    role: 母亲
+  - id: 3
+    role: 儿子
+label: 母子
+`);
+
+  assert.deepEqual(result.people, [
+    { id: 9, role: "母亲" },
+    { id: 3, role: "儿子" },
+  ]);
+});
