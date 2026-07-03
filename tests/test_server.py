@@ -70,6 +70,18 @@ class ContentIndexTests(unittest.TestCase):
 
         self.assertEqual(resolved, project)
 
+    def test_project_lookup_uses_configured_default(self):
+        project = self.project_root / "private-novel"
+        project.mkdir()
+        handler = object.__new__(StoryTellerHandler)
+        handler.server = SimpleNamespace(
+            content_root=self.project_root,
+            default_project="private-novel",
+        )
+
+        self.assertEqual(handler.project_id(""), "private-novel")
+        self.assertEqual(handler.project_root(""), project)
+
 
 if __name__ == "__main__":
     unittest.main()

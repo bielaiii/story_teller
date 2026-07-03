@@ -108,11 +108,22 @@ def write_content_index(project_root, collections):
 class StoryTellerServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, server_address, handler_class, content_root=CONTENT_ROOT):
+    def __init__(
+        self,
+        server_address,
+        handler_class,
+        content_root=CONTENT_ROOT,
+        default_project="",
+    ):
         resolved_content_root = Path(content_root).expanduser().resolve()
         if not resolved_content_root.is_dir():
             raise ValueError(f"内容目录不存在：{resolved_content_root}")
+        if default_project and not PROJECT_PATTERN.fullmatch(default_project):
+            raise ValueError("默认项目名称不合法")
+        if default_project and not (resolved_content_root / default_project).is_dir():
+            raise ValueError(f"找不到默认项目：{default_project}")
         self.content_root = resolved_content_root
+        self.default_project = default_project
         super().__init__(server_address, handler_class)
         self.api_token = secrets.token_urlsafe(24)
         self.previews = {}
@@ -183,9 +194,14 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         host = self.headers.get("Host", "").split(":", 1)[0].lower()
         return host in {"127.0.0.1", "localhost"}
 
-    def project_root(self, project):
-        if not PROJECT_PATTERN.fullmatch(str(project or "")):
+    def project_id(self, project):
+        project = str(project or "").strip() or getattr(self.server, "default_project", "")
+        if not PROJECT_PATTERN.fullmatch(project):
             raise ValueError("项目名称不合法")
+        return project
+
+    def project_root(self, project):
+        project = self.project_id(project)
         content_root = self.server.content_root.resolve()
         root = (content_root / project).resolve()
         if content_root not in root.parents or not root.is_dir():
@@ -231,8 +247,9 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
     def content_index(self, parsed):
         if not self.local_host():
             return self.send_api_error("只允许从本机读取内容目录", HTTPStatus.FORBIDDEN)
-        project = parse_qs(parsed.query).get("project", [""])[0]
+        requested_project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
         try:
+            project = self.project_id(requested_project)
             project_root = self.project_root(project)
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -456,11 +473,13 @@ def main():
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4180)
     parser.add_argument("--content-root", default=str(CONTENT_ROOT))
+    parser.add_argument("--default-project", default="")
     args = parser.parse_args()
     server = StoryTellerServer(
         (args.bind, args.port),
         StoryTellerHandler,
         content_root=args.content_root,
+        default_project=args.default_project,
     )
     print(f"Story Teller: http://{args.bind}:{args.port}/", flush=True)
     try:

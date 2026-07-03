@@ -53,8 +53,13 @@ function safeProjectId(value) {
   return /^[a-zA-Z0-9_-]+$/.test(normalized) ? normalized : DEFAULT_PROJECT_ID;
 }
 
+function requestedProjectId() {
+  const value = String(new URLSearchParams(window.location.search).get("project") || "").trim();
+  return /^[a-zA-Z0-9_-]+$/.test(value) ? value : "";
+}
+
 function currentProjectId() {
-  return safeProjectId(new URLSearchParams(window.location.search).get("project"));
+  return projectConfig.id || requestedProjectId() || DEFAULT_PROJECT_ID;
 }
 
 function contentBasePath() {
@@ -401,13 +406,13 @@ async function fetchText(path) {
 }
 
 async function loadLocalContentIndex() {
-  const response = await fetch(`/api/content-index?project=${encodeURIComponent(currentProjectId())}`, {
+  const response = await fetch(`/api/content-index?project=${encodeURIComponent(requestedProjectId())}`, {
     cache: "no-store",
   });
   if (!response.ok) throw new Error("本地内容扫描不可用");
   const result = await response.json();
   if (!result?.ok || !result.collections) throw new Error("本地内容扫描结果无效");
-  return result.collections;
+  return result;
 }
 
 async function loadStaticContentIndex() {
@@ -507,8 +512,18 @@ async function loadGraphLayoutConfig(path) {
 
 async function loadMarkdownData() {
   projectConfig = {
-    id: currentProjectId(),
+    id: requestedProjectId() || DEFAULT_PROJECT_ID,
   };
+
+  let contentIndex;
+  try {
+    const localIndex = await loadLocalContentIndex();
+    projectConfig.id = safeProjectId(localIndex.project);
+    contentIndex = localIndex.collections;
+  } catch {
+    contentIndex = await loadStaticContentIndex();
+  }
+
   const manifestPath = `${contentBasePath()}/manifest.md`;
   const { meta: manifestMeta } = parseMarkdownFile(await fetchText(manifestPath));
   projectConfig = {
@@ -519,12 +534,6 @@ async function loadMarkdownData() {
   };
   projectConfig.chapterLabels = chapterLabelMap(manifestMeta);
 
-  let contentIndex;
-  try {
-    contentIndex = await loadLocalContentIndex();
-  } catch {
-    contentIndex = await loadStaticContentIndex();
-  }
   const characterPaths = (contentIndex.characters || []).map(resolveContentPath);
   const plotPaths = (contentIndex.plots || []).map(resolveContentPath);
   const fragmentPaths = (contentIndex.fragments || []).map(resolveContentPath);

@@ -21,8 +21,12 @@ http://127.0.0.1:4180/
 作为其他小说仓库的子模块使用时，可以通过 `STORY_TELLER_CONTENT_ROOT` 指定父仓库中的内容目录：
 
 ```sh
-STORY_TELLER_CONTENT_ROOT=/path/to/novel/content ./run.sh
+STORY_TELLER_CONTENT_ROOT=/path/to/novel/content \
+STORY_TELLER_DEFAULT_PROJECT=my-novel \
+./run.sh
 ```
+
+设置 `STORY_TELLER_DEFAULT_PROJECT` 后，直接访问根地址即可打开该内容包，无需添加 `?project=`。
 
 ## 编辑数据
 
