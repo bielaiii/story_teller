@@ -87,6 +87,18 @@ function chapterLabelMap(meta = {}) {
   }, {});
 }
 
+function normalizeFacts(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return [];
+  return Object.entries(value)
+    .map(([label, content]) => ({
+      label: String(label || "").trim(),
+      value: Array.isArray(content)
+        ? content.filter((item) => item !== null && item !== undefined).join("、")
+        : String(content ?? "").trim(),
+    }))
+    .filter((fact) => fact.label && fact.value);
+}
+
 function parseValue(value) {
   const trimmed = value.trim();
   if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
@@ -566,6 +578,7 @@ async function loadMarkdownData() {
         events: Array.isArray(meta.events) ? meta.events : [],
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
+        facts: normalizeFacts(meta.facts),
       };
     })),
     Promise.all(plotPaths.map(async (path) => {
@@ -745,6 +758,10 @@ function avatarContent(person) {
 
 function characterMarkers(person) {
   return Array.isArray(person?.markers) ? person.markers.filter(Boolean) : [];
+}
+
+function characterFactSearchValues(person) {
+  return (person?.facts || []).flatMap((fact) => [fact.label, fact.value]);
 }
 
 function markerTone(marker) {
@@ -1083,6 +1100,7 @@ function personMatchesSearch(person) {
     person.group,
     person.intro,
     ...characterMarkers(person),
+    ...characterFactSearchValues(person),
     ...relatedPlots.map((plot) => `${plot.title} ${plot.text}`),
   ]
     .filter(Boolean)
@@ -2495,6 +2513,7 @@ function globalSearchMatches() {
       person.group,
       person.intro,
       ...characterMarkers(person),
+      ...characterFactSearchValues(person),
     ], keyword))
     .map((person) => ({
       type: "character",
@@ -2889,6 +2908,7 @@ function renderCharacterList() {
       person.group,
       person.intro,
       ...characterMarkers(person),
+      ...characterFactSearchValues(person),
     ]
       .filter(Boolean)
       .some((text) => String(text).toLowerCase().includes(keyword));
@@ -2935,7 +2955,7 @@ function renderCharacterDetail() {
 
   characterDetail.innerHTML = `
     ${detailReturnButton()}
-    <div class="character-hero">
+    <div class="character-hero ${person.facts.length ? "has-facts" : ""}" style="--accent:${escapeHtml(person.color)}">
       <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
         <p class="label">${escapeHtml(person.group || "未分组")}</p>
@@ -2966,6 +2986,16 @@ function renderCharacterDetail() {
           <div class="character-rename-result" aria-live="polite"></div>
         </div>
         <p>${escapeHtml(person.intro)}</p>
+        ${person.facts.length ? `
+          <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
+            ${person.facts.map((fact) => `
+              <div class="character-fact">
+                <dt>${escapeHtml(fact.label)}</dt>
+                <dd>${escapeHtml(fact.value)}</dd>
+              </div>
+            `).join("")}
+          </dl>
+        ` : ""}
       </div>
       <aside class="character-marker-panel">
         ${markerBadges(person)}

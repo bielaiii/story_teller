@@ -12,10 +12,13 @@ aliases:
   - 知微
   - 阿微
 markers: [女主, 主角团]
+facts:
+  关系: 沈清妙的儿子
 `);
 
   assert.deepEqual(result.aliases, ["知微", "阿微"]);
   assert.deepEqual(result.markers, ["女主", "主角团"]);
+  assert.deepEqual(result.facts, { 关系: "沈清妙的儿子" });
 });
 
 test("Markdown supports rich structure without executing raw HTML", () => {

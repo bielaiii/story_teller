@@ -1966,6 +1966,15 @@ button.plot-place-item:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+.character-hero.has-facts {
+  align-items: start;
+}
+
+.character-hero.has-facts .character-avatar,
+.character-hero.has-facts .character-marker-panel {
+  margin-top: 18px;
+}
+
 .character-copy {
   min-width: 0;
 }
@@ -2126,6 +2135,56 @@ button.plot-place-item:focus-visible {
   padding: 5px 12px;
   font-size: 14px;
   box-shadow: 0 12px 26px color-mix(in srgb, var(--marker) 16%, transparent);
+}
+
+.character-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 4px 22px;
+  margin: 15px 0 0;
+}
+
+.character-fact {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr);
+  gap: 11px;
+  align-items: baseline;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
+  padding: 8px 4px 8px 13px;
+}
+
+.character-fact::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+  content: "";
+}
+
+.character-fact dt,
+.character-fact dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.character-fact dt {
+  color: color-mix(in srgb, var(--accent) 68%, var(--ink));
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.character-fact dd {
+  overflow-wrap: anywhere;
+  color: #34414b;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .character-avatar {

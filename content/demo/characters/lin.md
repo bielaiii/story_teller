@@ -6,6 +6,9 @@ color: #2a9d8f
 gradient: linear-gradient(135deg, #2a9d8f, #264653)
 group: 主角团
 markers: [男主, 主角团]
+facts:
+  职业: 档案修复师
+  关系: 乔弥的旧友
 x: 52
 y: 48
 events: [1, 3, 6]
