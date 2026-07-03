@@ -4,7 +4,7 @@
 
 ## 添加人物
 
-1. 在 `characters` 目录新建一个 Markdown 文件，例如 `characters/new-person.md`。
+1. 在 `characters` 目录新建一个 Markdown 文件，文件名使用 `ID-姓名.md`，例如 `characters/8-新人物.md`。
 2. 按下面格式填写：
 
 ```md
@@ -27,6 +27,8 @@ y: 40
 ```
 
 人物 `id` 使用自增数字。新建人物时取当前最大人物 ID 加一，例如现有最大值是 `7`，下一个人物就使用 `8`。ID 创建后保持不变；删除人物也不要复用旧 ID。
+
+人物文件名必须与 `id`、`name` 保持一致。通过页面修改人物姓名时，人物文件以及包含该人物的关系文件会一起重命名；配置检查会报告手动编辑后留下的不一致。
 
 `avatar` 可以不写。不写时，圆形头像里会显示完整人名；写了以后会使用这张图片作为圆形头像。建议你提供正方形图片，页面会自动用圆形裁切显示。
 
@@ -137,7 +139,7 @@ accent: "#457b9d"
 
 ## 添加人物关系
 
-1. 在 `relationships` 目录新建一个 Markdown 文件，例如 `relationships/new-person-lin.md`。
+1. 在 `relationships` 目录新建一个 Markdown 文件，文件名由两个端点生成，例如 `relationships/8-新人物__1-林秋.md`。
 2. 按下面格式填写：
 
 ```md

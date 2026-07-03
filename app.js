@@ -99,7 +99,23 @@ function normalizeFacts(value) {
     .filter((fact) => fact.label && fact.value);
 }
 
-function normalizeRelationship(meta) {
+function sourceFilename(path) {
+  return String(path || "").split("/").pop() || "";
+}
+
+function canonicalCharacterFilename(person) {
+  return person?.id && person?.name ? `${person.id}-${person.name}.md` : "";
+}
+
+function canonicalRelationshipFilename(link) {
+  const from = getCharacter(link?.from);
+  const to = getCharacter(link?.to);
+  return from && to
+    ? `${from.id}-${from.name}__${to.id}-${to.name}.md`
+    : "";
+}
+
+function normalizeRelationship(meta, sourcePath) {
   const endpoints = Array.isArray(meta.people) ? meta.people : [];
   const [fromEndpoint = {}, toEndpoint = {}] = endpoints;
   return {
@@ -110,6 +126,7 @@ function normalizeRelationship(meta) {
     fromRole: String(fromEndpoint.role || "").trim(),
     toRole: String(toEndpoint.role || "").trim(),
     color: safeCssColor(meta.color, "#65717d"),
+    sourcePath,
   };
 }
 
@@ -351,6 +368,16 @@ function validateProjectConfiguration() {
   });
 
   characters.forEach((person) => {
+    const expectedFilename = canonicalCharacterFilename(person);
+    const currentFilename = sourceFilename(person.sourcePath);
+    if (expectedFilename && currentFilename !== expectedFilename) {
+      add(
+        "error",
+        `人物文件名与姓名不一致：${person.name}`,
+        `当前为 ${currentFilename}，应改为 ${expectedFilename}。`,
+        `人物 ${person.id}`,
+      );
+    }
     (person.events || []).forEach((id) => {
       if (!hasId(plots, id)) {
         add("error", `人物引用了不存在的剧情：${id}`, `${person.name}的 events 中存在失效编号。`, `人物 ${person.id}`);
@@ -395,6 +422,16 @@ function validateProjectConfiguration() {
         "warning",
         "人物关系缺少端点角色",
         `${relationship.label || relationship.type || "未命名关系"}应为双方分别填写 role。`,
+        "人物关系",
+      );
+    }
+    const expectedFilename = canonicalRelationshipFilename(relationship);
+    const currentFilename = sourceFilename(relationship.sourcePath);
+    if (expectedFilename && currentFilename !== expectedFilename) {
+      add(
+        "error",
+        `关系文件名与人物姓名不一致：${relationship.label || relationship.type || "未命名关系"}`,
+        `当前为 ${currentFilename}，应改为 ${expectedFilename}。`,
         "人物关系",
       );
     }
@@ -601,6 +638,7 @@ async function loadMarkdownData() {
       return {
         ...meta,
         id: characterId(meta.id),
+        sourcePath: path,
         intro: body,
         avatar: meta.avatar ? resolveContentPath(meta.avatar) : "",
         color: safeCssColor(meta.color, "#457b9d"),
@@ -651,7 +689,7 @@ async function loadMarkdownData() {
     })),
     Promise.all(relationshipPaths.map(async (path) => {
       const { meta } = parseMarkdownFile(await fetchText(path));
-      return normalizeRelationship(meta);
+      return normalizeRelationship(meta, path);
     })),
     loadGraphLayoutConfig(graphLayoutPaths[0]),
   ]);
@@ -1367,16 +1405,24 @@ async function previewRefactor() {
     refactorOperationId = result.operationId;
     refactorPreviewSummary.innerHTML = `
       <strong>${escapeHtml(result.oldName)} → ${escapeHtml(result.newName)}</strong>
-      <span>${result.fileCount} 个文件，${result.matchCount} 处修改</span>
+      <span>${result.fileCount} 个文件，${result.matchCount} 处修改${result.moves.length ? `，${result.moves.length} 个文件改名` : ""}</span>
     `;
-    refactorChangeList.innerHTML = result.samples.length
-      ? result.samples.map((sample) => `
+    const moveItems = result.moves.map((move) => `
+      <article class="refactor-change is-file-move">
+        <small>文件重命名</small>
+        <del>${escapeHtml(move.from)}</del>
+        <ins>${escapeHtml(move.to)}</ins>
+      </article>
+    `).join("");
+    const contentItems = result.samples.map((sample) => `
           <article class="refactor-change">
             <small>${escapeHtml(sample.file)} · 第 ${sample.line} 行</small>
             <del>${escapeHtml(sample.before)}</del>
             <ins>${escapeHtml(sample.after)}</ins>
           </article>
-        `).join("")
+        `).join("");
+    refactorChangeList.innerHTML = moveItems || contentItems
+      ? moveItems + contentItems
       : '<p class="refactor-no-change">没有找到需要修改的引用。</p>';
     refactorPreview.classList.remove("is-hidden");
   } catch (error) {
@@ -3170,7 +3216,7 @@ function bindCharacterRename(person) {
         <div class="character-rename-confirm">
           <span>
             <strong>${escapeHtml(previewResult.oldName)} → ${escapeHtml(previewResult.newName)}</strong>
-            将修改 ${previewResult.fileCount} 个文件、${previewResult.matchCount} 处引用
+            将修改 ${previewResult.fileCount} 个文件、${previewResult.matchCount} 处引用${previewResult.moves.length ? `，并重命名 ${previewResult.moves.length} 个文件` : ""}
           </span>
           <button class="character-rename-apply" type="button">确认应用</button>
         </div>

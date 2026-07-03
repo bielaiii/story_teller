@@ -3,8 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from server import StoryTellerHandler, build_content_index, write_content_index
+from server import (
+    StoryTellerHandler,
+    build_content_index,
+    canonical_character_filename,
+    canonical_relationship_filename,
+    relationship_character_ids,
+    write_content_index,
+)
 
 
 class ContentIndexTests(unittest.TestCase):
@@ -81,6 +89,118 @@ class ContentIndexTests(unittest.TestCase):
 
         self.assertEqual(handler.project_id(""), "private-novel")
         self.assertEqual(handler.project_root(""), project)
+
+    def test_canonical_character_and_relationship_filenames(self):
+        relationship = """---
+people:
+  - id: 9
+    role: 母亲
+  - id: 3
+    role: 儿子
+label: 母子
+---
+"""
+
+        self.assertEqual(canonical_character_filename("3", "林越"), "3-林越.md")
+        self.assertEqual(relationship_character_ids(relationship), ["9", "3"])
+        self.assertEqual(
+            canonical_relationship_filename(
+                ["9", "3"],
+                {"9": "沈清妙", "3": "林越"},
+            ),
+            "9-沈清妙__3-林越.md",
+        )
+
+    def test_character_refactor_moves_files_and_undoes_safely(self):
+        content_root = self.project_root / "content"
+        project_root = content_root / "novel"
+        character_path = project_root / "characters" / "3-林越.md"
+        relationship_path = project_root / "relationships" / "9-沈清妙__3-林越.md"
+        plot_path = project_root / "plots" / "001.md"
+        self.write_markdown_at(
+            character_path,
+            "---\nid: 3\nname: 林越\n---\n林越的人物设定",
+        )
+        self.write_markdown_at(
+            project_root / "characters" / "9-沈清妙.md",
+            "---\nid: 9\nname: 沈清妙\n---\n人物设定",
+        )
+        self.write_markdown_at(
+            relationship_path,
+            """---
+people:
+  - id: 9
+    role: 母亲
+  - id: 3
+    role: 儿子
+label: 母子
+---
+""",
+        )
+        self.write_markdown_at(
+            plot_path,
+            "---\nid: 1\ntitle: 测试\n---\n林越回到家。",
+        )
+        write_content_index(project_root, build_content_index(project_root))
+
+        handler = object.__new__(StoryTellerHandler)
+        handler.server = SimpleNamespace(
+            content_root=content_root,
+            default_project="",
+            previews={},
+            prune_previews=lambda: None,
+        )
+        responses = []
+        handler.send_json = lambda payload, status=None: responses.append(payload)
+        state_root = self.project_root / "state"
+
+        with (
+            patch("server.STATE_ROOT", state_root),
+            patch("server.UNDO_PATH", state_root / "last-refactor.json"),
+        ):
+            handler.preview_refactor(
+                {
+                    "project": "novel",
+                    "type": "character",
+                    "id": "3",
+                    "newName": "林澈",
+                }
+            )
+            preview = responses[-1]
+            self.assertEqual(
+                preview["moves"],
+                [
+                    {"from": "characters/3-林越.md", "to": "characters/3-林澈.md"},
+                    {
+                        "from": "relationships/9-沈清妙__3-林越.md",
+                        "to": "relationships/9-沈清妙__3-林澈.md",
+                    },
+                ],
+            )
+
+            handler.apply_refactor({"operationId": preview["operationId"]})
+            renamed_character = project_root / "characters" / "3-林澈.md"
+            renamed_relationship = project_root / "relationships" / "9-沈清妙__3-林澈.md"
+            self.assertTrue(renamed_character.is_file())
+            self.assertTrue(renamed_relationship.is_file())
+            self.assertFalse(character_path.exists())
+            self.assertIn("林澈", renamed_character.read_text(encoding="utf-8"))
+            self.assertIn("林澈回到家", plot_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "./characters/3-林澈.md",
+                (project_root / "content-index.json").read_text(encoding="utf-8"),
+            )
+
+            handler.undo_refactor({"project": "novel"})
+            self.assertTrue(character_path.is_file())
+            self.assertTrue(relationship_path.is_file())
+            self.assertFalse(renamed_character.exists())
+            self.assertIn("林越回到家", plot_path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def write_markdown_at(path, content):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
 
 
 if __name__ == "__main__":

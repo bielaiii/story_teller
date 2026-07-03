@@ -1799,6 +1799,11 @@ button.plot-place-item:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.refactor-change.is-file-move small {
+  color: var(--teal);
+  font-weight: 850;
+}
+
 .refactor-change del,
 .refactor-change ins {
   border-radius: 4px;

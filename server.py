@@ -34,6 +34,7 @@ CONTENT_CONFIG_FILES = {
     "graphLayout": "graph-layout.md",
 }
 CONTENT_INDEX_NAME = "content-index.json"
+FORBIDDEN_FILENAME_PATTERN = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 
 
 def parse_frontmatter(text):
@@ -103,6 +104,53 @@ def write_content_index(project_root, collections):
     if path.is_file() and path.read_text(encoding="utf-8") == content:
         return
     atomic_write(path, content)
+
+
+def canonical_character_filename(character_id, name):
+    clean_id = str(character_id or "").strip()
+    clean_name = str(name or "").strip()
+    if not clean_id or not clean_name:
+        raise ValueError("人物文件名缺少 id 或 name")
+    if FORBIDDEN_FILENAME_PATTERN.search(clean_name) or clean_name.endswith((".", " ")):
+        raise ValueError("人物名称包含不能用于文件名的字符")
+    filename = f"{clean_id}-{clean_name}.md"
+    if len(filename.encode("utf-8")) > 240:
+        raise ValueError("人物名称过长，无法生成安全文件名")
+    return filename
+
+
+def relationship_character_ids(text):
+    match = FRONTMATTER_PATTERN.match(text)
+    if not match:
+        return []
+    people_match = re.search(
+        r"(?ms)^people:\s*\n(?P<items>(?:[ \t]+.*(?:\n|$))*)",
+        match.group("meta"),
+    )
+    if not people_match:
+        return []
+    return [
+        value.strip().strip("\"'")
+        for value in re.findall(
+            r"(?m)^\s*-\s+id:\s*([^\n#]+?)\s*$",
+            people_match.group("items"),
+        )
+    ]
+
+
+def canonical_relationship_filename(character_ids, character_names):
+    if len(character_ids) != 2:
+        raise ValueError("人物关系必须恰好包含两个端点")
+    parts = []
+    for character_id in character_ids:
+        name = character_names.get(str(character_id))
+        if not name:
+            raise ValueError(f"人物关系引用了不存在的人物：{character_id}")
+        parts.append(canonical_character_filename(character_id, name).removesuffix(".md"))
+    filename = "__".join(parts) + ".md"
+    if len(filename.encode("utf-8")) > 240:
+        raise ValueError("关系双方名称过长，无法生成安全文件名")
+    return filename
 
 
 class StoryTellerServer(ThreadingHTTPServer):
@@ -303,6 +351,70 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             raise ValueError("目标 id 重复，请先修复配置问题")
         return candidates[0]
 
+    def character_names(self, project_root):
+        names = {}
+        directory = project_root / "characters"
+        for path in sorted(directory.rglob("*.md")):
+            fields = parse_frontmatter(path.read_text(encoding="utf-8"))
+            character_id = str(fields.get("id", "")).strip()
+            name = str(fields.get("name", "")).strip()
+            if character_id and name:
+                names[character_id] = name
+        return names
+
+    def character_filename_moves(
+        self,
+        project_root,
+        target_path,
+        target_id,
+        new_name,
+    ):
+        character_names = self.character_names(project_root)
+        character_names[target_id] = new_name
+        moves = []
+        target_relative = target_path.relative_to(project_root).as_posix()
+        canonical_target = (
+            Path("characters") / canonical_character_filename(target_id, new_name)
+        ).as_posix()
+        if target_relative != canonical_target:
+            moves.append({"from": target_relative, "to": canonical_target})
+
+        relationships_root = project_root / "relationships"
+        if relationships_root.is_dir():
+            for path in sorted(relationships_root.rglob("*.md")):
+                text = path.read_text(encoding="utf-8")
+                endpoint_ids = relationship_character_ids(text)
+                if target_id not in endpoint_ids:
+                    continue
+                relative_path = path.relative_to(project_root).as_posix()
+                canonical_path = (
+                    Path("relationships")
+                    / canonical_relationship_filename(endpoint_ids, character_names)
+                ).as_posix()
+                if relative_path != canonical_path:
+                    moves.append({"from": relative_path, "to": canonical_path})
+        return moves
+
+    def resolve_operation_path(self, project_root, relative_path):
+        path = (project_root / relative_path).resolve()
+        if project_root not in path.parents:
+            raise ValueError("文件路径超出当前内容包")
+        return path
+
+    def validate_moves(self, project_root, moves):
+        for move in moves:
+            source = self.resolve_operation_path(project_root, move["from"])
+            target = self.resolve_operation_path(project_root, move["to"])
+            if not source.is_file():
+                raise ValueError(f"{move['from']} 已不存在，请重新预览")
+            if target.exists():
+                try:
+                    same_file = os.path.samefile(source, target)
+                except OSError:
+                    same_file = False
+                if not same_file:
+                    raise ValueError(f"目标文件已存在：{move['to']}")
+
     def preview_refactor(self, payload):
         project = str(payload.get("project", ""))
         target_type = str(payload.get("type", ""))
@@ -320,6 +432,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             raise ValueError("目标档案没有 name 字段")
         if old_name == new_name:
             raise ValueError("新名称与当前名称相同")
+        if target_type == "character":
+            canonical_character_filename(target_id, new_name)
 
         replacements = {}
         samples = []
@@ -358,6 +472,18 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if target_path.relative_to(project_root).as_posix() not in replacements:
             raise ValueError("目标档案中没有找到当前名称")
 
+        moves = (
+            self.character_filename_moves(
+                project_root,
+                target_path,
+                target_id,
+                new_name,
+            )
+            if target_type == "character"
+            else []
+        )
+        self.validate_moves(project_root, moves)
+
         operation_id = secrets.token_urlsafe(18)
         self.server.prune_previews()
         self.server.previews[operation_id] = {
@@ -368,16 +494,20 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "oldName": old_name,
             "newName": new_name,
             "files": replacements,
+            "moves": moves,
         }
+        affected_files = set(replacements)
+        affected_files.update(move["from"] for move in moves)
         self.send_json(
             {
                 "ok": True,
                 "operationId": operation_id,
                 "oldName": old_name,
                 "newName": new_name,
-                "fileCount": len(replacements),
+                "fileCount": len(affected_files),
                 "matchCount": total_matches,
                 "samples": samples,
+                "moves": moves,
             }
         )
 
@@ -387,11 +517,13 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if not operation:
             raise ValueError("预览已失效，请重新生成")
         project_root = self.project_root(operation["project"])
+        moves = operation.get("moves", [])
 
         for relative_path, contents in operation["files"].items():
-            path = (project_root / relative_path).resolve()
+            path = self.resolve_operation_path(project_root, relative_path)
             if project_root not in path.parents or path.read_text(encoding="utf-8") != contents["before"]:
                 raise ValueError(f"{relative_path} 已发生变化，请重新预览")
+        self.validate_moves(project_root, moves)
 
         STATE_ROOT.mkdir(parents=True, exist_ok=True)
         backup = {
@@ -400,6 +532,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "newName": operation["newName"],
             "createdAt": time.time(),
             "files": operation["files"],
+            "moves": moves,
         }
         backup_text = json.dumps(backup, ensure_ascii=False)
         with tempfile.NamedTemporaryFile(
@@ -413,22 +546,36 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         os.replace(temporary_backup, UNDO_PATH)
 
         written = []
+        completed_moves = []
         try:
             for relative_path, contents in operation["files"].items():
                 path = project_root / relative_path
                 atomic_write(path, contents["after"])
                 written.append((path, contents["before"]))
+            for move in moves:
+                source = project_root / move["from"]
+                target = project_root / move["to"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source, target)
+                completed_moves.append((source, target))
+            write_content_index(project_root, build_content_index(project_root))
         except OSError:
+            for source, target in reversed(completed_moves):
+                if target.exists():
+                    os.replace(target, source)
             for path, original in reversed(written):
                 atomic_write(path, original)
+            write_content_index(project_root, build_content_index(project_root))
             UNDO_PATH.unlink(missing_ok=True)
             raise
 
         self.server.previews.pop(operation_id, None)
+        affected_files = set(operation["files"])
+        affected_files.update(move["from"] for move in moves)
         self.send_json(
             {
                 "ok": True,
-                "fileCount": len(operation["files"]),
+                "fileCount": len(affected_files),
                 "oldName": operation["oldName"],
                 "newName": operation["newName"],
             }
@@ -440,28 +587,56 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         backup = self.undo_metadata()
         if not backup or backup.get("project") != project:
             raise ValueError("当前项目没有可以撤销的重命名")
+        moves = backup.get("moves", [])
+        moved_paths = {move["from"]: move["to"] for move in moves}
 
         for relative_path, contents in backup["files"].items():
-            path = (project_root / relative_path).resolve()
+            current_relative_path = moved_paths.get(relative_path, relative_path)
+            path = self.resolve_operation_path(project_root, current_relative_path)
             if project_root not in path.parents or path.read_text(encoding="utf-8") != contents["after"]:
-                raise ValueError(f"{relative_path} 在重命名后又被修改，无法安全撤销")
+                raise ValueError(f"{current_relative_path} 在重命名后又被修改，无法安全撤销")
+        for move in moves:
+            source = self.resolve_operation_path(project_root, move["from"])
+            target = self.resolve_operation_path(project_root, move["to"])
+            same_file = False
+            if source.exists() and target.exists():
+                try:
+                    same_file = os.path.samefile(source, target)
+                except OSError:
+                    same_file = False
+            if not target.is_file() or (source.exists() and not same_file):
+                raise ValueError(f"{move['to']} 已发生变化，无法安全撤销")
 
         written = []
+        completed_moves = []
         try:
+            for move in reversed(moves):
+                source = project_root / move["from"]
+                target = project_root / move["to"]
+                source.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(target, source)
+                completed_moves.append((source, target))
             for relative_path, contents in backup["files"].items():
                 path = project_root / relative_path
                 atomic_write(path, contents["before"])
                 written.append((path, contents["after"]))
+            write_content_index(project_root, build_content_index(project_root))
         except OSError:
             for path, updated in reversed(written):
                 atomic_write(path, updated)
+            for source, target in reversed(completed_moves):
+                if source.exists():
+                    os.replace(source, target)
+            write_content_index(project_root, build_content_index(project_root))
             raise
 
         UNDO_PATH.unlink(missing_ok=True)
+        affected_files = set(backup["files"])
+        affected_files.update(move["from"] for move in moves)
         self.send_json(
             {
                 "ok": True,
-                "fileCount": len(backup["files"]),
+                "fileCount": len(affected_files),
                 "oldName": backup["oldName"],
                 "newName": backup["newName"],
             }

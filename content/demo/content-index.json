@@ -2,13 +2,13 @@
   "version": 1,
   "collections": {
     "characters": [
-      "./characters/han.md",
-      "./characters/lin.md",
-      "./characters/mo.md",
-      "./characters/qiao.md",
-      "./characters/shen.md",
-      "./characters/su.md",
-      "./characters/yan.md"
+      "./characters/1-林秋.md",
+      "./characters/2-沈砚.md",
+      "./characters/3-苏眠.md",
+      "./characters/4-乔鸢.md",
+      "./characters/5-韩溯.md",
+      "./characters/6-严白.md",
+      "./characters/7-莫岚.md"
     ],
     "plots": [
       "./plots/001-burned-logbook.md",
@@ -37,15 +37,15 @@
       "./entries/seven-minute-delay.md"
     ],
     "relationships": [
-      "./relationships/lin-qiao.md",
-      "./relationships/lin-shen.md",
-      "./relationships/lin-su.md",
-      "./relationships/mo-qiao.md",
-      "./relationships/qiao-han.md",
-      "./relationships/shen-han.md",
-      "./relationships/shen-yan.md",
-      "./relationships/su-qiao.md",
-      "./relationships/su-yan.md"
+      "./relationships/1-林秋__2-沈砚.md",
+      "./relationships/1-林秋__3-苏眠.md",
+      "./relationships/1-林秋__4-乔鸢.md",
+      "./relationships/2-沈砚__5-韩溯.md",
+      "./relationships/2-沈砚__6-严白.md",
+      "./relationships/3-苏眠__4-乔鸢.md",
+      "./relationships/3-苏眠__6-严白.md",
+      "./relationships/4-乔鸢__5-韩溯.md",
+      "./relationships/7-莫岚__4-乔鸢.md"
     ],
     "timeline": [
       "./timeline.md"

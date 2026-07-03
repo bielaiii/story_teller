@@ -113,8 +113,8 @@ Treat novel content as user data rather than application source.
 * Never expose content mutation endpoints beyond `127.0.0.1` or `localhost`.
 * Restrict every write to the selected `content/<project>/` directory and Markdown files within it.
 * Require a preview before applying a bulk rename. Show affected files, lines, and replacement counts.
-* Keep stable IDs and filenames unchanged when renaming a display name so relationships and links remain valid.
-* Check that files still match the preview before writing, use atomic replacement, and retain one safe undo operation.
+* Keep stable IDs unchanged when renaming a display name. Character files use `ID-姓名.md`, and relationship files use `ID-姓名__ID-姓名.md`; rename these files in the same operation so filenames remain readable without changing relationship IDs.
+* Include file moves in the preview. Check that contents and source paths still match the preview, reject destination conflicts, use atomic replacement and moves, and retain one safe undo operation that restores both contents and filenames.
 * Public or static deployments must remain read-only without presenting failed write controls as available.
 * Use the generated `content-index.json` as the shared discovery format for localhost and static deployment. Local scanning refreshes this file; `manifest.md` contains project metadata rather than a second hand-maintained file list.
 
