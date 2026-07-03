@@ -99,6 +99,26 @@ function normalizeFacts(value) {
     .filter((fact) => fact.label && fact.value);
 }
 
+function normalizeMainPlotImpact(value) {
+  const impact = Number(value);
+  return Number.isFinite(impact) ? Math.max(0, Math.min(100, impact)) : 0;
+}
+
+function characterSidePriority(side) {
+  return {
+    主角方: 3,
+    中立: 2,
+    反派方: 1,
+  }[side] || 0;
+}
+
+function compareCharacterPriority(a, b) {
+  return b.mainPlotImpact - a.mainPlotImpact
+    || characterSidePriority(b.side) - characterSidePriority(a.side)
+    || a.name.localeCompare(b.name, "zh-CN")
+    || a.id.localeCompare(b.id, "zh-CN", { numeric: true });
+}
+
 function sourceFilename(path) {
   return String(path || "").split("/").pop() || "";
 }
@@ -647,6 +667,8 @@ async function loadMarkdownData() {
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
         facts: normalizeFacts(meta.facts),
+        mainPlotImpact: normalizeMainPlotImpact(meta.mainPlotImpact),
+        side: String(meta.side || "中立").trim(),
       };
     })),
     Promise.all(plotPaths.map(async (path) => {
@@ -694,7 +716,7 @@ async function loadMarkdownData() {
     loadGraphLayoutConfig(graphLayoutPaths[0]),
   ]);
 
-  characters = loadedCharacters;
+  characters = loadedCharacters.sort(compareCharacterPriority);
   plots = loadedPlots.sort((a, b) => a.id - b.id);
   fragments = loadedFragments;
   places = loadedPlaces;
