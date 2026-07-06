@@ -8,6 +8,7 @@ let timelineRenderVersion = 0;
 let timelineViewportFrame = 0;
 let timelineViewportKey = "";
 let graphAnimationFrame = 0;
+let graphNodeEntryTimer = 0;
 let graphSimulationActive = true;
 let graphSimulationTicks = 0;
 let graphStableFrames = 0;
@@ -28,11 +29,13 @@ const PLOT_PAGE_SIZE = 9;
 const FRAGMENT_PAGE_SIZE = 6;
 const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
 const AUTO_ROLE_MENTIONS = new Set(["男主", "女主"]);
+const CHARACTER_SCOPE_OPTIONS = ["主线人物", "常驻人物", "待定角色", "一次性角色"];
+const TEMPORARY_CHARACTER_SCOPES = new Set(["一次性角色", "临时角色", "待定角色"]);
 const TIMELINE_VIEWPORT_BUFFER_Y = 280;
 const TIMELINE_VIEWPORT_BUFFER_X = 120;
 const TIMELINE_VIEWPORT_BUCKET = 140;
 const GRAPH_EFFECT_FRAME_INTERVAL = 1000 / 30;
-const GRAPH_STABLE_FRAME_TARGET = 72;
+const GRAPH_STABLE_FRAME_TARGET = 48;
 const GRAPH_MAX_SIMULATION_TICKS = 900;
 const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -111,7 +114,15 @@ function normalizeCharacterScope(value, graphVisible = true) {
 }
 
 function isMainlineCharacterScope(scope) {
-  return !new Set(["一次性角色", "临时角色", "待定角色"]).has(String(scope || "").trim());
+  return !TEMPORARY_CHARACTER_SCOPES.has(String(scope || "").trim());
+}
+
+function isTemporaryCharacter(person) {
+  return Boolean(person && TEMPORARY_CHARACTER_SCOPES.has(String(person.characterScope || "").trim()));
+}
+
+function characterScopeLabel(person) {
+  return normalizeCharacterScope(person?.characterScope);
 }
 
 function characterSidePriority(side) {
@@ -747,6 +758,7 @@ const state = {
   chapter: "all",
   plotStatus: "all",
   plotTags: [],
+  plotShelf: "all",
   fragmentTags: [],
   plotPage: 1,
   fragmentPage: 1,
@@ -763,6 +775,7 @@ const state = {
   group: "all",
   relationType: "all",
   characterSearch: "",
+  characterShelf: "main",
   placeSearch: "",
   entryType: "all",
   entryTags: [],
@@ -799,6 +812,8 @@ const plotStrip = document.querySelector("#plotStrip");
 const plotPagination = document.querySelector("#plotPagination");
 const statusFilter = document.querySelector("#statusFilter");
 const tagFilter = document.querySelector("#tagFilter");
+const sideTaskToggle = document.querySelector("#sideTaskToggle");
+const sideTaskCount = document.querySelector("#sideTaskCount");
 const fragmentBoard = document.querySelector("#fragmentBoard");
 const fragmentPagination = document.querySelector("#fragmentPagination");
 const fragmentTagFilter = document.querySelector("#fragmentTagFilter");
@@ -819,6 +834,8 @@ const characterList = document.querySelector("#characterList");
 const characterDetail = document.querySelector("#characterDetail");
 const profileDetailBtn = document.querySelector("#profileDetailBtn");
 const characterSearch = document.querySelector("#characterSearch");
+const temporaryCharacterToggle = document.querySelector("#temporaryCharacterToggle");
+const temporaryCharacterCount = document.querySelector("#temporaryCharacterCount");
 const placeList = document.querySelector("#placeList");
 const placeDetail = document.querySelector("#placeDetail");
 const placeSearch = document.querySelector("#placeSearch");
@@ -1055,6 +1072,18 @@ function plotRibbon(plot) {
 
 function allPlotTags() {
   return [...new Set(plots.flatMap((plot) => plot.tags || []))];
+}
+
+function isSideTaskPlot(plot) {
+  return [
+    plot.title,
+    plot.status,
+    ...(plot.tags || []),
+    ...(plot.lanes || []),
+    plot.lane,
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).includes("支线"));
 }
 
 function allFragmentTags() {
@@ -1688,6 +1717,7 @@ function renderChapterSwitch() {
 }
 
 function renderStoryFilters() {
+  renderSideTaskToggle();
   const statuses = [...new Set(plots.map((plot) => plot.status).filter(Boolean))];
   renderChipFilter({
     container: statusFilter,
@@ -1718,6 +1748,18 @@ function renderStoryFilters() {
   });
 }
 
+function renderSideTaskToggle() {
+  if (!sideTaskToggle) return;
+  const sideCount = plots.filter(isSideTaskPlot).length;
+  const active = state.plotShelf === "side";
+  const label = sideTaskToggle.querySelector("span");
+  sideTaskToggle.classList.toggle("is-active", active);
+  sideTaskToggle.setAttribute("aria-pressed", String(active));
+  sideTaskToggle.setAttribute("aria-label", active ? `返回全部剧情，共 ${plots.length} 个` : `查看支线任务，共 ${sideCount} 个`);
+  if (label) label.textContent = active ? "全部剧情" : "支线任务";
+  if (sideTaskCount) sideTaskCount.textContent = String(active ? plots.length : sideCount);
+}
+
 function renderPlots() {
   const visible = plots.filter((plot) => {
     const chapterMatch = state.chapter === "all"
@@ -1726,7 +1768,8 @@ function renderPlots() {
       || plot.chapter === state.chapter;
     const statusMatch = state.plotStatus === "all" || plot.status === state.plotStatus;
     const tagMatch = matchesSelectedTags(plot.tags || [], state.plotTags, allPlotTags());
-    return chapterMatch && statusMatch && tagMatch;
+    const shelfMatch = state.plotShelf !== "side" || isSideTaskPlot(plot);
+    return chapterMatch && statusMatch && tagMatch && shelfMatch;
   });
   const page = pagedItems(visible, state.plotPage, PLOT_PAGE_SIZE);
   state.plotPage = page.currentPage;
@@ -1737,7 +1780,7 @@ function renderPlots() {
         <div>${renderStoryCardContent(plot)}</div>
       </button>
     `)
-    .join("") : '<p class="empty-state">没有匹配的剧情。</p>';
+    .join("") : `<p class="empty-state">${state.plotShelf === "side" ? "没有匹配的支线任务。" : "没有匹配的剧情。"}</p>`;
   document.querySelectorAll(".plot-card").forEach((card) => {
     card.addEventListener("click", () => openPlotDetail(Number(card.dataset.plotId)));
   });
@@ -2716,6 +2759,7 @@ function openCharacterDetail(id, { preserveReturnContext = false } = {}) {
   if (!person) return;
   rememberCurrentPlotPosition();
   if (!preserveReturnContext) state.detailReturnContext = null;
+  setCharacterShelfForPerson(person);
   state.selectedCharacter = id;
   state.characterSearch = "";
   if (characterSearch) characterSearch.value = "";
@@ -2797,20 +2841,12 @@ function globalSearchMatches() {
   const keyword = globalSearchText();
   if (!keyword) return [];
   const characterResults = characters
-    .filter((person) => matchesKeyword([
-      person.name,
-      person.id,
-      person.group,
-      person.intro,
-      ...characterMarkers(person),
-      ...characterFactSearchValues(person),
-      ...characterRelationshipSearchValues(person),
-    ], keyword))
+    .filter((person) => matchesKeyword(characterSearchValues(person), keyword))
     .map((person) => ({
       type: "character",
       id: person.id,
       title: person.name,
-      meta: `人物 · ${person.group || "未分组"}`,
+      meta: `人物 · ${person.group || "未分组"} · ${characterScopeLabel(person)}`,
       text: person.intro,
     }));
 
@@ -3191,25 +3227,56 @@ function updateReadingProgress() {
   });
 }
 
+function characterSearchValues(person) {
+  return [
+    person.name,
+    person.id,
+    person.group,
+    person.characterScope,
+    person.intro,
+    ...characterMarkers(person),
+    ...characterFactSearchValues(person),
+    ...characterRelationshipSearchValues(person),
+  ];
+}
+
+function characterMatchesArchiveSearch(person) {
+  if (!state.characterSearch) return true;
+  return matchesKeyword(characterSearchValues(person), state.characterSearch.toLowerCase());
+}
+
+function characterVisibleInArchive(person) {
+  if (!characterMatchesArchiveSearch(person)) return false;
+  if (state.characterShelf === "temporary") return isTemporaryCharacter(person);
+  if (state.characterSearch) return true;
+  return !isTemporaryCharacter(person);
+}
+
+function setCharacterShelfForPerson(person) {
+  state.characterShelf = isTemporaryCharacter(person) ? "temporary" : "main";
+}
+
+function renderTemporaryCharacterToggle() {
+  if (!temporaryCharacterToggle) return;
+  const temporaryCount = characters.filter(isTemporaryCharacter).length;
+  const mainCount = characters.length - temporaryCount;
+  const active = state.characterShelf === "temporary";
+  temporaryCharacterToggle.classList.toggle("is-active", active);
+  temporaryCharacterToggle.setAttribute("aria-pressed", String(active));
+  temporaryCharacterToggle.setAttribute("aria-label", active ? `返回长期人物列表，共 ${mainCount} 个` : `查看临时角色，共 ${temporaryCount} 个`);
+  temporaryCharacterToggle.querySelector("span").textContent = active ? "返回人物" : "收纳箱";
+  if (temporaryCharacterCount) temporaryCharacterCount.textContent = String(active ? mainCount : temporaryCount);
+}
+
 function renderCharacterList() {
-  const visibleCharacters = characters.filter((person) => {
-    if (!state.characterSearch) return true;
-    const keyword = state.characterSearch.toLowerCase();
-    return [
-      person.name,
-      person.id,
-      person.group,
-      person.intro,
-      ...characterMarkers(person),
-      ...characterFactSearchValues(person),
-      ...characterRelationshipSearchValues(person),
-    ]
-      .filter(Boolean)
-      .some((text) => String(text).toLowerCase().includes(keyword));
-  });
+  renderTemporaryCharacterToggle();
+  const visibleCharacters = characters.filter(characterVisibleInArchive);
 
   if (visibleCharacters.length && !visibleCharacters.some((person) => person.id === state.selectedCharacter)) {
     state.selectedCharacter = visibleCharacters[0].id;
+  }
+  if (!visibleCharacters.length) {
+    state.selectedCharacter = "";
   }
 
   characterList.innerHTML = visibleCharacters
@@ -3218,14 +3285,14 @@ function renderCharacterList() {
         <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
         <span>
           <strong>${escapeHtml(person.name)}</strong>
-          <small>${escapeHtml(person.group || "未分组")}</small>
+          <small>${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</small>
         </span>
       </button>
     `)
     .join("");
 
   if (!visibleCharacters.length) {
-    characterList.innerHTML = '<p class="empty-state">没有找到匹配人物</p>';
+    characterList.innerHTML = `<p class="empty-state">${state.characterShelf === "temporary" ? "还没有收纳临时角色" : "没有找到匹配人物"}</p>`;
   }
 
   document.querySelectorAll(".character-list-item").forEach((button) => {
@@ -3239,9 +3306,19 @@ function renderCharacterList() {
 }
 
 function renderCharacterDetail() {
-  const person = getCharacter(state.selectedCharacter) || characters[0];
+  if (state.characterShelf === "temporary") {
+    renderTemporaryCharacterArchive();
+    return;
+  }
+
+  const person = state.selectedCharacter ? getCharacter(state.selectedCharacter) : null;
   if (!person) {
-    characterDetail.innerHTML = "";
+    characterDetail.innerHTML = `
+      <div class="character-empty-detail">
+        <strong>${state.characterShelf === "temporary" ? "临时角色抽屉是空的" : "没有选中人物"}</strong>
+        <p>${state.characterShelf === "temporary" ? "给人物档案加上 characterScope: 一次性角色 或 待定角色 后，就会收纳到这里。" : "可以从左侧列表或顶部搜索进入人物详情。"}</p>
+      </div>
+    `;
     return;
   }
 
@@ -3253,7 +3330,7 @@ function renderCharacterDetail() {
     <div class="character-hero ${person.facts.length ? "has-facts" : ""}" style="--accent:${escapeHtml(person.color)}">
       <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
-        <p class="label">${escapeHtml(person.group || "未分组")}</p>
+        <p class="label">${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
         <div class="character-title-row">
           <h2>${escapeHtml(person.name)}</h2>
           <button
@@ -3294,6 +3371,7 @@ function renderCharacterDetail() {
       </div>
       <aside class="character-marker-panel">
         ${markerBadges(person)}
+        ${renderCharacterScopeTools(person)}
       </aside>
     </div>
 
@@ -3357,6 +3435,198 @@ function renderCharacterDetail() {
     button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
   });
   bindCharacterRename(person);
+  bindCharacterScopeTools(person);
+}
+
+function temporaryCharacterPlots(person) {
+  return plots.filter((plot) => plot.people.includes(person.id) || person.events.includes(plot.id));
+}
+
+function renderTemporaryCharacterArchive() {
+  const visibleCharacters = characters.filter(characterVisibleInArchive);
+  if (visibleCharacters.length && !visibleCharacters.some((person) => person.id === state.selectedCharacter)) {
+    state.selectedCharacter = visibleCharacters[0].id;
+  }
+
+  if (!visibleCharacters.length) {
+    characterDetail.innerHTML = `
+      <div class="character-empty-detail">
+        <strong>临时角色抽屉是空的</strong>
+        <p>给人物档案加上 characterScope: 一次性角色 或 待定角色 后，就会收纳到这里。</p>
+      </div>
+    `;
+    return;
+  }
+
+  characterDetail.innerHTML = `
+    ${detailReturnButton()}
+    <section class="temporary-character-archive">
+      <div class="temporary-character-summary">
+        <div>
+          <p class="label">Temporary Cast</p>
+          <h3>临时角色收纳箱</h3>
+        </div>
+        <span>${visibleCharacters.length} 个角色</span>
+      </div>
+      <div class="temporary-character-grid">
+        ${visibleCharacters.map((person) => {
+          const personPlots = temporaryCharacterPlots(person);
+          const personLinks = relationships.filter((link) => link.from === person.id || link.to === person.id);
+          return `
+            <article
+              class="temporary-character-card ${person.id === state.selectedCharacter ? "is-active" : ""}"
+              data-character-id="${escapeHtml(person.id)}"
+              style="--accent:${escapeHtml(person.color)}; --avatar-gradient:${escapeHtml(person.gradient)}"
+            >
+              <button class="temporary-character-select" data-character-id="${escapeHtml(person.id)}" type="button">
+                <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
+                <span>
+                  <strong>${escapeHtml(person.name)}</strong>
+                  <small>${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</small>
+                </span>
+              </button>
+              <p>${escapeHtml(markdownExcerpt(person.intro, 74))}</p>
+              <div class="temporary-character-meta">
+                <span>${personPlots.length} 个剧情</span>
+                <span>${personLinks.length} 条关系</span>
+              </div>
+              ${(person.aliases || []).length ? `
+                <div class="temporary-character-aliases">
+                  ${person.aliases.slice(0, 4).map((alias) => `<span>${escapeHtml(alias)}</span>`).join("")}
+                </div>
+              ` : ""}
+              <div class="temporary-character-plots">
+                ${personPlots.slice(0, 3).map((plot) => `
+                  <button class="temporary-character-plot" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}">
+                    ${escapeHtml(plot.title)}
+                  </button>
+                `).join("") || '<span>还没有剧情引用</span>'}
+              </div>
+              <div class="temporary-character-actions">
+                ${CHARACTER_SCOPE_OPTIONS
+                  .filter((scope) => scope !== characterScopeLabel(person))
+                  .map((scope) => `
+                    <button
+                      class="temporary-scope-action"
+                      data-character-id="${escapeHtml(person.id)}"
+                      data-scope="${escapeHtml(scope)}"
+                      type="button"
+                    >${escapeHtml(scope)}</button>
+                  `).join("")}
+              </div>
+              <p class="temporary-scope-status" aria-live="polite"></p>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+
+  characterDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
+  bindTemporaryCharacterArchive();
+}
+
+function bindTemporaryCharacterArchive() {
+  characterDetail.querySelectorAll(".temporary-character-select").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedCharacter = button.dataset.characterId;
+      renderCharacterList();
+      renderTemporaryCharacterArchive();
+    });
+  });
+  characterDetail.querySelectorAll(".temporary-character-plot[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  });
+  characterDetail.querySelectorAll(".temporary-scope-action").forEach((button) => {
+    button.addEventListener("click", () => {
+      const person = getCharacter(button.dataset.characterId);
+      if (!person) return;
+      const card = button.closest(".temporary-character-card");
+      const status = card?.querySelector(".temporary-scope-status");
+      const buttons = [...(card?.querySelectorAll(".temporary-scope-action") || [])];
+      updateCharacterScope(person, button.dataset.scope || "", status, buttons);
+    });
+  });
+}
+
+function renderCharacterScopeTools(person) {
+  const currentScope = characterScopeLabel(person);
+  return `
+    <div class="character-scope-tools" aria-label="${escapeHtml(person.name)}的收纳状态">
+      <span class="character-scope-current">${escapeHtml(currentScope)}</span>
+      <div class="character-scope-actions">
+        ${CHARACTER_SCOPE_OPTIONS
+          .filter((scope) => scope !== currentScope)
+          .map((scope) => `
+            <button
+              class="character-scope-action"
+              data-scope="${escapeHtml(scope)}"
+              type="button"
+            >${escapeHtml(scope)}</button>
+          `).join("")}
+      </div>
+      <p class="character-scope-status" aria-live="polite"></p>
+    </div>
+  `;
+}
+
+async function updateCharacterScope(person, scope, status, buttons) {
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
+  if (status) {
+    status.textContent = "正在更新…";
+    status.className = status.classList.contains("temporary-scope-status")
+      ? "temporary-scope-status"
+      : "character-scope-status";
+  }
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+    await refactorApi("/api/characters/scope", {
+      project: currentProjectId(),
+      id: person.id,
+      scope,
+    });
+    person.characterScope = scope;
+    setCharacterShelfForPerson(person);
+    state.selectedCharacter = person.id;
+    if (status) {
+      status.textContent = "已更新";
+      status.className = status.classList.contains("temporary-scope-status")
+        ? "temporary-scope-status is-success"
+        : "character-scope-status is-success";
+    }
+    renderCharacterList();
+    renderCharacterDetail();
+    renderGraphFilters();
+    renderNodes();
+    renderLinks();
+    markRelatedNodes();
+  } catch (error) {
+    if (status) {
+      status.textContent = error.message;
+      status.className = status.classList.contains("temporary-scope-status")
+        ? "temporary-scope-status is-error"
+        : "character-scope-status is-error";
+    }
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
+  }
+}
+
+function bindCharacterScopeTools(person) {
+  const scopeTools = characterDetail.querySelector(".character-scope-tools");
+  if (!scopeTools) return;
+  const status = scopeTools.querySelector(".character-scope-status");
+  const buttons = [...scopeTools.querySelectorAll(".character-scope-action")];
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      updateCharacterScope(person, button.dataset.scope || "", status, buttons);
+    });
+  });
 }
 
 function bindCharacterRename(person) {
@@ -3653,7 +3923,11 @@ function switchView(view) {
     timelineLegend?.classList.add("is-hidden");
   }
   if (state.view === "characters") {
-    if (!state.selectedCharacter) state.selectedCharacter = state.selected || characters[0]?.id || "";
+    if (!state.selectedCharacter) {
+      const fallback = characters.find((person) => !isTemporaryCharacter(person)) || characters[0];
+      state.selectedCharacter = fallback?.id || "";
+      if (fallback) setCharacterShelfForPerson(fallback);
+    }
     renderCharacterList();
     renderCharacterDetail();
   }
@@ -3670,6 +3944,7 @@ function switchView(view) {
     requestDiagnosticsRender();
   }
   if (state.view === "story" && previousView !== "story" && previousView !== "plot-detail") {
+    state.plotShelf = "all";
     state.plotTags = allPlotTags();
     state.plotPage = 1;
     renderChapterSwitch();
@@ -3709,14 +3984,21 @@ function renderProfile() {
 
 function renderNodes() {
   nodeLayer.innerHTML = "";
-  graphCharacters().forEach((person, index) => {
+  const visibleGraphCharacters = graphCharacters();
+  const shouldAnimateEntry = Boolean(
+    graphStage
+    && !graphStage.classList.contains("has-completed-node-entry")
+    && !reducedMotionQuery.matches,
+  );
+  if (shouldAnimateEntry) graphStage.classList.add("is-entering-nodes");
+  visibleGraphCharacters.forEach((person, index) => {
     const node = document.createElement("button");
     node.className = "person-node";
     node.type = "button";
     node.dataset.id = person.id;
     node.style.setProperty("--accent", person.color);
     node.style.setProperty("--avatar-gradient", person.gradient);
-    node.style.animationDelay = `${index * 90}ms, ${index * 170}ms`;
+    node.style.animationDelay = shouldAnimateEntry ? `${index * 36}ms` : "0ms";
     node.innerHTML = `
       <span class="avatar ${person.avatar ? "has-image" : ""}">${avatarContent(person)}</span>
       <span class="node-name">${escapeHtml(person.name)}</span>
@@ -3736,10 +4018,29 @@ function renderNodes() {
   });
   updateGraphBounds();
   applyGraphFilters();
+  scheduleGraphLinesReveal(visibleGraphCharacters.length, shouldAnimateEntry);
 }
 
 function renderLinks() {
   drawGraph();
+}
+
+function scheduleGraphLinesReveal(nodeCount, shouldAnimateEntry) {
+  window.clearTimeout(graphNodeEntryTimer);
+  if (!graphStage) return;
+  if (!shouldAnimateEntry) {
+    graphStage.classList.remove("is-entering-nodes");
+    drawGraph();
+    return;
+  }
+  const entryDuration = 540 + Math.max(0, nodeCount - 1) * 36;
+  graphNodeEntryTimer = window.setTimeout(() => {
+    graphStage.classList.add("has-completed-node-entry");
+    requestAnimationFrame(() => {
+      graphStage.classList.remove("is-entering-nodes");
+      drawGraph();
+    });
+  }, entryDuration);
 }
 
 function selectPerson(id) {
@@ -3752,6 +4053,7 @@ function selectPerson(id) {
   state.selected = id;
   state.hasSelection = true;
   state.selectedCharacter = id;
+  freezeGraphSimulation();
   centerViewportOn(person);
   renderProfile();
   markRelatedNodes();
@@ -3818,6 +4120,7 @@ function updateGraphBounds() {
   state.height = bounds.height;
 
   const layoutCharacters = graphCharacters();
+  let initializedPosition = false;
   layoutCharacters.forEach((person, index) => {
     if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) {
       const goldenAngle = Math.PI * (3 - Math.sqrt(5));
@@ -3836,6 +4139,7 @@ function updateGraphBounds() {
       );
       person.px = point.x;
       person.py = point.y;
+      initializedPosition = true;
     }
     person.vx = person.vx || 0;
     person.vy = person.vy || 0;
@@ -3843,8 +4147,10 @@ function updateGraphBounds() {
     person.lastFinitePx = person.px;
     person.lastFinitePy = person.py;
   });
+  if (initializedPosition) prewarmGraphLayout(Number(graphLayoutConfig.prewarmTicks || 180));
   updateGraphViewport();
-  wakeGraphSimulation();
+  if (initializedPosition) startGraphLoop();
+  else wakeGraphSimulation();
 }
 
 function clientToWorld(clientX, clientY) {
@@ -3908,7 +4214,7 @@ function nudgeToward(person, x, y, strength = 0.02) {
   const vx = (x - person.px) * strength;
   const vy = (y - person.py) * strength;
   const force = Math.max(1, Math.hypot(vx, vy));
-  const capped = Math.min(8, force);
+  const capped = Math.min(5, force);
   person.vx += (vx / force) * capped;
   person.vy += (vy / force) * capped;
 }
@@ -4352,28 +4658,30 @@ function separationVector(a, b) {
 
 function separateOverlappingNodes() {
   const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
+  let maxSeparationSpeed = 0;
   forEachNearbyCharacterPair(minDistance, (a, b) => {
     const { distance, nx, ny } = separationVector(a, b);
     if (distance >= minDistance) return;
-    const overlap = (minDistance - distance) * 0.52;
+    const overlap = minDistance - distance;
+    const push = Math.min(2.2, overlap * 0.018);
     const aCanMove = canMovePerson(a);
     const bCanMove = canMovePerson(b);
     if (aCanMove && bCanMove) {
-      a.px -= nx * overlap * 0.5;
-      a.py -= ny * overlap * 0.5;
-      b.px += nx * overlap * 0.5;
-      b.py += ny * overlap * 0.5;
+      pushPerson(a, -nx * push * 0.5, -ny * push * 0.5);
+      pushPerson(b, nx * push * 0.5, ny * push * 0.5);
+      maxSeparationSpeed = Math.max(maxSeparationSpeed, push);
       return;
     }
     if (aCanMove) {
-      a.px -= nx * overlap;
-      a.py -= ny * overlap;
+      pushPerson(a, -nx * push, -ny * push);
+      maxSeparationSpeed = Math.max(maxSeparationSpeed, push);
     }
     if (bCanMove) {
-      b.px += nx * overlap;
-      b.py += ny * overlap;
+      pushPerson(b, nx * push, ny * push);
+      maxSeparationSpeed = Math.max(maxSeparationSpeed, push);
     }
   });
+  return maxSeparationSpeed;
 }
 
 function resolvePinnedNodeOverlap(person) {
@@ -4402,7 +4710,7 @@ function startDrag(event) {
     startClientY: event.clientY,
     moved: false,
   };
-  wakeGraphSimulation();
+  startGraphLoop();
   event.currentTarget.setPointerCapture(event.pointerId);
 }
 
@@ -4452,6 +4760,7 @@ window.addEventListener("pointermove", (event) => {
     person.py = point.y;
     person.vx = 0;
     person.vy = 0;
+    drawGraph();
   }
 });
 
@@ -4475,6 +4784,11 @@ window.addEventListener("pointerup", () => {
 });
 
 function wakeGraphSimulation() {
+  if (state.hasSelection) {
+    freezeGraphSimulation();
+    startGraphLoop();
+    return;
+  }
   graphSimulationActive = true;
   graphSimulationTicks = 0;
   graphStableFrames = 0;
@@ -4487,13 +4801,45 @@ function startGraphLoop() {
   }
 }
 
+function freezeGraphSimulation() {
+  graphSimulationActive = false;
+  graphSimulationTicks = GRAPH_MAX_SIMULATION_TICKS;
+  graphStableFrames = GRAPH_STABLE_FRAME_TARGET;
+  graphCharacters().forEach((person) => {
+    person.vx = 0;
+    person.vy = 0;
+    person.lastFinitePx = person.px;
+    person.lastFinitePy = person.py;
+  });
+}
+
+function prewarmGraphLayout(maxTicks = 180) {
+  if (state.hasSelection) {
+    freezeGraphSimulation();
+    return;
+  }
+  graphSimulationActive = true;
+  graphSimulationTicks = 0;
+  graphStableFrames = 0;
+  const deadline = performance.now() + Number(graphLayoutConfig.prewarmBudgetMs || 18);
+  const ticks = Math.max(0, Math.min(420, Number(maxTicks) || 0));
+  for (let tickIndex = 0; tickIndex < ticks && graphSimulationActive; tickIndex += 1) {
+    if (performance.now() > deadline) break;
+    stepGraphSimulation();
+  }
+}
+
 function stepGraphSimulation() {
+  if (state.hasSelection) {
+    freezeGraphSimulation();
+    return;
+  }
   const topology = buildGraphTopology();
   forEachNearbyCharacterPair(150, (a, b) => {
     const { distance: rawDistance, nx, ny } = separationVector(b, a);
     const distance = Math.max(1, rawDistance);
-    const push = Math.max(0, 150 - distance) * 0.0009;
-    const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.004 : 0;
+    const push = Math.max(0, 150 - distance) * 0.00055;
+    const selectedPush = state.hasSelection && (a.id === state.selected || b.id === state.selected) ? 0.0012 : 0;
     pushPerson(a, nx * push, ny * push);
     pushPerson(b, -nx * push, -ny * push);
     if (selectedPush) {
@@ -4523,15 +4869,15 @@ function stepGraphSimulation() {
   let maxSpeed = 0;
   graphCharacters().forEach((person) => {
     if (canMovePerson(person)) {
-      person.vx *= 0.91;
-      person.vy *= 0.91;
+      person.vx *= 0.86;
+      person.vy *= 0.86;
       person.px += person.vx;
       person.py += person.vy;
       maxSpeed = Math.max(maxSpeed, Math.hypot(person.vx, person.vy));
     }
   });
 
-  separateOverlappingNodes();
+  maxSpeed = Math.max(maxSpeed, separateOverlappingNodes());
   if (restoreFiniteGraphState()) {
     graphSimulationActive = false;
     return;
@@ -4670,6 +5016,29 @@ characterSearch.addEventListener("search", () => {
   state.characterSearch = characterSearch.value.trim();
   renderCharacterList();
   renderCharacterDetail();
+});
+
+temporaryCharacterToggle?.addEventListener("click", () => {
+  state.characterShelf = state.characterShelf === "temporary" ? "main" : "temporary";
+  state.characterSearch = "";
+  if (characterSearch) characterSearch.value = "";
+  const nextPerson = characters.find((person) => (
+    state.characterShelf === "temporary" ? isTemporaryCharacter(person) : !isTemporaryCharacter(person)
+  ));
+  state.selectedCharacter = nextPerson?.id || "";
+  renderCharacterList();
+  renderCharacterDetail();
+});
+
+sideTaskToggle?.addEventListener("click", () => {
+  state.plotShelf = state.plotShelf === "side" ? "all" : "side";
+  state.chapter = "all";
+  state.plotStatus = "all";
+  state.plotTags = allPlotTags();
+  state.plotPage = 1;
+  renderChapterSwitch();
+  renderStoryFilters();
+  renderPlots();
 });
 
 placeSearch?.addEventListener("input", () => {
@@ -4816,13 +5185,14 @@ relationshipSecondPerson?.addEventListener("change", updateRelationshipPairState
 
 profileDetailBtn.addEventListener("click", () => {
   if (!state.selected) return;
-  state.selectedCharacter = state.selected;
-  switchView("characters");
+  openCharacterDetail(state.selected);
 });
 
 characterDetail.addEventListener("click", (event) => {
   const button = event.target.closest(".relation-row[data-character-id]");
   if (!button || !characterDetail.contains(button)) return;
+  const person = getCharacter(button.dataset.characterId);
+  if (person) setCharacterShelfForPerson(person);
   state.selectedCharacter = button.dataset.characterId;
   state.characterSearch = "";
   if (characterSearch) characterSearch.value = "";
@@ -4835,7 +5205,7 @@ async function init() {
   try {
     await loadMarkdownData();
     state.selected = "";
-    state.selectedCharacter = characters[0]?.id || "";
+    state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
     state.selectedPlace = places[0]?.id || "";
     state.hasSelection = false;
     state.plotTags = allPlotTags();

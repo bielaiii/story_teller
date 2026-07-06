@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=canvas-edge-layer" />
+    <link rel="stylesheet" href="./styles.css?v=graph-entry-order" />
   </head>
   <body>
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
@@ -80,6 +80,15 @@
         </header>
 
         <div class="story-filter-row">
+          <button
+            class="side-task-toggle"
+            id="sideTaskToggle"
+            type="button"
+            aria-pressed="false"
+          >
+            <span>支线任务</span>
+            <strong id="sideTaskCount">0</strong>
+          </button>
           <div class="story-filter-group" id="statusFilter" aria-label="剧情状态筛选"></div>
           <div class="story-filter-group" id="tagFilter" aria-label="剧情标签筛选"></div>
         </div>
@@ -210,7 +219,7 @@
         <div class="diagnostic-list" id="diagnosticList"></div>
       </section>
 
-      <section class="graph-stage page-view is-active" data-page="graph" aria-label="人物关系图谱">
+      <section class="graph-stage page-view is-active is-entering-nodes" data-page="graph" aria-label="人物关系图谱">
         <div class="stage-header">
           <div>
             <p class="eyebrow">Relationship Map</p>
@@ -267,8 +276,21 @@
 
       <section class="character-page page-view" data-page="characters" aria-label="人物详情">
         <aside class="character-rail">
-          <p class="eyebrow">Characters</p>
-          <h2>人物详情</h2>
+          <div class="character-rail-head">
+            <div>
+              <p class="eyebrow">Characters</p>
+              <h2>人物详情</h2>
+            </div>
+            <button
+              class="temporary-character-toggle"
+              id="temporaryCharacterToggle"
+              type="button"
+              aria-pressed="false"
+            >
+              <span>临时角色</span>
+              <strong id="temporaryCharacterCount">0</strong>
+            </button>
+          </div>
           <input id="characterSearch" class="character-search" type="search" placeholder="搜索人物" />
           <div class="character-list" id="characterList"></div>
         </aside>
@@ -291,6 +313,6 @@
     <script src="./vendor/js-yaml/js-yaml.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./graph-renderer.js?v=canvas-edge-layer"></script>
-    <script src="./app.js?v=character-graph-visibility"></script>
+    <script src="./app.js?v=graph-entry-order"></script>
   </body>
 </html>

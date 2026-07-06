@@ -70,6 +70,7 @@ Relationship graph:
 * Treat `graph-layout.md` as global physics tuning plus rare explicit exceptions. New characters and relationships must enter the default layout without adding node-specific layout configuration.
 * Characters with a single relationship should extend outward from their connected character; multiple leaves on the same character should fan out automatically rather than share one direction.
 * Use `characterScope` to distinguish `主线人物` / `常驻人物` from `一次性角色` / `待定角色`. One-off or undecided characters stay searchable and usable in chapters, archives, and automatic recognition, but do not enter the graph by default.
+* Manage `一次性角色` and `待定角色` from a subtle entry inside the character archive, not as a top-level navigation item. They should feel like a drawer for reusable minor roles rather than a primary page.
 * `graphVisible: false` is only a rare explicit override that excludes a character from the graph without changing its searchable archive behavior.
 
 Timeline / Git graph style:

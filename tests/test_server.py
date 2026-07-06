@@ -271,6 +271,33 @@ label: 母子
                 }
             )
 
+    def test_update_character_scope_writes_frontmatter(self):
+        handler, project_root, responses = self.relationship_handler()
+
+        handler.update_character_scope(
+            {
+                "project": "novel",
+                "id": "3",
+                "scope": "一次性角色",
+            }
+        )
+
+        character_text = (project_root / "characters" / "3-林越.md").read_text(encoding="utf-8")
+        self.assertIn('characterScope: "一次性角色"', character_text)
+        self.assertEqual(responses[-1][0]["scope"], "一次性角色")
+
+        handler.update_character_scope(
+            {
+                "project": "novel",
+                "id": "3",
+                "scope": "主线人物",
+            }
+        )
+
+        character_text = (project_root / "characters" / "3-林越.md").read_text(encoding="utf-8")
+        self.assertIn('characterScope: "主线人物"', character_text)
+        self.assertNotIn('characterScope: "一次性角色"', character_text)
+
     def relationship_handler(self):
         content_root = self.project_root / "content"
         project_root = content_root / "novel"

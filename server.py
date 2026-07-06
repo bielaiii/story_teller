@@ -36,6 +36,7 @@ CONTENT_CONFIG_FILES = {
 CONTENT_INDEX_NAME = "content-index.json"
 FORBIDDEN_FILENAME_PATTERN = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+CHARACTER_SCOPES = {"主线人物", "常驻人物", "待定角色", "一次性角色"}
 
 
 def parse_frontmatter(text):
@@ -49,6 +50,25 @@ def parse_frontmatter(text):
         key, value = line.split(":", 1)
         fields[key.strip()] = value.strip().strip("\"'")
     return fields
+
+
+def update_frontmatter_field(text, key, value):
+    match = FRONTMATTER_PATTERN.match(text)
+    if not match:
+        raise ValueError("目标档案缺少 frontmatter")
+    replacement = f"{key}: {json.dumps(value, ensure_ascii=False)}"
+    lines = match.group("meta").splitlines()
+    for index, line in enumerate(lines):
+        if re.match(rf"^{re.escape(key)}\s*:", line):
+            lines[index] = replacement
+            break
+    else:
+        insert_at = 0
+        for index, line in enumerate(lines):
+            if re.match(r"^(id|name)\s*:", line):
+                insert_at = index + 1
+        lines.insert(insert_at, replacement)
+    return text[: match.start("meta")] + "\n".join(lines) + text[match.end("meta") :]
 
 
 def replace_name(text, old_name, new_name):
@@ -314,6 +334,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "/api/refactor/apply",
             "/api/refactor/undo",
             "/api/relationships/create",
+            "/api/characters/scope",
         }:
             return self.send_api_error("未知接口", HTTPStatus.NOT_FOUND)
         if not self.local_host():
@@ -328,6 +349,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 return self.apply_refactor(payload)
             if parsed.path == "/api/relationships/create":
                 return self.create_relationship(payload)
+            if parsed.path == "/api/characters/scope":
+                return self.update_character_scope(payload)
             return self.undo_refactor(payload)
         except ValueError as error:
             return self.send_api_error(str(error))
@@ -452,6 +475,31 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 "label": label,
             },
             HTTPStatus.CREATED,
+        )
+
+    def update_character_scope(self, payload):
+        project = str(payload.get("project", ""))
+        target_id = str(payload.get("id", "")).strip()
+        scope = str(payload.get("scope", "")).strip()
+        if not target_id:
+            raise ValueError("请选择人物")
+        if scope not in CHARACTER_SCOPES:
+            raise ValueError("人物收纳状态不合法")
+
+        project_root = self.project_root(project)
+        target_path, fields, text = self.locate_target(project_root, "character", target_id)
+        name = str(fields.get("name", "")).strip()
+        updated = update_frontmatter_field(text, "characterScope", scope)
+        if updated != text:
+            atomic_write(target_path, updated)
+        self.send_json(
+            {
+                "ok": True,
+                "id": target_id,
+                "name": name,
+                "scope": scope,
+                "path": target_path.relative_to(project_root).as_posix(),
+            }
         )
 
     def character_filename_moves(
