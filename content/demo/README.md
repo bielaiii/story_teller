@@ -19,11 +19,10 @@ group: 主角团
 markers: [男主, 主角团]
 mainPlotImpact: 100
 side: 主角方
+characterScope: 主线人物
 facts:
   职业: 档案修复师
   关系: 乔弥的旧友
-x: 60
-y: 40
 ---
 这里写人物设定。
 ```
@@ -41,6 +40,10 @@ y: 40
 `mainPlotImpact` 表示人物对主线的影响程度，使用 `0` 到 `100` 的数字。人物列表和人物搜索结果会优先显示数值更高的人物。
 
 `side` 用于影响力相同时的排序，可填写 `主角方`、`中立`、`反派方`。同分时优先显示主角方，其次中立，最后反派方；仍然相同时按姓名排序。
+
+`characterScope` 用来区分人物是否参与主线，可填写 `主线人物`、`常驻人物`、`一次性角色`、`待定角色`。`主线人物` 和 `常驻人物` 默认进入关系图谱；`一次性角色` 和 `待定角色` 仍会出现在人物列表、统一搜索、正文识别和剧情关联中，但不会让图谱变乱。以后需要升格时，把它改成 `主线人物` 或 `常驻人物` 即可。
+
+`graphVisible: false` 只作为少数特殊情况的显式覆盖：即使某人是主线人物，也临时不让它进入图谱。日常区分主线和一次性角色时，优先使用 `characterScope`。
 
 `facts` 用来配置人物详情页中的键值档案，可以自由填写 `关系`、`年龄`、`职业`、`目标` 等字段。字段会按照 Markdown 中的书写顺序显示。
 
@@ -145,6 +148,10 @@ accent: "#457b9d"
 
 ## 添加人物关系
 
+本地运行时，打开顶部的“检查”，在“新增人物关系”中选择两个人物，填写双方身份和关系名称即可。系统会自动生成关系文件、更新内容索引，并阻止同一对人物被重复连接。
+
+也可以手动维护关系文件：
+
 1. 在 `relationships` 目录新建一个 Markdown 文件，文件名由两个端点生成，例如 `relationships/8-新人物__1-林秋.md`。
 2. 按下面格式填写：
 
@@ -171,169 +178,39 @@ type: 同盟
 
 ## 调整人物图谱布局
 
-人物图谱默认会根据人物关系自动布局。你不需要给每个人都手动设置位置。
+默认布局不读取人物档案中的固定坐标：
 
-如果某些节点太乱，可以在 `graph-layout.md` 里增加软约束。软约束不会把节点钉死，只会像弹簧一样影响自动布局。
+- `mainPlotImpact` 越高，人物越靠近图谱中心。
+- 关系越多的人越接近关系网核心。
+- 同一 `group` 的人物会自然靠近。
+- 只有一条关系的人会从其关联人物向外围延伸。
+- 所有节点都会自动避让，不允许重叠。
 
-### 阵型
-
-默认不需要写阵型。图谱会先根据人物关系和自然随机偏移自动展开。
-
-当你确实想要某一组节点有明显轮廓时，可以在 `graph-layout.md` 里加 `Formations`。阵型只是位置参考，仍然是软约束，不会覆盖手动拖拽后固定的位置。每个阵型都可以加 `jitter`，让节点保留大概形状但不死板。
-
-男女主水平居中：
-
-```md
-## Formations
-
-- id: lead-pair
-  type: pair
-  members: [1, 3]
-  centerX: 50
-  centerY: 50
-  direction: horizontal
-  distance: 280
-  strength: 0.88
-  jitter: 22
-```
-
-`centerX` 和 `centerY` 表示这一组的中心点在画布中的百分比。`direction: horizontal` 表示左右展开，`direction: vertical` 表示上下展开。`distance` 是两个节点之间的大概距离。
-
-十字形：
-
-```md
-## Formations
-
-- id: old-case-cross
-  type: cross
-  center: 2
-  north: 6
-  south: 5
-  west: 1
-  east: 4
-  centerX: 56
-  centerY: 52
-  spacing: 220
-  strength: 0.82
-  jitter: 20
-```
-
-放射形：
-
-```md
-## Formations
-
-- id: qiao-star
-  type: star
-  center: 4
-  members: [7, 1, 3, 5]
-  centerX: 32
-  centerY: 55
-  radius: 230
-  startAngle: -90
-  strength: 0.72
-  jitter: 26
-```
-
-环形：
-
-```md
-## Formations
-
-- id: suspect-ring
-  type: ring
-  members: [1, 3, 2, 5, 6, 4]
-  centerX: 55
-  centerY: 52
-  radius: 260
-  strength: 0.68
-  jitter: 24
-```
-
-链条：
-
-```md
-## Formations
-
-- id: clue-chain
-  type: chain
-  members: [6, 2, 5, 4]
-  centerX: 58
-  centerY: 44
-  direction: horizontal
-  spacing: 180
-  strength: 0.7
-  jitter: 18
-```
-
-三角形：
-
-```md
-## Formations
-
-- id: lead-triangle
-  type: triangle
-  members: [1, 3, 2]
-  centerX: 50
-  centerY: 50
-  radius: 190
-  strength: 0.72
-  jitter: 20
-```
-
-支持的阵型类型是 `pair`、`cross`、`star`、`ring`、`chain`、`triangle`。如果一个节点同时出现在多个阵型里，会受到多个参考位置影响；为了仍然看出形状，建议一个强阵型配合其他弱阵型使用。
-
-`nodeSpacing` 可以写在 `graph-layout.md` 顶部元信息里，用来控制节点之间的最小间距：
+`graph-layout.md` 默认只需要全局参数：
 
 ```md
 ---
 nodeSpacing: 116
+initialJitter: 38
+relationshipDistance: 250
+leafDistanceExtra: 48
+centerStrength: 1
+groupStrength: 1
+leafStrength: 1
 ---
 ```
 
-系统每帧都会做碰撞分离，避免头像互相重叠。
+`nodeSpacing` 控制最小间距，`relationshipDistance` 控制普通关系的长度，`leafDistanceExtra` 控制单一关系人物向外多延伸多少。后三个 `Strength` 用来微调自动居中、分组抱团和外围延伸的力度。
 
-### 抱团
-
-```md
-## Clusters
-
-- id: harbor
-  label: 港区相关
-  centerX: 26
-  centerY: 56
-  radius: 160
-  strength: 0.46
-  members: [4, 7]
-```
-
-`members` 会自然靠近。`centerX` 和 `centerY` 是这个团大概在画布中的位置百分比。`radius` 越大越松散，`strength` 越大越听配置。
-
-### 指定距离
+只有自动结果确实不合适时，才添加人物级例外。例如指定两个人物的距离：
 
 ```md
 ## Distances
 
-- from: qiao
+- from: 1
   to: 7
   distance: 280
   strength: 0.9
 ```
 
-`distance` 是希望两个节点保持的大概距离。它会和关系线、抱团、拖拽位置一起折中。
-
-### 向外延伸
-
-```md
-## Nodes
-
-- id: 7
-  orbitOf: 4
-  orbitDistance: 300
-  orbitAngle: -145
-  strength: 0.03
-```
-
-这适合“某个人只和一个核心人物有关”的情况。`orbitOf` 是核心节点，`orbitDistance` 是离核心多远，`orbitAngle` 是延伸方向：`0` 向右，`90` 向下，`-90` 向上，`180` 向左。
-
-手动拖动过的节点会优先停在你松手的位置，配置不会把它强行拉回去。
+特殊阵型仍支持 `pair`、`cross`、`star`、`ring`、`chain`、`triangle`，但它们是明确的人工约束，不应写进默认配置。手动拖动过的节点仍会停在松手位置，不再受到自动力影响。

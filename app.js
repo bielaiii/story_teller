@@ -104,6 +104,16 @@ function normalizeMainPlotImpact(value) {
   return Number.isFinite(impact) ? Math.max(0, Math.min(100, impact)) : 0;
 }
 
+function normalizeCharacterScope(value, graphVisible = true) {
+  const scope = String(value || "").trim();
+  if (scope) return scope;
+  return graphVisible === false ? "一次性角色" : "主线人物";
+}
+
+function isMainlineCharacterScope(scope) {
+  return !new Set(["一次性角色", "临时角色", "待定角色"]).has(String(scope || "").trim());
+}
+
 function characterSidePriority(side) {
   return {
     主角方: 3,
@@ -669,6 +679,8 @@ async function loadMarkdownData() {
         facts: normalizeFacts(meta.facts),
         mainPlotImpact: normalizeMainPlotImpact(meta.mainPlotImpact),
         side: String(meta.side || "中立").trim(),
+        characterScope: normalizeCharacterScope(meta.characterScope, meta.graphVisible),
+        graphVisible: meta.graphVisible !== false,
       };
     })),
     Promise.all(plotPaths.map(async (path) => {
@@ -779,6 +791,7 @@ function createGraphRenderer() {
 }
 const graphRenderer = createGraphRenderer();
 const nodeLayer = document.querySelector("#nodeLayer");
+const graphStage = document.querySelector(".graph-stage");
 const storyEyebrow = document.querySelector("#storyEyebrow");
 const storyTitle = document.querySelector("#storyTitle");
 const chapterSwitch = document.querySelector("#chapterSwitch");
@@ -829,6 +842,17 @@ const refactorPreviewSummary = document.querySelector("#refactorPreviewSummary")
 const refactorChangeList = document.querySelector("#refactorChangeList");
 const refactorCancelBtn = document.querySelector("#refactorCancelBtn");
 const refactorApplyBtn = document.querySelector("#refactorApplyBtn");
+const relationshipWorkspace = document.querySelector("#relationshipWorkspace");
+const relationshipCreateForm = document.querySelector("#relationshipCreateForm");
+const relationshipFirstPerson = document.querySelector("#relationshipFirstPerson");
+const relationshipFirstRole = document.querySelector("#relationshipFirstRole");
+const relationshipSecondPerson = document.querySelector("#relationshipSecondPerson");
+const relationshipSecondRole = document.querySelector("#relationshipSecondRole");
+const relationshipLabel = document.querySelector("#relationshipLabel");
+const relationshipType = document.querySelector("#relationshipType");
+const relationshipColor = document.querySelector("#relationshipColor");
+const relationshipCreateStatus = document.querySelector("#relationshipCreateStatus");
+const relationshipCreateBtn = document.querySelector("#relationshipCreateBtn");
 
 function initial(name) {
   return name.slice(0, 1);
@@ -1207,6 +1231,7 @@ function personMatchesSearch(person) {
     person.name,
     person.id,
     person.group,
+    person.characterScope,
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
@@ -1218,8 +1243,21 @@ function personMatchesSearch(person) {
 }
 
 function isVisiblePerson(person) {
+  if (!isGraphCharacter(person)) return false;
   const groupMatch = state.group === "all" || person.group === state.group;
   return groupMatch && personMatchesSearch(person);
+}
+
+function isGraphCharacter(person) {
+  return Boolean(
+    person
+    && person.graphVisible !== false
+    && isMainlineCharacterScope(person.characterScope),
+  );
+}
+
+function graphCharacters() {
+  return characters.filter(isGraphCharacter);
 }
 
 function isVisibleRelationship(link) {
@@ -1231,8 +1269,13 @@ function isVisibleRelationship(link) {
 }
 
 function renderGraphFilters() {
-  const groups = [...new Set(characters.map((person) => person.group).filter(Boolean))];
-  const relationTypes = [...new Set(relationships.map((link) => link.type).filter(Boolean))];
+  const groups = [...new Set(graphCharacters().map((person) => person.group).filter(Boolean))];
+  const relationTypes = [...new Set(
+    relationships
+      .filter((link) => isGraphCharacter(getCharacter(link.from)) && isGraphCharacter(getCharacter(link.to)))
+      .map((link) => link.type)
+      .filter(Boolean),
+  )];
 
   groupFilter.innerHTML = '<option value="all">全部分组</option>' + groups
     .map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
@@ -1306,6 +1349,130 @@ function setRefactorBusy(busy) {
     });
 }
 
+function setRelationshipCreatorBusy(busy) {
+  [
+    relationshipFirstPerson,
+    relationshipFirstRole,
+    relationshipSecondPerson,
+    relationshipSecondRole,
+    relationshipLabel,
+    relationshipType,
+    relationshipColor,
+    relationshipCreateBtn,
+  ].filter(Boolean).forEach((element) => {
+    element.disabled = busy || !refactorCapability?.writable || characters.length < 2;
+  });
+}
+
+function setRelationshipCreateStatus(message = "", type = "") {
+  if (!relationshipCreateStatus) return;
+  relationshipCreateStatus.textContent = message;
+  relationshipCreateStatus.className = type ? `is-${type}` : "";
+}
+
+function updateRelationshipPairState() {
+  const firstId = relationshipFirstPerson?.value || "";
+  const secondId = relationshipSecondPerson?.value || "";
+  let message = "关系会保存为一份 Markdown，并自动加入图谱。";
+  let error = false;
+  if (firstId && firstId === secondId) {
+    message = "请选择两个不同的人物";
+    error = true;
+  } else if (firstId && secondId && relationshipPairExists(firstId, secondId)) {
+    message = "这两个人物已经存在关系，请直接编辑原关系文件";
+    error = true;
+  }
+  setRelationshipCreateStatus(message, error ? "error" : "");
+  if (relationshipCreateBtn) {
+    relationshipCreateBtn.disabled = error
+      || !refactorCapability?.writable
+      || characters.length < 2;
+  }
+}
+
+function refreshRelationshipCreator() {
+  if (!relationshipWorkspace || !relationshipFirstPerson || !relationshipSecondPerson) return;
+  const previousFirst = relationshipFirstPerson.value;
+  const previousSecond = relationshipSecondPerson.value;
+  const options = characters
+    .map((person) => `<option value="${escapeHtml(person.id)}">${escapeHtml(person.name)}（ID ${escapeHtml(person.id)}）</option>`)
+    .join("");
+  relationshipFirstPerson.innerHTML = options;
+  relationshipSecondPerson.innerHTML = options;
+
+  const ids = characters.map((person) => String(person.id));
+  let suggestedPair = [];
+  for (let firstIndex = 0; firstIndex < ids.length && !suggestedPair.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < ids.length; secondIndex += 1) {
+      if (!relationshipPairExists(ids[firstIndex], ids[secondIndex])) {
+        suggestedPair = [ids[firstIndex], ids[secondIndex]];
+        break;
+      }
+    }
+  }
+  relationshipFirstPerson.value = ids.includes(previousFirst)
+    ? previousFirst
+    : suggestedPair[0] || ids[0] || "";
+  relationshipSecondPerson.value = ids.includes(previousSecond) && previousSecond !== relationshipFirstPerson.value
+    ? previousSecond
+    : (
+      ids.find((id) => id !== relationshipFirstPerson.value && !relationshipPairExists(relationshipFirstPerson.value, id))
+      || suggestedPair[1]
+      || ids.find((id) => id !== relationshipFirstPerson.value)
+      || ""
+    );
+  if (characters.length < 2) {
+    setRelationshipCreateStatus("至少需要两个人物档案才能创建关系", "error");
+  } else if (!refactorCapability?.writable) {
+    setRelationshipCreateStatus("公开部署只读，请使用 run.sh 启动本地服务", "error");
+  }
+  setRelationshipCreatorBusy(false);
+  if (characters.length >= 2 && refactorCapability?.writable) updateRelationshipPairState();
+}
+
+function relationshipPairExists(firstId, secondId) {
+  return relationships.some((link) => {
+    const endpoints = [String(link.from), String(link.to)];
+    return endpoints.includes(firstId) && endpoints.includes(secondId);
+  });
+}
+
+async function createRelationship(event) {
+  event.preventDefault();
+  if (!relationshipCreateForm?.reportValidity()) return;
+  const firstId = relationshipFirstPerson?.value || "";
+  const secondId = relationshipSecondPerson?.value || "";
+  if (firstId === secondId) {
+    setRelationshipCreateStatus("请选择两个不同的人物", "error");
+    relationshipSecondPerson?.focus();
+    return;
+  }
+  if (relationshipPairExists(firstId, secondId)) {
+    setRelationshipCreateStatus("这两个人物已经存在关系，请直接编辑原关系文件", "error");
+    return;
+  }
+
+  setRelationshipCreatorBusy(true);
+  setRelationshipCreateStatus("正在创建关系…");
+  try {
+    const result = await refactorApi("/api/relationships/create", {
+      project: currentProjectId(),
+      firstId,
+      firstRole: relationshipFirstRole?.value.trim() || "",
+      secondId,
+      secondRole: relationshipSecondRole?.value.trim() || "",
+      label: relationshipLabel?.value.trim() || "",
+      type: relationshipType?.value.trim() || "",
+      color: relationshipColor?.value || "",
+    });
+    setRelationshipCreateStatus(`已创建“${result.label}”，正在刷新图谱…`, "success");
+    window.setTimeout(() => window.location.reload(), 450);
+  } catch (error) {
+    setRelationshipCreateStatus(error.message, "error");
+    setRelationshipCreatorBusy(false);
+  }
+}
+
 function closeRefactorPreview() {
   refactorOperationId = "";
   refactorPreview?.classList.add("is-hidden");
@@ -1350,6 +1517,7 @@ function setRefactorUnavailable(message) {
   refactorChangeList?.replaceChildren();
   refactorUndoBtn?.classList.add("is-hidden");
   setRefactorBusy(false);
+  refreshRelationshipCreator();
 }
 
 async function refactorApi(path, body) {
@@ -1376,7 +1544,10 @@ async function refactorApi(path, body) {
 async function initializeRefactorWorkspace(force = false) {
   if (!refactorWorkspace) return;
   const project = currentProjectId();
-  if (!force && refactorCapability?.writable && refactorCapabilityProject === project) return;
+  if (!force && refactorCapability?.writable && refactorCapabilityProject === project) {
+    refreshRelationshipCreator();
+    return;
+  }
   if (refactorMode) {
     refactorMode.textContent = "正在连接本地服务";
     refactorMode.className = "refactor-mode";
@@ -1396,6 +1567,7 @@ async function initializeRefactorWorkspace(force = false) {
     }
     refreshRefactorTargets();
     setRefactorBusy(false);
+    refreshRelationshipCreator();
   } catch (error) {
     setRefactorUnavailable(error.message);
   }
@@ -3459,6 +3631,9 @@ function renderPlaceDetail() {
 function switchView(view) {
   const previousView = state.view;
   const activeNav = view === "plot-detail" ? "story" : view;
+  if (previousView === "graph" && view !== "graph") {
+    graphStage?.classList.add("has-completed-node-entry");
+  }
   document.querySelector("#readingProgress")?.classList.toggle("is-hidden", view !== "plot-detail");
   document.querySelectorAll(".view-btn").forEach((item) => item.classList.toggle("is-active", item.dataset.view === activeNav));
   document.querySelectorAll(".page-view").forEach((page) => page.classList.toggle("is-active", page.dataset.page === view));
@@ -3534,7 +3709,7 @@ function renderProfile() {
 
 function renderNodes() {
   nodeLayer.innerHTML = "";
-  characters.forEach((person, index) => {
+  graphCharacters().forEach((person, index) => {
     const node = document.createElement("button");
     node.className = "person-node";
     node.type = "button";
@@ -3570,6 +3745,10 @@ function renderLinks() {
 function selectPerson(id) {
   const person = getCharacter(id);
   if (!person) return;
+  if (!isGraphCharacter(person)) {
+    openCharacterDetail(id);
+    return;
+  }
   state.selected = id;
   state.hasSelection = true;
   state.selectedCharacter = id;
@@ -3593,6 +3772,7 @@ function graphReachability() {
     while (queue.length) {
       const current = queue.shift();
       relationships.forEach((link) => {
+        if (!isGraphCharacter(getCharacter(link.from)) || !isGraphCharacter(getCharacter(link.to))) return;
         const next = link.from === current ? link.to : link.to === current ? link.from : "";
         if (!next) return;
         if (current === state.selected) direct.add(next);
@@ -3637,22 +3817,19 @@ function updateGraphBounds() {
   state.width = bounds.width;
   state.height = bounds.height;
 
-  characters.forEach((person, index) => {
+  const layoutCharacters = graphCharacters();
+  layoutCharacters.forEach((person, index) => {
     if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) {
-      const hasConfiguredPosition = Number.isFinite(Number(person.x)) && Number.isFinite(Number(person.y));
       const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-      const progress = Math.sqrt((index + 0.5) / Math.max(1, characters.length));
-      const radius = Math.min(state.width, state.height) * (0.08 + progress * 0.34);
+      const progress = Math.sqrt((index + 0.5) / Math.max(1, layoutCharacters.length));
+      const importance = normalizeMainPlotImpact(person.mainPlotImpact) / 100;
+      const radius = Math.min(state.width, state.height)
+        * (0.035 + progress * 0.34)
+        * (1.08 - importance * 0.24);
       const angle = index * goldenAngle + stableNoise(person.id, "initial-angle") * 0.28;
-      const baseX = hasConfiguredPosition
-        ? (Number(person.x) / 100) * state.width
-        : state.width / 2 + Math.cos(angle) * radius;
-      const baseY = hasConfiguredPosition
-        ? (Number(person.y) / 100) * state.height
-        : state.height / 2 + Math.sin(angle) * radius;
       const point = jitterPoint(
-        baseX,
-        baseY,
+        state.width / 2 + Math.cos(angle) * radius,
+        state.height / 2 + Math.sin(angle) * radius,
         person.id,
         Number(graphLayoutConfig.initialJitter || 34),
         "initial",
@@ -3663,6 +3840,8 @@ function updateGraphBounds() {
     person.vx = person.vx || 0;
     person.vy = person.vy || 0;
     person.pinned = Boolean(person.pinned);
+    person.lastFinitePx = person.px;
+    person.lastFinitePy = person.py;
   });
   updateGraphViewport();
   wakeGraphSimulation();
@@ -3686,7 +3865,7 @@ function centerViewportOn(person) {
 function updateGraphViewport() {
   if (!state.width || !state.height) return;
   nodeLayer.style.transform = `translate(${state.graphPanX}px, ${state.graphPanY}px) scale(${state.graphScale})`;
-  graphWrap.classList.toggle("hide-labels", characters.length > 10 || state.graphScale < 0.75);
+  graphWrap.classList.toggle("hide-labels", graphCharacters().length > 10 || state.graphScale < 0.75);
 }
 
 function canMovePerson(person) {
@@ -3697,6 +3876,31 @@ function pushPerson(person, vx, vy) {
   if (!person || !canMovePerson(person)) return;
   person.vx += vx;
   person.vy += vy;
+}
+
+function restoreFiniteGraphState() {
+  let restored = false;
+  graphCharacters().forEach((person, index) => {
+    if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) {
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
+      const radius = Math.min(state.width, state.height) * 0.18;
+      person.px = Number.isFinite(person.lastFinitePx)
+        ? person.lastFinitePx
+        : state.width / 2 + Math.cos(angle) * radius;
+      person.py = Number.isFinite(person.lastFinitePy)
+        ? person.lastFinitePy
+        : state.height / 2 + Math.sin(angle) * radius;
+      restored = true;
+    }
+    if (!Number.isFinite(person.vx) || !Number.isFinite(person.vy)) {
+      person.vx = 0;
+      person.vy = 0;
+      restored = true;
+    }
+    person.lastFinitePx = person.px;
+    person.lastFinitePy = person.py;
+  });
+  return restored;
 }
 
 function nudgeToward(person, x, y, strength = 0.02) {
@@ -3723,7 +3927,7 @@ function applyPairDistance(a, b, targetDistance, strength = 0.45) {
 
 function applyNaturalGroupForces() {
   const groups = new Map();
-  characters.forEach((person) => {
+  graphCharacters().forEach((person) => {
     if (!person.group) return;
     if (!groups.has(person.group)) groups.set(person.group, []);
     groups.get(person.group).push(person);
@@ -3737,7 +3941,140 @@ function applyNaturalGroupForces() {
     }), { x: 0, y: 0 });
     center.x /= members.length;
     center.y /= members.length;
-    members.forEach((person) => nudgeToward(person, center.x, center.y, 0.0018));
+    const strength = Number(graphLayoutConfig.groupStrength || 1);
+    members.forEach((person) => nudgeToward(person, center.x, center.y, 0.0018 * strength));
+  });
+}
+
+function buildGraphTopology() {
+  const visibleCharacters = graphCharacters();
+  const neighbors = new Map(visibleCharacters.map((person) => [person.id, []]));
+  relationships.forEach((link) => {
+    const from = getCharacter(link.from);
+    const to = getCharacter(link.to);
+    if (!isGraphCharacter(from) || !isGraphCharacter(to)) return;
+    neighbors.get(from.id).push({ person: to, link });
+    neighbors.get(to.id).push({ person: from, link });
+  });
+  return neighbors;
+}
+
+function automaticRelationshipDistance(link, topology) {
+  const configuredDistance = Number(link.distance);
+  if (Number.isFinite(configuredDistance) && configuredDistance > 0) return configuredDistance;
+  const baseDistance = Number(graphLayoutConfig.relationshipDistance || 250);
+  const fromDegree = topology.get(link.from)?.length || 0;
+  const toDegree = topology.get(link.to)?.length || 0;
+  const leafExtra = fromDegree === 1 || toDegree === 1
+    ? Number(graphLayoutConfig.leafDistanceExtra || 48)
+    : 0;
+  return baseDistance + leafExtra;
+}
+
+function applyAutomaticCenterForces(topology) {
+  const visibleCharacters = graphCharacters();
+  if (!visibleCharacters.length || !state.width || !state.height) return;
+  const center = graphPoint();
+  const strength = Number(graphLayoutConfig.centerStrength || 1);
+  const movable = visibleCharacters.filter((person) => canMovePerson(person));
+  if (movable.length) {
+    const centroid = movable.reduce((sum, person) => ({
+      x: sum.x + person.px,
+      y: sum.y + person.py,
+    }), { x: 0, y: 0 });
+    centroid.x /= movable.length;
+    centroid.y /= movable.length;
+    const correctionX = (center.x - centroid.x) * 0.0014 * strength;
+    const correctionY = (center.y - centroid.y) * 0.0014 * strength;
+    movable.forEach((person) => pushPerson(person, correctionX, correctionY));
+  }
+
+  const maxDegree = Math.max(1, ...visibleCharacters.map((person) => topology.get(person.id)?.length || 0));
+  const radiusLimit = Math.min(state.width, state.height) * 0.34;
+
+  visibleCharacters.forEach((person) => {
+    const importance = normalizeMainPlotImpact(person.mainPlotImpact) / 100;
+    const connectedness = (topology.get(person.id)?.length || 0) / maxDegree;
+    const centrality = importance * 0.76 + connectedness * 0.24;
+    const radius = radiusLimit * (1 - centrality) + 24;
+    const angle = (stableNoise(person.id, "automatic-center") + 1) * Math.PI;
+    nudgeToward(
+      person,
+      center.x + Math.cos(angle) * radius,
+      center.y + Math.sin(angle) * radius,
+      0.0011 * strength,
+    );
+  });
+}
+
+function applyAutomaticLeafForces(topology) {
+  const center = graphPoint();
+  const strength = Number(graphLayoutConfig.leafStrength || 1);
+  topology.forEach((connections, id) => {
+    if (connections.length !== 1) return;
+    const person = getCharacter(id);
+    const { person: anchor, link } = connections[0];
+    if (!person || !anchor) return;
+    const anchorConnections = topology.get(anchor.id)?.length || 0;
+    if (
+      anchorConnections === 1
+      && person.mainPlotImpact >= anchor.mainPlotImpact
+    ) return;
+
+    const leafSiblings = (topology.get(anchor.id) || [])
+      .map((connection) => connection.person)
+      .filter((candidate) => (topology.get(candidate.id)?.length || 0) === 1)
+      .sort(compareCharacterPriority);
+    const siblingIndex = Math.max(0, leafSiblings.findIndex((candidate) => candidate.id === person.id));
+    const spread = Math.min(Math.PI * 0.82, Math.max(0, leafSiblings.length - 1) * 0.44);
+    const offset = leafSiblings.length > 1
+      ? -spread / 2 + (spread * siblingIndex) / (leafSiblings.length - 1)
+      : 0;
+    const dx = anchor.px - center.x;
+    const dy = anchor.py - center.y;
+    const baseAngle = Math.hypot(dx, dy) < 24
+      ? (stableNoise(anchor.id, "leaf-anchor") + 1) * Math.PI
+      : Math.atan2(dy, dx);
+    const angle = baseAngle + offset;
+    const targetDistance = automaticRelationshipDistance(link, topology);
+    nudgeToward(
+      person,
+      anchor.px + Math.cos(angle) * targetDistance,
+      anchor.py + Math.sin(angle) * targetDistance,
+      0.0038 * strength,
+    );
+  });
+}
+
+function applyAutomaticLayoutBounds() {
+  const width = Number(state.width);
+  const height = Number(state.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+  const configuredSpacing = Number(graphLayoutConfig.nodeSpacing);
+  const spacing = Number.isFinite(configuredSpacing) && configuredSpacing > 0 ? configuredSpacing : 116;
+  const visibleCharacters = graphCharacters();
+  const expansion = Math.max(1, Math.sqrt(Math.max(1, visibleCharacters.length) / 24));
+  const margin = spacing * 0.7;
+  const minX = width / 2 - Math.max(1, width / 2 - margin) * expansion;
+  const maxX = width / 2 + Math.max(1, width / 2 - margin) * expansion;
+  const minY = height / 2 - Math.max(1, height / 2 - margin) * expansion;
+  const maxY = height / 2 + Math.max(1, height / 2 - margin) * expansion;
+
+  visibleCharacters.forEach((person) => {
+    if (!canMovePerson(person) || !Number.isFinite(person.px) || !Number.isFinite(person.py)) return;
+    const correctionX = person.px < minX
+      ? minX - person.px
+      : person.px > maxX
+        ? maxX - person.px
+        : 0;
+    const correctionY = person.py < minY
+      ? minY - person.py
+      : person.py > maxY
+        ? maxY - person.py
+        : 0;
+    if (Number.isFinite(correctionX) && Number.isFinite(correctionY)) {
+      pushPerson(person, correctionX * 0.012, correctionY * 0.012);
+    }
   });
 }
 
@@ -3774,11 +4111,13 @@ function formationAngle(formation) {
 }
 
 function nudgeFormationMember(id, x, y, strength) {
-  nudgeToward(getCharacter(id), x, y, strength);
+  const person = getCharacter(id);
+  if (isGraphCharacter(person)) nudgeToward(person, x, y, strength);
 }
 
 function formationCenter(formation) {
-  const anchor = getCharacter(formation.anchorNode || formation.bindMember || "");
+  const anchorCandidate = getCharacter(formation.anchorNode || formation.bindMember || "");
+  const anchor = isGraphCharacter(anchorCandidate) ? anchorCandidate : null;
   const offsetX = Number(formation.offsetX || 0);
   const offsetY = Number(formation.offsetY || 0);
   if (anchor) return { x: anchor.px + offsetX, y: anchor.py + offsetY };
@@ -3886,9 +4225,12 @@ function applyFormationForces() {
 
 function applyConfiguredDistanceForces() {
   (graphLayoutConfig.distances || []).forEach((rule) => {
+    const from = getCharacter(rule.from);
+    const to = getCharacter(rule.to);
+    if (!isGraphCharacter(from) || !isGraphCharacter(to)) return;
     applyPairDistance(
-      getCharacter(rule.from),
-      getCharacter(rule.to),
+      from,
+      to,
       Number(rule.distance),
       Number(rule.strength || 0.7),
     );
@@ -3918,7 +4260,7 @@ function applyClusterForces() {
   (graphLayoutConfig.clusters || []).forEach((cluster) => {
     const members = (cluster.members || [])
       .map((id) => getCharacter(id))
-      .filter(Boolean);
+      .filter(isGraphCharacter);
     if (!members.length) return;
     const center = clusterCenter(cluster, members);
     const radius = Number(cluster.radius || 180);
@@ -3947,7 +4289,7 @@ function applyOrbitForces() {
   (graphLayoutConfig.nodes || []).forEach((rule) => {
     const person = getCharacter(rule.id);
     const anchor = getCharacter(rule.orbitOf);
-    if (!person || !anchor) return;
+    if (!isGraphCharacter(person) || !isGraphCharacter(anchor)) return;
     const distance = Number(rule.orbitDistance || 260);
     const angle = (Number(rule.orbitAngle || 0) * Math.PI) / 180;
     nudgeToward(
@@ -3959,8 +4301,11 @@ function applyOrbitForces() {
   });
 }
 
-function applyGraphLayoutForces() {
+function applyGraphLayoutForces(topology) {
+  applyAutomaticCenterForces(topology);
   applyNaturalGroupForces();
+  applyAutomaticLeafForces(topology);
+  applyAutomaticLayoutBounds();
   applyFormationForces();
   applyClusterForces();
   applyConfiguredDistanceForces();
@@ -3970,7 +4315,7 @@ function applyGraphLayoutForces() {
 function forEachNearbyCharacterPair(maxDistance, callback) {
   const cellSize = Math.max(1, maxDistance);
   const buckets = new Map();
-  characters.forEach((person, index) => {
+  graphCharacters().forEach((person, index) => {
     if (!Number.isFinite(person.px) || !Number.isFinite(person.py)) return;
     const cellX = Math.floor(person.px / cellSize);
     const cellY = Math.floor(person.py / cellSize);
@@ -4035,7 +4380,7 @@ function resolvePinnedNodeOverlap(person) {
   const minDistance = Number(graphLayoutConfig.nodeSpacing || 116);
   for (let pass = 0; pass < 4; pass += 1) {
     let moved = false;
-    characters.forEach((other) => {
+    graphCharacters().forEach((other) => {
       if (other === person || !Number.isFinite(other.px) || !Number.isFinite(other.py)) return;
       const vector = separationVector(other, person);
       if (vector.distance >= minDistance) return;
@@ -4119,8 +4464,6 @@ window.addEventListener("pointerup", () => {
       person.pinned = true;
       person.vx = 0;
       person.vy = 0;
-      person.x = (person.px / state.width) * 100;
-      person.y = (person.py / state.height) * 100;
     }
     state.suppressClickId = state.dragging.id;
     state.suppressClickUntil = Date.now() + 250;
@@ -4145,6 +4488,7 @@ function startGraphLoop() {
 }
 
 function stepGraphSimulation() {
+  const topology = buildGraphTopology();
   forEachNearbyCharacterPair(150, (a, b) => {
     const { distance: rawDistance, nx, ny } = separationVector(b, a);
     const distance = Math.max(1, rawDistance);
@@ -4161,14 +4505,23 @@ function stepGraphSimulation() {
   relationships.forEach((link) => {
     const a = getCharacter(link.from);
     const b = getCharacter(link.to);
-    if (!a || !b) return;
-    applyPairDistance(a, b, Number(link.distance || 250), Number(link.strength || 1));
+    if (!isGraphCharacter(a) || !isGraphCharacter(b)) return;
+    applyPairDistance(
+      a,
+      b,
+      automaticRelationshipDistance(link, topology),
+      Number(link.strength || 1),
+    );
   });
 
-  applyGraphLayoutForces();
+  applyGraphLayoutForces(topology);
+  if (restoreFiniteGraphState()) {
+    graphSimulationActive = false;
+    return;
+  }
 
   let maxSpeed = 0;
-  characters.forEach((person) => {
+  graphCharacters().forEach((person) => {
     if (canMovePerson(person)) {
       person.vx *= 0.91;
       person.vy *= 0.91;
@@ -4179,11 +4532,10 @@ function stepGraphSimulation() {
   });
 
   separateOverlappingNodes();
-
-  characters.forEach((person) => {
-    person.x = (person.px / state.width) * 100;
-    person.y = (person.py / state.height) * 100;
-  });
+  if (restoreFiniteGraphState()) {
+    graphSimulationActive = false;
+    return;
+  }
 
   graphSimulationTicks += 1;
   graphStableFrames = maxSpeed < 0.018 ? graphStableFrames + 1 : 0;
@@ -4211,7 +4563,7 @@ function tick(time) {
 function graphRenderScene(time = performance.now()) {
   const { direct, reachable } = graphReachability();
   const hasPosition = (person) => Number.isFinite(person?.px) && Number.isFinite(person?.py);
-  const visibleCharacters = characters.filter((person) => isVisiblePerson(person) && hasPosition(person));
+  const visibleCharacters = graphCharacters().filter((person) => isVisiblePerson(person) && hasPosition(person));
   const nodes = visibleCharacters.map((person) => {
     const isSelected = state.hasSelection && person.id === state.selected;
     const isDirect = state.hasSelection && direct.has(person.id) && !isSelected;
@@ -4258,7 +4610,8 @@ function drawGraph(time = performance.now()) {
     node.style.left = `${person.px}px`;
     node.style.top = `${person.py}px`;
   });
-  graphRenderer?.render(graphRenderScene(time));
+  const scene = graphRenderScene(time);
+  graphRenderer?.render(scene);
 }
 
 globalSearch?.addEventListener("input", () => {
@@ -4449,6 +4802,17 @@ refactorPreviewBtn?.addEventListener("click", previewRefactor);
 refactorCancelBtn?.addEventListener("click", closeRefactorPreview);
 refactorApplyBtn?.addEventListener("click", applyRefactor);
 refactorUndoBtn?.addEventListener("click", undoRefactor);
+relationshipCreateForm?.addEventListener("submit", createRelationship);
+relationshipFirstPerson?.addEventListener("change", () => {
+  if (relationshipFirstPerson.value === relationshipSecondPerson?.value) {
+    relationshipSecondPerson.value = characters
+      .map((person) => String(person.id))
+      .find((id) => id !== relationshipFirstPerson.value && !relationshipPairExists(relationshipFirstPerson.value, id))
+      || "";
+  }
+  updateRelationshipPairState();
+});
+relationshipSecondPerson?.addEventListener("change", updateRelationshipPairState);
 
 profileDetailBtn.addEventListener("click", () => {
   if (!state.selected) return;

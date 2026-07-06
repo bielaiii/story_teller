@@ -1826,6 +1826,158 @@ button.plot-place-item:focus-visible {
   justify-content: flex-end;
 }
 
+.relationship-workspace {
+  display: grid;
+  gap: 16px;
+  border-left: 5px solid var(--blue);
+  border-radius: 6px;
+  padding: 18px;
+  background:
+    linear-gradient(105deg, rgba(236, 246, 255, 0.68), rgba(255, 255, 255, 0.62) 42%, rgba(255, 247, 224, 0.48)),
+    rgba(255, 255, 255, 0.45);
+  box-shadow: 0 14px 34px rgba(31, 46, 58, 0.06);
+}
+
+.relationship-create-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.relationship-create-head h3 {
+  margin: 2px 0 0;
+  font-size: 21px;
+}
+
+.relationship-create-head > p,
+.relationship-create-actions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.relationship-create-form {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(260px, 1.15fr) minmax(210px, 1fr);
+  gap: 18px;
+  align-items: end;
+}
+
+.relationship-person-fields,
+.relationship-link-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.relationship-link-fields {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
+  position: relative;
+}
+
+.relationship-create-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.relationship-create-form label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.relationship-create-form select,
+.relationship-create-form input:not([type="color"]) {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(25, 33, 42, 0.13);
+  border-radius: 6px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.84);
+  outline: none;
+}
+
+.relationship-create-form select:focus,
+.relationship-create-form input:focus {
+  border-color: rgba(50, 121, 198, 0.56);
+  box-shadow: 0 0 0 4px rgba(50, 121, 198, 0.09);
+}
+
+.relationship-color-field input {
+  width: 42px;
+  height: 42px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(25, 33, 42, 0.13), 0 7px 18px rgba(31, 46, 58, 0.12);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.relationship-color-field input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.relationship-color-field input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.relationship-color-field input::-moz-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.relationship-create-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-height: 42px;
+}
+
+.relationship-create-actions p {
+  margin-right: auto;
+}
+
+.relationship-create-actions p.is-error {
+  color: #9b553c;
+}
+
+.relationship-create-actions p.is-success {
+  color: #176c62;
+  font-weight: 750;
+}
+
+.relationship-create-actions button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 18px;
+  color: #fff;
+  background: var(--blue);
+  box-shadow: 0 9px 20px rgba(50, 121, 198, 0.2);
+  cursor: pointer;
+  font-weight: 850;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.relationship-create-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 11px 24px rgba(50, 121, 198, 0.24);
+}
+
+.relationship-create-form select:disabled,
+.relationship-create-form input:disabled,
+.relationship-create-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
 .diagnostic-summary {
   display: grid;
   grid-template-columns: 1.4fr repeat(2, minmax(120px, 0.7fr));
@@ -2935,8 +3087,16 @@ h3 {
   pointer-events: none;
 }
 
-#nodeLayer {
+#graphGpuCanvas {
+  z-index: 0;
+}
+
+#graphFallbackCanvas {
   z-index: 1;
+}
+
+#nodeLayer {
+  z-index: 2;
   overflow: visible;
   transform-origin: 0 0;
 }
@@ -2962,6 +3122,10 @@ h3 {
   cursor: grab;
   touch-action: none;
   animation: nodeArrive 540ms cubic-bezier(0.2, 0.9, 0.22, 1) both, microFloat 4.8s ease-in-out infinite;
+}
+
+.graph-stage.has-completed-node-entry .person-node {
+  animation: microFloat 4.8s ease-in-out infinite;
 }
 
 .person-node:active {
@@ -3220,6 +3384,15 @@ h3 {
   .refactor-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .relationship-create-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .relationship-link-fields {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 @media (max-width: 620px) {
@@ -3376,6 +3549,36 @@ h3 {
 
   .refactor-controls {
     grid-template-columns: 1fr;
+  }
+
+  .relationship-create-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .relationship-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .relationship-link-fields {
+    grid-column: auto;
+    grid-row: auto;
+    grid-template-columns: minmax(0, 1fr) 52px;
+  }
+
+  .relationship-link-fields label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .relationship-create-actions {
+    grid-column: auto;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .relationship-create-actions button {
+    width: 100%;
   }
 
   .refactor-preview-summary span {

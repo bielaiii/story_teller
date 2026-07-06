@@ -35,6 +35,7 @@ CONTENT_CONFIG_FILES = {
 }
 CONTENT_INDEX_NAME = "content-index.json"
 FORBIDDEN_FILENAME_PATTERN = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def parse_frontmatter(text):
@@ -312,6 +313,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "/api/refactor/preview",
             "/api/refactor/apply",
             "/api/refactor/undo",
+            "/api/relationships/create",
         }:
             return self.send_api_error("未知接口", HTTPStatus.NOT_FOUND)
         if not self.local_host():
@@ -324,6 +326,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 return self.preview_refactor(payload)
             if parsed.path == "/api/refactor/apply":
                 return self.apply_refactor(payload)
+            if parsed.path == "/api/relationships/create":
+                return self.create_relationship(payload)
             return self.undo_refactor(payload)
         except ValueError as error:
             return self.send_api_error(str(error))
@@ -361,6 +365,94 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             if character_id and name:
                 names[character_id] = name
         return names
+
+    def create_relationship(self, payload):
+        project = str(payload.get("project", ""))
+        first_id = str(payload.get("firstId", "")).strip()
+        second_id = str(payload.get("secondId", "")).strip()
+        if not first_id or not second_id:
+            raise ValueError("请选择关系双方")
+        if first_id == second_id:
+            raise ValueError("关系双方不能是同一个人物")
+
+        def clean_field(key, label, required=True):
+            value = str(payload.get(key, "")).strip()
+            if required and not value:
+                raise ValueError(f"请填写{label}")
+            if len(value) > 80 or "\n" in value or "\r" in value:
+                raise ValueError(f"{label}长度需要在 1 到 80 个字符之间")
+            return value
+
+        first_role = clean_field("firstRole", "第一位人物的身份")
+        second_role = clean_field("secondRole", "第二位人物的身份")
+        label = clean_field("label", "关系名称")
+        relationship_type = clean_field("type", "关系类型", required=False)
+        color = str(payload.get("color", "")).strip()
+        if not HEX_COLOR_PATTERN.fullmatch(color):
+            raise ValueError("请选择有效的关系颜色")
+
+        project_root = self.project_root(project)
+        character_names = {}
+        character_counts = {}
+        characters_root = project_root / "characters"
+        if characters_root.is_dir():
+            for path in sorted(characters_root.rglob("*.md")):
+                fields = parse_frontmatter(path.read_text(encoding="utf-8"))
+                character_id = str(fields.get("id", "")).strip()
+                name = str(fields.get("name", "")).strip()
+                if not character_id or not name:
+                    continue
+                character_counts[character_id] = character_counts.get(character_id, 0) + 1
+                character_names[character_id] = name
+
+        for character_id in (first_id, second_id):
+            count = character_counts.get(character_id, 0)
+            if count == 0:
+                raise ValueError(f"找不到人物 id：{character_id}")
+            if count > 1:
+                raise ValueError(f"人物 id 重复，请先修复：{character_id}")
+
+        relationships_root = project_root / "relationships"
+        pair = frozenset((first_id, second_id))
+        if relationships_root.is_dir():
+            for path in sorted(relationships_root.rglob("*.md")):
+                endpoint_ids = relationship_character_ids(path.read_text(encoding="utf-8"))
+                if len(endpoint_ids) == 2 and frozenset(endpoint_ids) == pair:
+                    raise ValueError("这两个人物已经存在关系，请直接编辑原关系文件")
+
+        filename = canonical_relationship_filename(
+            [first_id, second_id],
+            character_names,
+        )
+        target = relationships_root / filename
+        if target.exists():
+            raise ValueError("目标关系文件已经存在")
+
+        fields = [
+            "---",
+            "people:",
+            f"  - id: {json.dumps(first_id, ensure_ascii=False)}",
+            f"    role: {json.dumps(first_role, ensure_ascii=False)}",
+            f"  - id: {json.dumps(second_id, ensure_ascii=False)}",
+            f"    role: {json.dumps(second_role, ensure_ascii=False)}",
+            f"label: {json.dumps(label, ensure_ascii=False)}",
+            f"color: {json.dumps(color.lower(), ensure_ascii=False)}",
+        ]
+        if relationship_type:
+            fields.append(f"type: {json.dumps(relationship_type, ensure_ascii=False)}")
+        content = "\n".join((*fields, "---", "")) + "\n"
+
+        relationships_root.mkdir(parents=True, exist_ok=True)
+        atomic_write(target, content)
+        write_content_index(project_root, build_content_index(project_root))
+        self.send_json(
+            {
+                "ok": True,
+                "path": target.relative_to(project_root).as_posix(),
+                "label": label,
+            },
+            HTTPStatus.CREATED,
+        )
 
     def character_filename_moves(
         self,
