@@ -4,7 +4,7 @@ name: 旧港档案馆
 type: 地点
 subtype: 公共建筑
 area: 旧港
-accent: #2a9d8f
+accent: #2aa79b
 aliases: [档案馆, 海事档案室]
 tags: [旧港, 档案, 船队]
 people: [1, 3]

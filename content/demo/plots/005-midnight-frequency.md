@@ -4,7 +4,7 @@ chapter: act2
 title: 午夜频率
 people: [3, 4]
 entries: [radio-station, harbor-repair-network]
-accent: #457b9d
+accent: #3f7fc1
 lanes: [电台线, 港区线]
 status: 待串联
 tags: [电台, 短波, 修船厂]

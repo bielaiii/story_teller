@@ -2,7 +2,7 @@
 id: 1
 chapter: act1
 title: 烧焦的航海日记
-accent: #2a9d8f
+accent: #2aa79b
 lanes: [主线, 电台线]
 status: 已接入
 tags: [旧港, 档案, 电台, 悬疑]

@@ -4,7 +4,7 @@ name: 失踪船队赔偿案
 type: 事件背景
 subtype: 旧案
 area: 旧港
-accent: #6a994e
+accent: #68aa5b
 aliases: [赔偿案, 空白证人案]
 tags: [旧案, 证人, 赔偿]
 people: [2, 5]

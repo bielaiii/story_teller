@@ -111,6 +111,16 @@ label: 母子
             "9-沈清妙__3-林越.md",
         )
 
+    def test_relationship_ids_support_from_to_frontmatter(self):
+        relationship = """---
+from: 11
+to: 10
+label: 旧案合谋
+---
+"""
+
+        self.assertEqual(relationship_character_ids(relationship), ["11", "10"])
+
     def test_character_refactor_moves_files_and_undoes_safely(self):
         content_root = self.project_root / "content"
         project_root = content_root / "novel"

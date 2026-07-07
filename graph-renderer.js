@@ -109,9 +109,12 @@
       this.gpuCanvas = gpuCanvas;
       this.fallbackCanvas = fallbackCanvas;
       this.fallbackContext = this.fallbackCanvas.getContext("2d");
-      this.mode = "pending";
+      this.mode = "canvas2d";
       this.latestScene = null;
       this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      this.gpuCanvas.hidden = true;
+      this.fallbackCanvas.hidden = false;
+      this.fallbackCanvas.dataset.renderer = "canvas2d";
       this.initialize();
     }
 

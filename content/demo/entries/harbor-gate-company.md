@@ -4,7 +4,7 @@ name: 恒闸建设
 type: 组织
 subtype: 公司
 area: 水闸区
-accent: #d58a35
+accent: #df8d35
 aliases: [恒闸, 水闸公司]
 tags: [水闸, 公司背景, 地下工程]
 people: [4, 5]

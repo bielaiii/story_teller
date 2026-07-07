@@ -4,7 +4,7 @@ name: 第二把钥匙
 type: 物品
 subtype: 钥匙
 area: 旧港
-accent: #c66b8c
+accent: #d65f8f
 aliases: [盐渍钥匙, 仓库钥匙]
 tags: [钥匙, 盐渍符号, 主线道具]
 people: [4, 1, 7]

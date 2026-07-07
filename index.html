@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>小说剧情记录器</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2319212a'/%3E%3Cpath d='M16 18h24c6 0 10 4 10 10v18H26c-6 0-10-4-10-10z' fill='%23e9c46a'/%3E%3Ccircle cx='42' cy='22' r='8' fill='%232a9d8f'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./styles.css?v=graph-entry-order" />
+    <link rel="stylesheet" href="./styles.css?v=semantic-accents" />
   </head>
-  <body>
+  <body class="is-graph-view">
     <canvas id="ambientCanvas" aria-hidden="true"></canvas>
     <div class="timeline-floating-legend is-hidden" id="timelineLegend" aria-label="剧情线颜色图示"></div>
     <aside
@@ -53,22 +53,34 @@
     </aside>
 
     <main class="app-shell">
-      <nav class="view-nav" aria-label="页面切换">
-        <button class="view-btn" data-view="story">剧情</button>
-        <button class="view-btn is-active" data-view="graph">图谱</button>
-        <button class="view-btn" data-view="timeline">时间线</button>
-        <button class="view-btn" data-view="characters">人物</button>
-        <button class="view-btn" data-view="places">设定</button>
-        <button class="view-btn" data-view="fragments">碎片</button>
-        <button class="view-btn diagnostic-nav-btn" data-view="diagnostics">
-          检查
-          <span class="diagnostic-nav-count is-hidden" id="diagnosticNavCount">0</span>
-        </button>
-        <div class="global-search">
-          <input id="globalSearch" type="search" placeholder="搜索人物、设定、剧情、碎片、关系" aria-label="全局搜索" />
-          <div class="global-search-results is-hidden" id="globalSearchResults" aria-live="polite"></div>
+      <div class="nav-dock">
+        <nav class="view-nav" aria-label="页面切换">
+          <button class="view-btn" data-view="story">剧情</button>
+          <button class="view-btn is-active" data-view="graph">图谱</button>
+          <button class="view-btn" data-view="timeline">时间线</button>
+          <button class="view-btn" data-view="characters">人物</button>
+          <button class="view-btn" data-view="places">设定</button>
+          <button class="view-btn" data-view="fragments">碎片</button>
+          <button class="view-btn diagnostic-nav-btn" data-view="diagnostics">
+            检查
+            <span class="diagnostic-nav-count is-hidden" id="diagnosticNavCount">0</span>
+          </button>
+        </nav>
+        <div class="global-search" id="globalSearchDock">
+          <button
+            class="global-search-toggle"
+            id="globalSearchToggle"
+            type="button"
+            aria-label="打开搜索"
+            aria-expanded="false"
+            aria-controls="globalSearch"
+          ></button>
+          <div class="global-search-panel">
+            <input id="globalSearch" type="search" placeholder="搜索人物、设定、剧情、碎片、关系" aria-label="全局搜索" />
+            <div class="global-search-results is-hidden" id="globalSearchResults" aria-live="polite"></div>
+          </div>
         </div>
-      </nav>
+      </div>
 
       <section class="story-panel page-view" data-page="story" aria-label="剧情记录">
         <header class="topbar">
@@ -219,7 +231,7 @@
         <div class="diagnostic-list" id="diagnosticList"></div>
       </section>
 
-      <section class="graph-stage page-view is-active is-entering-nodes" data-page="graph" aria-label="人物关系图谱">
+      <section class="graph-stage page-view is-active" data-page="graph" aria-label="人物关系图谱">
         <div class="stage-header">
           <div>
             <p class="eyebrow">Relationship Map</p>
@@ -312,7 +324,17 @@
 
     <script src="./vendor/js-yaml/js-yaml.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
-    <script src="./graph-renderer.js?v=canvas-edge-layer"></script>
-    <script src="./app.js?v=graph-entry-order"></script>
+    <script src="./graph-renderer.js?v=semantic-accents"></script>
+    <script src="./src/core/model.js?v=semantic-accents"></script>
+    <script src="./src/core/runtime.js?v=semantic-accents"></script>
+    <script src="./src/shared/ui.js?v=semantic-accents"></script>
+    <script src="./src/features/local-tools.js?v=semantic-accents"></script>
+    <script src="./src/views/story.js?v=semantic-accents"></script>
+    <script src="./src/views/timeline.js?v=semantic-accents"></script>
+    <script src="./src/views/plot-detail.js?v=semantic-accents"></script>
+    <script src="./src/views/characters.js?v=semantic-accents"></script>
+    <script src="./src/views/entries.js?v=semantic-accents"></script>
+    <script src="./src/views/graph.js?v=semantic-accents"></script>
+    <script src="./src/bootstrap.js?v=semantic-accents"></script>
   </body>
 </html>

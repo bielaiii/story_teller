@@ -4,7 +4,7 @@ chapter: act2
 title: 提前出版的死亡章节
 people: [6, 2]
 entries: [night-restaurant]
-accent: #e9c46a
+accent: #d8b64a
 lanes: [手稿线, 旧案线]
 status: 待串联
 tags: [手稿, 预言, 匿名包裹]

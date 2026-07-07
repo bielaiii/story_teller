@@ -144,19 +144,26 @@ def relationship_character_ids(text):
     match = FRONTMATTER_PATTERN.match(text)
     if not match:
         return []
+    meta = match.group("meta")
     people_match = re.search(
         r"(?ms)^people:\s*\n(?P<items>(?:[ \t]+.*(?:\n|$))*)",
-        match.group("meta"),
+        meta,
     )
-    if not people_match:
-        return []
-    return [
-        value.strip().strip("\"'")
-        for value in re.findall(
-            r"(?m)^\s*-\s+id:\s*([^\n#]+?)\s*$",
-            people_match.group("items"),
-        )
+    if people_match:
+        return [
+            value.strip().strip("\"'")
+            for value in re.findall(
+                r"(?m)^\s*-\s+id:\s*([^\n#]+?)\s*$",
+                people_match.group("items"),
+            )
+        ]
+    endpoints = [
+        re.search(rf"(?m)^{field}:\s*([^\n#]+?)\s*$", meta)
+        for field in ("from", "to")
     ]
+    if not all(endpoints):
+        return []
+    return [endpoint.group(1).strip().strip("\"'") for endpoint in endpoints]
 
 
 def canonical_relationship_filename(character_ids, character_names):

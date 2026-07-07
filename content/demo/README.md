@@ -12,8 +12,8 @@
 id: 8
 name: 新人物
 aliases: [昵称, 常用称呼]
-color: "#8a5cf6"
-gradient: "linear-gradient(135deg, #8a5cf6, #2f184b)"
+color: "#7d6bd6"
+gradient: "linear-gradient(135deg, #7d6bd6, #6752c9)"
 avatar: ./avatars/new-person.jpg
 group: 主角团
 markers: [男主, 主角团]
@@ -66,7 +66,7 @@ id: 10
 chapter: act2
 title: 新剧情标题
 summary: 一句话概括这一章发生了什么
-accent: "#8a5cf6"
+accent: "#7d6bd6"
 lanes: [主线, 感情线]
 status: 待串联
 tags: [雨夜, 暧昧, 身份暴露]
@@ -106,7 +106,7 @@ name: 半潮餐厅
 type: 地点
 subtype: 餐厅
 area: 修船厂后街
-accent: "#e76f51"
+accent: "#df7655"
 aliases: [后街餐厅, 半潮]
 tags: [修船厂, 夜间, 匿名包裹]
 people: [2, 6]
@@ -141,7 +141,7 @@ id: new-idea
 title: 新灵感
 status: 灵感
 tags: [电台, 梦境]
-accent: "#457b9d"
+accent: "#3f7fc1"
 ---
 这里写还没整理成正式剧情点的画面、台词、设定或想法。
 ```
@@ -165,7 +165,7 @@ people:
   - id: 1
     role: 徒弟
 label: 师徒
-color: "#8a5cf6"
+color: "#7d6bd6"
 type: 同盟
 ---
 ```

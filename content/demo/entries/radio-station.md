@@ -4,7 +4,7 @@ name: 海雾电台
 type: 地点
 subtype: 设施
 area: 旧港北岸
-accent: #457b9d
+accent: #3f7fc1
 aliases: [午夜电台, 北岸发射塔]
 tags: [电台, 短波, 时间异常]
 people: [3, 4]

@@ -4,7 +4,7 @@ name: 半潮餐厅
 type: 地点
 subtype: 餐厅
 area: 修船厂后街
-accent: #e76f51
+accent: #df7655
 aliases: [后街餐厅, 半潮]
 tags: [修船厂, 夜间, 匿名包裹]
 people: [2, 6]

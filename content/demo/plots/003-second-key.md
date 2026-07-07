@@ -4,7 +4,7 @@ chapter: act1
 title: 仓库里的第二把钥匙
 people: [4, 1, 7]
 entries: [harbor-gate-company, archive, second-key, harbor-repair-network]
-accent: #c66b8c
+accent: #d65f8f
 lanes: [港区线, 主线]
 status: 已接入
 tags: [仓库, 钥匙, 盐渍符号]
