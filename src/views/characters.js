@@ -69,11 +69,306 @@ function renderCharacterList() {
   document.querySelectorAll(".character-list-item").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedCharacter = button.dataset.id;
+      state.characterAppearanceChapter = "all";
       renderCharacterList();
       renderCharacterDetail();
       scrollPageToTop();
     });
   });
+}
+
+function characterMentionTerms(person) {
+  return [person.name, ...(person.aliases || [])]
+    .map((term) => String(term || "").trim())
+    .filter((term, index, terms) => term && terms.indexOf(term) === index);
+}
+
+function countTermOccurrences(text, term) {
+  if (!text || !term) return 0;
+  const source = String(text).toLowerCase();
+  const target = String(term).toLowerCase();
+  let count = 0;
+  let index = source.indexOf(target);
+  while (index !== -1) {
+    count += 1;
+    index = source.indexOf(target, index + target.length);
+  }
+  return count;
+}
+
+function characterPlotMentionCount(plot, person) {
+  const terms = characterMentionTerms(person);
+  if (!terms.length) return 0;
+  const searchable = [
+    plot.title,
+    plot.status,
+    ...(plot.tags || []),
+    ...(plot.lanes || []),
+    plot.text,
+  ].join("\n");
+  return terms.reduce((total, term) => total + countTermOccurrences(searchable, term), 0);
+}
+
+function characterPlotTitleMentioned(plot, person) {
+  const title = String(plot.title || "").toLowerCase();
+  return characterMentionTerms(person).some((term) => title.includes(term.toLowerCase()));
+}
+
+function characterAppearanceScore(plot, person) {
+  const mentionCount = characterPlotMentionCount(plot, person);
+  let score = 1 + Math.min(mentionCount, 10);
+  if (characterPlotTitleMentioned(plot, person)) score += 4;
+  if (plot.key) score += 3;
+  if (plot.climax) score += 4;
+  if (plot.status === "已接入") score += 1;
+  return {
+    mentionCount,
+    score,
+  };
+}
+
+function characterAppearanceItems(person) {
+  return plots
+    .filter((plot) => plot.people.includes(person.id) || person.events.includes(plot.id))
+    .map((plot) => ({
+      plot,
+      ...characterAppearanceScore(plot, person),
+    }))
+    .sort((a, b) => a.plot.id - b.plot.id);
+}
+
+function characterAppearanceGroups(items) {
+  const order = chapterKeys();
+  const groups = new Map();
+  items.forEach((item) => {
+    const chapter = item.plot.chapter || "unknown";
+    if (!groups.has(chapter)) groups.set(chapter, []);
+    groups.get(chapter).push(item);
+  });
+  return [...groups.entries()]
+    .sort(([first], [second]) => {
+      const firstIndex = order.indexOf(first);
+      const secondIndex = order.indexOf(second);
+      if (firstIndex !== -1 || secondIndex !== -1) {
+        return (firstIndex === -1 ? 999 : firstIndex) - (secondIndex === -1 ? 999 : secondIndex);
+      }
+      return String(first).localeCompare(String(second), "zh-Hans-CN");
+    })
+    .map(([chapter, chapterItems]) => ({
+      chapter,
+      label: chapterName(chapter),
+      items: chapterItems.sort((a, b) => a.plot.id - b.plot.id),
+    }));
+}
+
+function characterAppearanceChapterOptions(items) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const chapter = item.plot.chapter || "unknown";
+    counts.set(chapter, (counts.get(chapter) || 0) + 1);
+  });
+  const order = chapterKeys();
+  return [...counts.entries()]
+    .sort(([first], [second]) => {
+      const firstIndex = order.indexOf(first);
+      const secondIndex = order.indexOf(second);
+      if (firstIndex !== -1 || secondIndex !== -1) {
+        return (firstIndex === -1 ? 999 : firstIndex) - (secondIndex === -1 ? 999 : secondIndex);
+      }
+      return String(first).localeCompare(String(second), "zh-Hans-CN");
+    })
+    .map(([chapter, count]) => ({
+      chapter,
+      count,
+      label: chapterName(chapter),
+    }));
+}
+
+function representativeAppearanceItems(items) {
+  const picked = new Map();
+  const pick = (item) => {
+    if (item) picked.set(item.plot.id, item);
+  };
+  const groups = characterAppearanceGroups(items);
+  groups.forEach((group) => {
+    pick(group.items[0]);
+  });
+  items
+    .filter((item) => item.plot.key || item.plot.climax)
+    .forEach(pick);
+  items
+    .slice()
+    .sort((a, b) => b.score - a.score || a.plot.id - b.plot.id)
+    .slice(0, 4)
+    .forEach(pick);
+  pick(items[items.length - 1]);
+  return [...picked.values()]
+    .sort((a, b) => a.plot.id - b.plot.id)
+    .slice(0, 8);
+}
+
+function renderCharacterDensityMap(items) {
+  const groups = characterAppearanceGroups(items);
+  const maxScore = Math.max(1, ...items.map((item) => item.score));
+  return `
+    <div class="character-density-map" aria-label="出场分布密度条">
+      ${groups.map((group) => `
+        <div class="character-density-row">
+          <div class="character-density-label">
+            <strong>${escapeHtml(group.label)}</strong>
+            <span>${group.items.length} 个</span>
+          </div>
+          <div class="character-density-strip">
+            ${group.items.map((item) => {
+              const level = Math.max(0.18, Math.min(1, item.score / maxScore));
+              const height = Math.round(8 + level * 22);
+              const opacity = (0.44 + level * 0.46).toFixed(2);
+              return `
+                <button
+                  class="character-density-segment"
+                  data-plot-id="${escapeHtml(item.plot.id)}"
+                  type="button"
+                  style="--accent:${escapeHtml(item.plot.accent)}; --bar-height:${height}px; --bar-opacity:${opacity}"
+                  title="${escapeHtml(`${group.label} · ${item.plot.id}. ${item.plot.title}`)}"
+                  aria-label="打开${escapeHtml(item.plot.title)}"
+                >
+                  <span class="character-density-bar" aria-hidden="true"></span>
+                  <span class="character-density-id">${escapeHtml(item.plot.id)}</span>
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterAppearanceSummary(person, items) {
+  if (!items.length) return '<p class="empty-state">这个人物还没有出现在剧情里。</p>';
+  const groups = characterAppearanceGroups(items);
+  const first = items[0]?.plot;
+  const latest = items[items.length - 1]?.plot;
+  const strongest = items.slice().sort((a, b) => b.score - a.score || a.plot.id - b.plot.id)[0];
+  return `
+    <div class="character-appearance-overview">
+      <div class="character-appearance-count">
+        <span>出场剧情</span>
+        <strong>${items.length}</strong>
+        <small>个剧情点</small>
+      </div>
+      <div class="character-appearance-facts">
+        <div>
+          <span>覆盖篇章</span>
+          <strong>${groups.length} 个</strong>
+        </div>
+        <div>
+          <span>首次出场</span>
+          <strong>${escapeHtml(chapterName(first.chapter))} · ${escapeHtml(first.id)}</strong>
+        </div>
+        <div>
+          <span>最近出场</span>
+          <strong>${escapeHtml(chapterName(latest.chapter))} · ${escapeHtml(latest.id)}</strong>
+        </div>
+        ${strongest ? `
+          <div>
+            <span>高密度剧情</span>
+            <strong>${escapeHtml(strongest.plot.id)} · ${escapeHtml(strongest.plot.title)}</strong>
+          </div>
+        ` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderRepresentativeAppearances(items) {
+  const representatives = representativeAppearanceItems(items);
+  if (!representatives.length) return "";
+  return `
+    <div class="character-appearance-highlights">
+      ${representatives.map((item) => `
+        <button
+          class="character-appearance-card character-appearance-plot"
+          data-plot-id="${escapeHtml(item.plot.id)}"
+          type="button"
+          style="--accent:${escapeHtml(item.plot.accent)}"
+        >
+          ${renderCardRibbon(item.plot)}
+          <span>${escapeHtml(chapterName(item.plot.chapter))} · ${escapeHtml(item.plot.id)} · ${item.mentionCount ? `提及 ${item.mentionCount} 次` : "自动关联"}</span>
+          <strong>${escapeHtml(item.plot.title)}</strong>
+          <p>${escapeHtml(plotExcerpt(item.plot))}</p>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAllAppearanceList(items) {
+  if (items.length <= 8) return "";
+  return `
+    <details class="character-appearance-all">
+      <summary>查看全部 ${items.length} 个出场剧情</summary>
+      <div class="character-appearance-all-list">
+        ${items.map((item) => `
+          <button
+            class="character-appearance-row character-appearance-plot"
+            data-plot-id="${escapeHtml(item.plot.id)}"
+            type="button"
+            style="--accent:${escapeHtml(item.plot.accent)}"
+          >
+            <span>${escapeHtml(item.plot.id)}</span>
+            <strong>${escapeHtml(item.plot.title)}</strong>
+            <small>${escapeHtml(chapterName(item.plot.chapter))}${item.mentionCount ? ` · 提及 ${item.mentionCount} 次` : ""}</small>
+          </button>
+        `).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function renderCharacterAppearances(person, items) {
+  const options = characterAppearanceChapterOptions(items);
+  const activeChapter = options.some((option) => option.chapter === state.characterAppearanceChapter)
+    ? state.characterAppearanceChapter
+    : "all";
+  state.characterAppearanceChapter = activeChapter;
+  const scopedItems = activeChapter === "all"
+    ? items
+    : items.filter((item) => (item.plot.chapter || "unknown") === activeChapter);
+  return `
+    ${options.length > 1 ? `
+      <div class="character-appearance-tabs" aria-label="按篇章查看出场统计">
+        <button class="character-appearance-tab ${activeChapter === "all" ? "is-active" : ""}" data-chapter="all" type="button">
+          <span>全部视角</span>
+          <strong>${items.length}</strong>
+        </button>
+        ${options.map((option) => `
+          <button class="character-appearance-tab ${activeChapter === option.chapter ? "is-active" : ""}" data-chapter="${escapeHtml(option.chapter)}" type="button">
+            <span>${escapeHtml(option.label)}</span>
+            <strong>${option.count}</strong>
+          </button>
+        `).join("")}
+      </div>
+    ` : ""}
+    ${renderCharacterAppearanceSummary(person, scopedItems)}
+    ${scopedItems.length ? renderCharacterDensityMap(scopedItems) : ""}
+    ${renderRepresentativeAppearances(scopedItems)}
+    ${renderAllAppearanceList(scopedItems)}
+  `;
+}
+
+function openPlotFromCharacterDetail(plotId, characterId = state.selectedCharacter) {
+  const person = getCharacter(characterId);
+  if (!person) {
+    openPlotDetail(Number(plotId));
+    return;
+  }
+  state.detailReturnContext = {
+    source: "character",
+    characterId: person.id,
+    scrollY: window.scrollY,
+  };
+  openPlotDetail(Number(plotId), { preserveReturnContext: true });
 }
 
 function renderCharacterDetail() {
@@ -93,7 +388,7 @@ function renderCharacterDetail() {
     return;
   }
 
-  const personPlots = plots.filter((plot) => plot.people.includes(person.id) || person.events.includes(plot.id));
+  const appearanceItems = characterAppearanceItems(person);
   const personLinks = relationships.filter((link) => link.from === person.id || link.to === person.id);
 
   characterDetail.innerHTML = `
@@ -184,26 +479,23 @@ function renderCharacterDetail() {
     <section class="character-section">
       <div class="section-title">
         <p class="label">出场剧情</p>
-        <h3>${personPlots.length} 个剧情点</h3>
+        <h3>自动统计</h3>
       </div>
-      <div class="character-plot-list">
-        ${personPlots.map((plot) => `
-          <button
-            class="${storyCardClass(plot, "character-plot detail-plot-card character-plot-card")}"
-            data-plot-id="${escapeHtml(plot.id)}"
-            type="button"
-            style="--accent:${escapeHtml(plot.accent)}"
-          >
-            ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
-          </button>
-        `).join("")}
+      <div class="character-appearance-panel">
+        ${renderCharacterAppearances(person, appearanceItems)}
       </div>
     </section>
   `;
 
   characterDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
-  characterDetail.querySelectorAll(".character-plot-card[data-plot-id]").forEach((button) => {
-    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  characterDetail.querySelectorAll(".character-appearance-tab[data-chapter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.characterAppearanceChapter = button.dataset.chapter || "all";
+      renderCharacterDetail();
+    });
+  });
+  characterDetail.querySelectorAll(".character-appearance-plot[data-plot-id], .character-density-segment[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotFromCharacterDetail(Number(button.dataset.plotId), person.id));
   });
   bindCharacterRename(person);
   bindCharacterScopeTools(person);
@@ -301,12 +593,16 @@ function bindTemporaryCharacterArchive() {
   characterDetail.querySelectorAll(".temporary-character-select").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedCharacter = button.dataset.characterId;
+      state.characterAppearanceChapter = "all";
       renderCharacterList();
       renderTemporaryCharacterArchive();
     });
   });
   characterDetail.querySelectorAll(".temporary-character-plot[data-plot-id]").forEach((button) => {
-    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+    button.addEventListener("click", () => {
+      const characterId = button.closest(".temporary-character-card")?.dataset.characterId || state.selectedCharacter;
+      openPlotFromCharacterDetail(Number(button.dataset.plotId), characterId);
+    });
   });
   characterDetail.querySelectorAll(".temporary-scope-action").forEach((button) => {
     button.addEventListener("click", () => {

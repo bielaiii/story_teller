@@ -76,9 +76,24 @@ function openPlotDetail(plotId, { preserveReturnContext = false } = {}) {
   restorePlotPosition(plotId);
 }
 
+function returnToCharacterContext() {
+  const context = state.detailReturnContext;
+  if (context?.source !== "character") return false;
+  const person = getCharacter(context.characterId);
+  if (!person) return false;
+  const scrollY = Number(context.scrollY) || 0;
+  state.detailReturnContext = null;
+  openCharacterDetail(person.id);
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+  });
+  return true;
+}
+
 function openPlotReferenceDetail(type, id) {
   rememberCurrentPlotPosition();
   state.detailReturnContext = {
+    source: "plot",
     plotId: Number(state.selectedPlotId),
     scrollY: window.scrollY,
     highlightedReferenceType: state.highlightedReferenceType,
@@ -90,7 +105,7 @@ function openPlotReferenceDetail(type, id) {
 
 function returnToPlotContext() {
   const context = state.detailReturnContext;
-  if (!context) return;
+  if (!context || context.source === "character") return;
   state.highlightedReferenceType = context.highlightedReferenceType;
   state.highlightedReferenceId = context.highlightedReferenceId;
   state.plotReadingPositions[String(context.plotId)] = context.scrollY;
@@ -98,7 +113,7 @@ function returnToPlotContext() {
 }
 
 function detailReturnButton() {
-  if (!state.detailReturnContext) return "";
+  if (!state.detailReturnContext || state.detailReturnContext.source === "character") return "";
   const plot = plots.find((item) => Number(item.id) === Number(state.detailReturnContext.plotId));
   return `
     <button class="return-to-plot-btn" type="button">
@@ -346,13 +361,26 @@ function configureFloatingReadingTools(plot, navigation) {
   });
   document.querySelector("#floatingPlotChapter").textContent = `${chapterName(plot.chapter)} · ${plot.id}`;
 
-  backButton.onclick = () => openPlotInStory(plot.id);
+  const characterReturn = state.detailReturnContext?.source === "character"
+    ? getCharacter(state.detailReturnContext.characterId)
+    : null;
+  const backLabel = backButton.querySelector("span:last-child");
+  if (backLabel) backLabel.textContent = characterReturn ? "返回人物详情" : "返回剧情列表";
+  backButton.title = characterReturn ? `返回${characterReturn.name}的人物详情` : "返回剧情列表";
+  backButton.onclick = () => {
+    if (characterReturn && returnToCharacterContext()) return;
+    openPlotInStory(plot.id);
+  };
   prevButton.disabled = !navigation.prev;
   nextButton.disabled = !navigation.next;
   document.querySelector("#floatingPlotPrevTitle").textContent = navigation.prev?.title || "没有上一章";
   document.querySelector("#floatingPlotNextTitle").textContent = navigation.next?.title || "没有下一章";
-  prevButton.onclick = navigation.prev ? () => openPlotDetail(navigation.prev.id) : null;
-  nextButton.onclick = navigation.next ? () => openPlotDetail(navigation.next.id) : null;
+  prevButton.onclick = navigation.prev
+    ? () => openPlotDetail(navigation.prev.id, { preserveReturnContext: Boolean(characterReturn) })
+    : null;
+  nextButton.onclick = navigation.next
+    ? () => openPlotDetail(navigation.next.id, { preserveReturnContext: Boolean(characterReturn) })
+    : null;
 }
 
 function renderPlotDetail() {

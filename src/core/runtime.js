@@ -24,6 +24,7 @@ const state = {
   relationType: "all",
   characterSearch: "",
   characterShelf: "main",
+  characterAppearanceChapter: "all",
   placeSearch: "",
   entryType: "all",
   entryTags: [],
