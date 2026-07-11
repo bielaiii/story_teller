@@ -152,7 +152,7 @@ function renderPlaceDetail() {
       <div class="character-plot-list">
         ${placePlots.map((plot) => `
           <button class="${storyCardClass(plot, "character-plot detail-plot-card place-plot-card")}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}">
-            ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plot.id}. ` })}
+            ${renderStoryCardContent(plot, { heading: "strong", titlePrefix: `${plotSequence(plot)}. ` })}
           </button>
         `).join("") || '<p class="empty-state">这个设定还没有配置出现剧情。</p>'}
       </div>

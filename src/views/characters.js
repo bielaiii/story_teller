@@ -11,6 +11,24 @@ function characterSearchValues(person) {
   ];
 }
 
+function characterNarrativeRole(person) {
+  const configuredRole = String(person?.narrativeRole || "").trim();
+  if (configuredRole) return configuredRole;
+  const markers = new Set(characterMarkers(person));
+  return ["男主", "女主", "主角", "主角团"].some((marker) => markers.has(marker)) ? "主角" : "配角";
+}
+
+function characterArchiveCategory(person) {
+  return isTemporaryCharacter(person) ? characterScopeLabel(person) : characterNarrativeRole(person);
+}
+
+function characterArchiveCounts(person) {
+  return {
+    plots: plots.filter((plot) => plot.people.includes(person.id) || person.events.includes(plot.id)).length,
+    relationships: relationships.filter((link) => link.from === person.id || link.to === person.id).length,
+  };
+}
+
 function characterMatchesArchiveSearch(person) {
   if (!state.characterSearch) return true;
   return matchesKeyword(characterSearchValues(person), state.characterSearch.toLowerCase());
@@ -18,9 +36,10 @@ function characterMatchesArchiveSearch(person) {
 
 function characterVisibleInArchive(person) {
   if (!characterMatchesArchiveSearch(person)) return false;
-  if (state.characterShelf === "temporary") return isTemporaryCharacter(person);
-  if (state.characterSearch) return true;
-  return !isTemporaryCharacter(person);
+  const shelfMatch = state.characterShelf === "temporary" ? isTemporaryCharacter(person) : !isTemporaryCharacter(person);
+  const categoryMatch = state.characterCategory === "all" || characterArchiveCategory(person) === state.characterCategory;
+  const groupMatch = state.characterGroup === "all" || person.group === state.characterGroup;
+  return shelfMatch && categoryMatch && groupMatch;
 }
 
 function setCharacterShelfForPerson(person) {
@@ -39,8 +58,83 @@ function renderTemporaryCharacterToggle() {
   if (temporaryCharacterCount) temporaryCharacterCount.textContent = String(active ? mainCount : temporaryCount);
 }
 
+function renderCharacterOverview() {
+  if (!characterOverview) return;
+  const mainCharacters = characters.filter((person) => !isTemporaryCharacter(person));
+  const temporaryCharacters = characters.filter(isTemporaryCharacter);
+  const leadCount = mainCharacters.filter((person) => characterNarrativeRole(person) === "主角").length;
+  const supportingCount = mainCharacters.length - leadCount;
+  const undecidedCount = temporaryCharacters.filter((person) => characterScopeLabel(person) === "待定角色").length;
+  const stats = [
+    { label: "全部人物", value: characters.length, note: "当前内容包", tone: "teal" },
+    { label: "主角", value: leadCount, note: "核心叙事人物", tone: "blue" },
+    { label: "配角", value: supportingCount, note: "长期参与人物", tone: "rose" },
+    { label: "收纳角色", value: temporaryCharacters.length, note: `${undecidedCount} 个仍待确定`, tone: "gold" },
+  ];
+  characterOverview.innerHTML = stats.map((item) => `
+    <article class="character-overview-card is-${item.tone}">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${item.value}</strong>
+      <small>${escapeHtml(item.note)}</small>
+    </article>
+  `).join("");
+}
+
+function renderCharacterManagerFilters() {
+  const shelfCharacters = characters.filter((person) => (
+    state.characterShelf === "temporary" ? isTemporaryCharacter(person) : !isTemporaryCharacter(person)
+  ));
+  const categories = state.characterShelf === "temporary"
+    ? ["一次性角色", "待定角色"]
+    : ["主角", "配角"];
+  if (!categories.includes(state.characterCategory)) state.characterCategory = "all";
+  if (characterCategoryFilter) {
+    characterCategoryFilter.innerHTML = ["all", ...categories].map((category) => {
+      const label = category === "all" ? "全部" : category;
+      const count = category === "all"
+        ? shelfCharacters.length
+        : shelfCharacters.filter((person) => characterArchiveCategory(person) === category).length;
+      return `<button class="${state.characterCategory === category ? "is-active" : ""}" data-category="${escapeHtml(category)}" type="button"><span>${escapeHtml(label)}</span><strong>${count}</strong></button>`;
+    }).join("");
+    characterCategoryFilter.querySelectorAll("button[data-category]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.characterCategory = button.dataset.category || "all";
+        renderCharacterList();
+        renderCharacterDetail();
+      });
+    });
+  }
+
+  const groups = [...new Set(shelfCharacters.map((person) => person.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  if (!groups.includes(state.characterGroup)) state.characterGroup = "all";
+  if (characterGroupArchiveFilter) {
+    characterGroupArchiveFilter.innerHTML = '<option value="all">全部分组</option>' + groups
+      .map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+      .join("");
+    characterGroupArchiveFilter.value = state.characterGroup;
+    characterGroupArchiveFilter.onchange = () => {
+      state.characterGroup = characterGroupArchiveFilter.value;
+      renderCharacterList();
+      renderCharacterDetail();
+    };
+  }
+
+  characterViewSwitch?.querySelectorAll("button[data-mode]").forEach((button) => {
+    const active = button.dataset.mode === state.characterViewMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.onclick = () => {
+      state.characterViewMode = button.dataset.mode || "cards";
+      renderCharacterList();
+    };
+  });
+  if (characterLibraryTitle) characterLibraryTitle.textContent = state.characterShelf === "temporary" ? "临时角色收纳箱" : "长期人物库";
+}
+
 function renderCharacterList() {
   renderTemporaryCharacterToggle();
+  renderCharacterOverview();
+  renderCharacterManagerFilters();
   const visibleCharacters = characters.filter(characterVisibleInArchive);
 
   if (visibleCharacters.length && !visibleCharacters.some((person) => person.id === state.selectedCharacter)) {
@@ -50,20 +144,29 @@ function renderCharacterList() {
     state.selectedCharacter = "";
   }
 
+  if (characterVisibleCount) characterVisibleCount.textContent = String(visibleCharacters.length);
+  characterList.classList.toggle("is-card-view", state.characterViewMode === "cards");
+  characterList.classList.toggle("is-list-view", state.characterViewMode === "list");
   characterList.innerHTML = visibleCharacters
-    .map((person) => `
-      <button class="character-list-item ${person.id === state.selectedCharacter ? "is-active" : ""}" data-id="${escapeHtml(person.id)}" type="button">
+    .map((person) => {
+      const counts = characterArchiveCounts(person);
+      const category = characterArchiveCategory(person);
+      return `
+      <button class="character-list-item ${person.id === state.selectedCharacter ? "is-active" : ""}" data-id="${escapeHtml(person.id)}" type="button" style="--accent:${escapeHtml(person.color)}; --impact:${normalizeMainPlotImpact(person.mainPlotImpact)}%">
         <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</span>
-        <span>
+        <span class="character-list-copy">
+          <span class="character-list-kicker"><i>${escapeHtml(category)}</i><small>ID ${escapeHtml(person.id)}</small></span>
           <strong>${escapeHtml(person.name)}</strong>
           <small>${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</small>
+          <span class="character-list-metrics"><i>${counts.plots} 剧情</i><i>${counts.relationships} 关系</i></span>
+          <span class="character-impact-track" title="主线影响 ${normalizeMainPlotImpact(person.mainPlotImpact)}"><i></i></span>
         </span>
       </button>
-    `)
+    `;})
     .join("");
 
   if (!visibleCharacters.length) {
-    characterList.innerHTML = `<p class="empty-state">${state.characterShelf === "temporary" ? "还没有收纳临时角色" : "没有找到匹配人物"}</p>`;
+    characterList.innerHTML = `<p class="empty-state">${state.characterShelf === "temporary" ? "当前筛选下没有临时角色" : "当前筛选下没有找到人物"}</p>`;
   }
 
   document.querySelectorAll(".character-list-item").forEach((button) => {
@@ -134,7 +237,7 @@ function characterAppearanceItems(person) {
       plot,
       ...characterAppearanceScore(plot, person),
     }))
-    .sort((a, b) => a.plot.id - b.plot.id);
+    .sort((a, b) => comparePlotSequence(a.plot, b.plot));
 }
 
 function characterAppearanceGroups(items) {
@@ -157,7 +260,7 @@ function characterAppearanceGroups(items) {
     .map(([chapter, chapterItems]) => ({
       chapter,
       label: chapterName(chapter),
-      items: chapterItems.sort((a, b) => a.plot.id - b.plot.id),
+      items: chapterItems.sort((a, b) => comparePlotSequence(a.plot, b.plot)),
     }));
 }
 
@@ -198,12 +301,12 @@ function representativeAppearanceItems(items) {
     .forEach(pick);
   items
     .slice()
-    .sort((a, b) => b.score - a.score || a.plot.id - b.plot.id)
+    .sort((a, b) => b.score - a.score || comparePlotSequence(a.plot, b.plot))
     .slice(0, 4)
     .forEach(pick);
   pick(items[items.length - 1]);
   return [...picked.values()]
-    .sort((a, b) => a.plot.id - b.plot.id)
+    .sort((a, b) => comparePlotSequence(a.plot, b.plot))
     .slice(0, 8);
 }
 
@@ -211,37 +314,173 @@ function renderCharacterDensityMap(items) {
   const groups = characterAppearanceGroups(items);
   const maxScore = Math.max(1, ...items.map((item) => item.score));
   return `
-    <div class="character-density-map" aria-label="出场分布密度条">
-      ${groups.map((group) => `
+    <div class="character-density-head">
+      <div>
+        <strong>剧情参与密度</strong>
+        <span>柱高综合正文提及、标题出现、关键剧情和高潮权重</span>
+      </div>
+      <div class="character-density-legend" aria-label="密度从低到高">
+        <span>低</span><i></i><i></i><i></i><i></i><span>高</span>
+      </div>
+    </div>
+    <div class="character-density-map" aria-label="出场剧情参与密度图">
+      ${groups.map((group) => {
+        const chapterDensity = group.items.reduce((total, item) => total + item.score, 0);
+        const chapterHeight = Math.min(176, 78 + chapterDensity * 8);
+        return `
         <div class="character-density-row">
           <div class="character-density-label">
             <strong>${escapeHtml(group.label)}</strong>
-            <span>${group.items.length} 个</span>
+            <span>${group.items.length} 个剧情 · 篇章密度 ${chapterDensity}</span>
           </div>
-          <div class="character-density-strip">
+          <div class="character-density-strip" style="--chapter-height:${chapterHeight}px; --chapter-density:${Math.min(100, chapterDensity * 9)}%">
             ${group.items.map((item) => {
               const level = Math.max(0.18, Math.min(1, item.score / maxScore));
-              const height = Math.round(8 + level * 22);
+              const height = Math.round(14 + level * chapterHeight * 0.44);
               const opacity = (0.44 + level * 0.46).toFixed(2);
+              const densityLabel = `强度 ${item.score}${item.mentionCount ? ` · 提及 ${item.mentionCount} 次` : " · 自动关联"}`;
               return `
                 <button
                   class="character-density-segment"
                   data-plot-id="${escapeHtml(item.plot.id)}"
+                  data-density-title="${escapeHtml(item.plot.title)}"
+                  data-density-label="${escapeHtml(densityLabel)}"
                   type="button"
                   style="--accent:${escapeHtml(item.plot.accent)}; --bar-height:${height}px; --bar-opacity:${opacity}"
-                  title="${escapeHtml(`${group.label} · ${item.plot.id}. ${item.plot.title}`)}"
-                  aria-label="打开${escapeHtml(item.plot.title)}"
+                  title="${escapeHtml(`${group.label} · 第 ${plotSequence(item.plot)} 章 · ${item.plot.title} · ${densityLabel}`)}"
+                  aria-label="${escapeHtml(item.plot.title)}，${escapeHtml(densityLabel)}，点击打开"
                 >
                   <span class="character-density-bar" aria-hidden="true"></span>
-                  <span class="character-density-id">${escapeHtml(item.plot.id)}</span>
+                  <span class="character-density-id">${escapeHtml(plotSequence(item.plot))}</span>
                 </button>
               `;
             }).join("")}
           </div>
         </div>
-      `).join("")}
+      `;}).join("")}
     </div>
   `;
+}
+
+function ensureCharacterDensityFloat() {
+  let float = document.querySelector("#characterDensityFloat");
+  if (float) return float;
+  float = document.createElement("div");
+  float.id = "characterDensityFloat";
+  float.className = "character-density-float is-hidden";
+  float.setAttribute("role", "tooltip");
+  float.innerHTML = '<strong></strong><span></span>';
+  document.body.append(float);
+  return float;
+}
+
+function showCharacterDensityFloat(target) {
+  const float = ensureCharacterDensityFloat();
+  const rect = target.getBoundingClientRect();
+  float.querySelector("strong").textContent = target.dataset.densityTitle || "剧情参与密度";
+  float.querySelector("span").textContent = target.dataset.densityLabel || "";
+  float.classList.remove("is-hidden");
+  float.style.setProperty("--density-color", target.style.getPropertyValue("--accent") || "#3f7fc1");
+  const floatRect = float.getBoundingClientRect();
+  const gap = 9;
+  const left = Math.max(gap, Math.min(window.innerWidth - floatRect.width - gap, rect.left + rect.width / 2 - floatRect.width / 2));
+  const preferredTop = rect.top - floatRect.height - gap;
+  const top = preferredTop >= gap ? preferredTop : Math.min(window.innerHeight - floatRect.height - gap, rect.bottom + gap);
+  float.style.left = `${Math.round(left)}px`;
+  float.style.top = `${Math.round(top)}px`;
+}
+
+function hideCharacterDensityFloat() {
+  document.querySelector("#characterDensityFloat")?.classList.add("is-hidden");
+}
+
+function bindCharacterDensityFloat() {
+  characterDetail.querySelectorAll(".character-density-segment").forEach((segment) => {
+    segment.addEventListener("pointerenter", () => showCharacterDensityFloat(segment));
+    segment.addEventListener("pointerleave", hideCharacterDensityFloat);
+    segment.addEventListener("focus", () => showCharacterDensityFloat(segment));
+    segment.addEventListener("blur", hideCharacterDensityFloat);
+  });
+}
+
+function commaSeparatedValues(value) {
+  return String(value || "")
+    .split(/[,，、]/)
+    .map((item) => item.trim())
+    .filter((item, index, items) => item && items.indexOf(item) === index);
+}
+
+function setCharacterCreateBusy(busy) {
+  characterCreateForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
+    element.disabled = busy;
+  });
+  if (characterCreateClose) characterCreateClose.disabled = busy;
+  if (characterCreateCancel) characterCreateCancel.disabled = busy;
+}
+
+function setCharacterCreateStatus(message = "", type = "") {
+  if (!characterCreateStatus) return;
+  characterCreateStatus.textContent = message;
+  characterCreateStatus.className = type ? `is-${type}` : "";
+}
+
+async function openCharacterCreateDialog() {
+  if (!characterCreateDialog || !characterCreateForm) return;
+  characterCreateForm.reset();
+  if (characterCreateImpact) characterCreateImpact.value = "50";
+  if (characterCreateColor) characterCreateColor.value = "#3f7fc1";
+  if (characterGroupSuggestions) {
+    const groups = [...new Set(characters.map((person) => person.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+    characterGroupSuggestions.innerHTML = groups.map((group) => `<option value="${escapeHtml(group)}"></option>`).join("");
+  }
+  setCharacterCreateStatus("正在连接本地内容库…");
+  setCharacterCreateBusy(true);
+  characterCreateDialog.showModal();
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+    setCharacterCreateBusy(false);
+    setCharacterCreateStatus("人物 ID 和文件名将在保存时自动生成。");
+    characterCreateName?.focus();
+  } catch (error) {
+    setCharacterCreateStatus(error.message, "error");
+    if (characterCreateClose) characterCreateClose.disabled = false;
+    if (characterCreateCancel) characterCreateCancel.disabled = false;
+  }
+}
+
+function closeCharacterCreateDialog() {
+  if (!characterCreateDialog?.open) return;
+  characterCreateDialog.close();
+  setCharacterCreateStatus();
+  setCharacterCreateBusy(false);
+}
+
+async function createCharacterFromDialog(event) {
+  event.preventDefault();
+  if (!characterCreateForm?.reportValidity()) return;
+  setCharacterCreateBusy(true);
+  setCharacterCreateStatus("正在创建人物档案…");
+  try {
+    const result = await refactorApi("/api/characters/create", {
+      project: currentProjectId(),
+      name: characterCreateName?.value.trim() || "",
+      narrativeRole: characterCreateRole?.value || "配角",
+      characterScope: characterCreateScope?.value || "常驻人物",
+      side: characterCreateSide?.value || "中立",
+      group: characterCreateGroup?.value.trim() || "",
+      mainPlotImpact: Number(characterCreateImpact?.value || 50),
+      color: characterCreateColor?.value || "#3f7fc1",
+      aliases: commaSeparatedValues(characterCreateAliases?.value),
+      markers: commaSeparatedValues(characterCreateMarkers?.value),
+      intro: characterCreateIntro?.value.trim() || "",
+    });
+    setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}），正在刷新人物库…`, "success");
+    window.setTimeout(() => window.location.reload(), 520);
+  } catch (error) {
+    setCharacterCreateStatus(error.message, "error");
+    setCharacterCreateBusy(false);
+  }
 }
 
 function renderCharacterAppearanceSummary(person, items) {
@@ -249,7 +488,7 @@ function renderCharacterAppearanceSummary(person, items) {
   const groups = characterAppearanceGroups(items);
   const first = items[0]?.plot;
   const latest = items[items.length - 1]?.plot;
-  const strongest = items.slice().sort((a, b) => b.score - a.score || a.plot.id - b.plot.id)[0];
+  const strongest = items.slice().sort((a, b) => b.score - a.score || comparePlotSequence(a.plot, b.plot))[0];
   return `
     <div class="character-appearance-overview">
       <div class="character-appearance-count">
@@ -264,16 +503,16 @@ function renderCharacterAppearanceSummary(person, items) {
         </div>
         <div>
           <span>首次出场</span>
-          <strong>${escapeHtml(chapterName(first.chapter))} · ${escapeHtml(first.id)}</strong>
+          <strong>${escapeHtml(chapterName(first.chapter))} · 第 ${escapeHtml(plotSequence(first))} 章</strong>
         </div>
         <div>
           <span>最近出场</span>
-          <strong>${escapeHtml(chapterName(latest.chapter))} · ${escapeHtml(latest.id)}</strong>
+          <strong>${escapeHtml(chapterName(latest.chapter))} · 第 ${escapeHtml(plotSequence(latest))} 章</strong>
         </div>
         ${strongest ? `
           <div>
             <span>高密度剧情</span>
-            <strong>${escapeHtml(strongest.plot.id)} · ${escapeHtml(strongest.plot.title)}</strong>
+            <strong>第 ${escapeHtml(plotSequence(strongest.plot))} 章 · ${escapeHtml(strongest.plot.title)}</strong>
           </div>
         ` : ""}
       </div>
@@ -294,7 +533,7 @@ function renderRepresentativeAppearances(items) {
           style="--accent:${escapeHtml(item.plot.accent)}"
         >
           ${renderCardRibbon(item.plot)}
-          <span>${escapeHtml(chapterName(item.plot.chapter))} · ${escapeHtml(item.plot.id)} · ${item.mentionCount ? `提及 ${item.mentionCount} 次` : "自动关联"}</span>
+          <span>${escapeHtml(chapterName(item.plot.chapter))} · 第 ${escapeHtml(plotSequence(item.plot))} 章 · ${item.mentionCount ? `提及 ${item.mentionCount} 次` : "自动关联"}</span>
           <strong>${escapeHtml(item.plot.title)}</strong>
           <p>${escapeHtml(plotExcerpt(item.plot))}</p>
         </button>
@@ -316,7 +555,7 @@ function renderAllAppearanceList(items) {
             type="button"
             style="--accent:${escapeHtml(item.plot.accent)}"
           >
-            <span>${escapeHtml(item.plot.id)}</span>
+            <span>${escapeHtml(plotSequence(item.plot))}</span>
             <strong>${escapeHtml(item.plot.title)}</strong>
             <small>${escapeHtml(chapterName(item.plot.chapter))}${item.mentionCount ? ` · 提及 ${item.mentionCount} 次` : ""}</small>
           </button>
@@ -372,6 +611,7 @@ function openPlotFromCharacterDetail(plotId, characterId = state.selectedCharact
 }
 
 function renderCharacterDetail() {
+  hideCharacterDensityFloat();
   if (state.characterShelf === "temporary") {
     renderTemporaryCharacterArchive();
     return;
@@ -396,7 +636,7 @@ function renderCharacterDetail() {
     <div class="character-hero ${person.facts.length ? "has-facts" : ""}" style="--accent:${escapeHtml(person.color)}">
       <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
-        <p class="label">${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
+        <p class="label">${escapeHtml(characterNarrativeRole(person))} · ${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
         <div class="character-title-row">
           <h2>${escapeHtml(person.name)}</h2>
           <button
@@ -495,8 +735,12 @@ function renderCharacterDetail() {
     });
   });
   characterDetail.querySelectorAll(".character-appearance-plot[data-plot-id], .character-density-segment[data-plot-id]").forEach((button) => {
-    button.addEventListener("click", () => openPlotFromCharacterDetail(Number(button.dataset.plotId), person.id));
+    button.addEventListener("click", () => {
+      hideCharacterDensityFloat();
+      openPlotFromCharacterDetail(Number(button.dataset.plotId), person.id);
+    });
   });
+  bindCharacterDensityFloat();
   bindCharacterRename(person);
   bindCharacterScopeTools(person);
 }

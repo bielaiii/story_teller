@@ -32,31 +32,8 @@ function timelineVisualRatio(value, fallback = 0) {
   return state.timelineReversed ? 1 - ratio : ratio;
 }
 
-function timelinePercentLabel(ratio) {
-  return `${Math.round(ratio * 100)}%`;
-}
-
 function timelineRangesOverlap(first, second) {
   return first.start < second.end && second.start < first.end;
-}
-
-function timelineDensityLength(nodeConfigs, minimumGap = 24) {
-  const positionsByLine = new Map();
-  nodeConfigs.forEach((node) => {
-    if (!node.line || node.linePosition === undefined) return;
-    if (!positionsByLine.has(node.line)) positionsByLine.set(node.line, []);
-    positionsByLine.get(node.line).push(asTimelineRatio(node.linePosition));
-  });
-
-  let requiredLength = 0;
-  positionsByLine.forEach((positions) => {
-    positions.sort((a, b) => a - b);
-    for (let index = 1; index < positions.length; index += 1) {
-      const gap = positions[index] - positions[index - 1];
-      if (gap > 0.002) requiredLength = Math.max(requiredLength, minimumGap / gap);
-    }
-  });
-  return Math.min(12000, Math.ceil(requiredLength));
 }
 
 function generatedTimelineColor(index) {
@@ -212,10 +189,47 @@ async function renderTimeline() {
   if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
 
   const mainLineName = timelineConfig.mainLine || "主线";
-  const lines = Array.isArray(timelineConfig.lines) && timelineConfig.lines.length
-    ? timelineConfig.lines
-    : [mainLineName];
-  const branchConfigs = timelineConfig.branches || [];
+  const plotLaneNames = (plot) => {
+    const configured = Array.isArray(plot.lanes) ? plot.lanes : [plot.lane];
+    const normalized = configured.map((lane) => String(lane || "").trim()).filter(Boolean);
+    return normalized.length ? normalized : [mainLineName];
+  };
+  const discoveredLines = [...new Set(plots.flatMap(plotLaneNames))];
+  const configuredLineOrder = Array.isArray(timelineConfig.lines) ? timelineConfig.lines : [];
+  const lines = [...new Set([
+    mainLineName,
+    ...configuredLineOrder.filter((line) => discoveredLines.includes(line)),
+    ...discoveredLines,
+  ])];
+  const configuredBranchByLine = new Map((timelineConfig.branches || []).map((item) => [item.line, item]));
+  const lastPlotIndex = Math.max(1, plots.length - 1);
+  const branchConfigs = lines.filter((line) => line !== mainLineName).map((line, branchIndex) => {
+    const plotIndexes = plots
+      .map((plot, index) => (plotLaneNames(plot).includes(line) ? index : -1))
+      .filter((index) => index >= 0);
+    const firstIndex = Math.min(...plotIndexes);
+    const finalIndex = Math.max(...plotIndexes);
+    const paddingRatio = plots.length <= 1 ? 0.08 : 0.58 / lastPlotIndex;
+    let startPosition = Math.max(0, firstIndex / lastPlotIndex - paddingRatio);
+    let endPosition = Math.min(1, finalIndex / lastPlotIndex + paddingRatio);
+    if (endPosition - startPosition < 0.1) {
+      const center = (startPosition + endPosition) / 2;
+      startPosition = Math.max(0, center - 0.05);
+      endPosition = Math.min(1, center + 0.05);
+    }
+    const configured = configuredBranchByLine.get(line) || {};
+    return {
+      ...configured,
+      line,
+      startLine: mainLineName,
+      endLine: mainLineName,
+      startPosition,
+      endPosition,
+      side: configured.side === "left" || configured.side === "right"
+        ? configured.side
+        : (branchIndex % 2 === 0 ? "right" : "left"),
+    };
+  });
   const lineSpacing = Math.max(72, Number(timelineConfig.lineSpacing || 72) || 72);
   const topPadding = timelineConfig.topPadding || 54;
   const sidePadding = timelineConfig.sidePadding || 34;
@@ -240,7 +254,7 @@ async function renderTimeline() {
     return 460;
   };
   const nodeGap = Math.max(40, Number(timelineConfig.nodeGap || 56) || 56);
-  const mainDisplayLength = Math.max(680, timelineDensityLength(timelineConfig.nodes || []), ...branchConfigs
+  const mainDisplayLength = Math.max(680, ...branchConfigs
     .map((branchConfig) => branchDisplayLength(branchConfig) * 1.8), ...branchConfigs
     .filter((branchConfig) => (branchConfig.startLine || mainLineName) === mainLineName && (branchConfig.endLine || mainLineName) === mainLineName)
     .map((branchConfig) => {
@@ -269,7 +283,6 @@ async function renderTimeline() {
   const graphHeight = topPadding * 2 + mainDisplayLength;
   const fallbackPlotPosition = (index) => plots.length <= 1 ? 0 : index / (plots.length - 1);
   const plotY = (index) => topPadding + timelineVisualRatio(fallbackPlotPosition(index), 0) * mainDisplayLength;
-  const plotLaneNames = (plot) => plot.lanes || [plot.lane || mainLineName];
   const connectorByLane = new Map();
   const resolvingLanes = new Set();
   const mainLine = {
@@ -381,16 +394,13 @@ async function renderTimeline() {
   });
 
   const timelineNodePosition = (plot, index) => {
-    const nodeConfig = nodeConfigByPlot.get(Number(plot.id));
-    const primaryLane = nodeConfig?.line || plotLaneNames(plot)[0] || mainLineName;
+    const primaryLane = plotLaneNames(plot)[0] || mainLineName;
     const fallbackRatio = plots.length <= 1 ? 0 : index / (plots.length - 1);
-    const storyRatio = asTimelineRatio(nodeConfig?.linePosition, primaryLane === mainLineName ? fallbackRatio : 0.5);
+    const storyRatio = fallbackRatio;
     if (primaryLane === mainLineName) {
       return {
         x: lineX(mainLineName),
-        y: nodeConfig?.linePosition !== undefined
-          ? mainLine.y1 + (mainLine.y2 - mainLine.y1) * timelineVisualRatio(nodeConfig.linePosition)
-          : plotY(index),
+        y: plotY(index),
         lane: primaryLane,
         storyRatio,
       };
@@ -398,10 +408,9 @@ async function renderTimeline() {
     const connector = connectorLines.find((item) => item.lane === primaryLane);
     if (!connector) return { x: lineX(primaryLane), y: plotY(index), lane: primaryLane, storyRatio };
     const geometry = connectorGeometry(connector);
-    const progress = timelineVisualRatio(nodeConfig?.linePosition, 0.5);
     return {
       x: connector.x2,
-      y: geometry.branchTopY + (geometry.branchBottomY - geometry.branchTopY) * progress,
+      y: Math.max(geometry.branchTopY, Math.min(geometry.branchBottomY, plotY(index))),
       lane: primaryLane,
       storyRatio,
     };
@@ -480,7 +489,7 @@ function requestTimelineRender() {
 
 function timelineNodeMarkup(item) {
   const { plot, position, nodeColor, priority } = item;
-  const positionLabel = `${position.lane} · ${timelinePercentLabel(position.storyRatio)}`;
+  const positionLabel = `${position.lane} · 第 ${plotSequence(plot)} 章`;
   const nodeClass = [
     "timeline-node",
     "timeline-node-focus",
@@ -502,7 +511,7 @@ function timelineSummaryMarkup(item) {
   const stableClass = timelineModel.viewportSettled ? "is-stable" : "";
   return `
     <button class="timeline-summary-card timeline-jump ${stableClass} ${hiddenByFocus ? "is-hidden-by-focus" : ""}" data-plot-id="${escapeHtml(plot.id)}" data-primary-lane="${escapeHtml(position.lane)}" type="button" style="--accent:${escapeHtml(nodeColor)}; --card-y:${Math.round(position.y)}px">
-      <span>${escapeHtml(timelinePlotChapter(plot))} · ${escapeHtml(plot.id)}</span>
+      <span>${escapeHtml(timelinePlotChapter(plot))} · 第 ${escapeHtml(plotSequence(plot))} 章</span>
       <strong>${escapeHtml(timelinePlotTitle(plot))}</strong>
       <p>${escapeHtml(markdownExcerpt(timelinePlotSummary(plot), 120))}</p>
       <small class="timeline-read-hint">阅读全文</small>

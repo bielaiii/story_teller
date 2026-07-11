@@ -81,7 +81,7 @@ function renderPlots() {
   plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => `
       <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
-        <div class="plot-index">${escapeHtml(plot.id)}</div>
+        <div class="plot-index">${escapeHtml(plotSequence(plot))}</div>
         <div>${renderStoryCardContent(plot)}</div>
       </button>
     `)
@@ -93,6 +93,135 @@ function renderPlots() {
     state.plotPage = nextPage;
     renderPlots();
   });
+}
+
+function nextPlotSequence() {
+  return Math.max(0, ...plots.map(plotSequence)) + 1;
+}
+
+function plotEditorListValues(value) {
+  return String(value || "")
+    .split(/[,，、]/)
+    .map((item) => item.trim())
+    .filter((item, index, items) => item && items.indexOf(item) === index);
+}
+
+function setPlotCreateBusy(busy) {
+  plotCreateForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
+    element.disabled = element === plotCreateChapter ? true : busy;
+  });
+  if (plotCreateClose) plotCreateClose.disabled = busy;
+  if (plotCreateCancel) plotCreateCancel.disabled = busy;
+}
+
+function setPlotCreateMessage(message = "", type = "") {
+  if (!plotCreateMessage) return;
+  plotCreateMessage.textContent = message;
+  plotCreateMessage.className = type ? `is-${type}` : "";
+}
+
+function renderPlotEditorPreview() {
+  if (!plotCreatePreview) return;
+  const body = plotCreateBody?.value.trim() || "";
+  plotCreatePreview.style.setProperty("--accent", plotCreateAccent?.value || "#3f7fc1");
+  plotCreatePreview.innerHTML = body
+    ? renderMarkdownBody(body)
+    : "<p>正文预览会显示在这里。</p>";
+}
+
+function renderPlotInsertImpact() {
+  if (!plotInsertImpact || !plotCreatePositionField || !plotCreatePosition) return;
+  const nextSequence = nextPlotSequence();
+  plotCreatePosition.max = String(nextSequence);
+  const requested = Number(plotCreatePosition.value);
+  if (!Number.isInteger(requested) || requested < 1 || requested > nextSequence) {
+    plotInsertImpact.innerHTML = `
+      <strong>可选第 1～${nextSequence} 章</strong>
+      <span>填写新剧情最终所在的章号；该位置原有的章节及其后内容会自动顺延。</span>
+    `;
+    return;
+  }
+  const nextPlot = plots.find((plot) => plotSequence(plot) >= requested);
+  const previousPlot = [...plots].reverse().find((plot) => plotSequence(plot) < requested);
+  const inferredChapter = nextPlot?.chapter || previousPlot?.chapter || chapterKeys()[0];
+  if (plotCreateChapter && chapterKeys().includes(inferredChapter)) {
+    plotCreateChapter.value = inferredChapter;
+  }
+  const affected = plots.filter((plot) => plotSequence(plot) >= requested);
+  const examples = affected.slice(0, 4).map((plot) => (
+    `《${escapeHtml(plot.title)}》${plotSequence(plot)} → ${plotSequence(plot) + 1}`
+  ));
+  plotInsertImpact.innerHTML = `
+    <strong>新剧情将成为第 ${requested} 章</strong>
+    <span>自动归入“${escapeHtml(chapterName(inferredChapter))}”；${affected.length ? `后面的 ${affected.length} 章会顺延，稳定 ID 和引用保持不变。` : "当前位置没有后续章节，不需要顺移。"}</span>
+    ${examples.length ? `<small>${examples.join(" · ")}${affected.length > examples.length ? " · …" : ""}</small>` : ""}
+  `;
+}
+
+async function openPlotCreateDialog() {
+  if (!plotCreateDialog || !plotCreateForm) return;
+  plotCreateForm.reset();
+  if (plotCreateAccent) plotCreateAccent.value = "#3f7fc1";
+  if (plotCreatePosition) plotCreatePosition.value = String(nextPlotSequence());
+  if (plotCreateChapter) {
+    plotCreateChapter.innerHTML = chapterKeys().map((chapter) => (
+      `<option value="${escapeHtml(chapter)}">${escapeHtml(chapterName(chapter))}</option>`
+    )).join("");
+  }
+  renderPlotEditorPreview();
+  renderPlotInsertImpact();
+  setPlotCreateMessage("正在连接本地内容库…");
+  setPlotCreateBusy(true);
+  plotCreateDialog.showModal();
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+    setPlotCreateBusy(false);
+    setPlotCreateMessage("支持 Markdown；人物和设定会在保存后自动识别。");
+    plotCreateName?.focus();
+  } catch (error) {
+    setPlotCreateMessage(error.message, "error");
+    if (plotCreateClose) plotCreateClose.disabled = false;
+    if (plotCreateCancel) plotCreateCancel.disabled = false;
+  }
+}
+
+function closePlotCreateDialog() {
+  if (!plotCreateDialog?.open) return;
+  plotCreateDialog.close();
+  setPlotCreateMessage();
+  setPlotCreateBusy(false);
+}
+
+async function createPlotFromEditor(event) {
+  event.preventDefault();
+  if (!plotCreateForm?.reportValidity()) return;
+  const requestedSequence = Number(plotCreatePosition?.value);
+  const shiftingExistingPlots = requestedSequence < nextPlotSequence();
+  setPlotCreateBusy(true);
+  setPlotCreateMessage(shiftingExistingPlots ? "正在插入剧情并顺移后续章节…" : "正在保存新剧情…");
+  try {
+    const result = await refactorApi("/api/plots/create", {
+      project: currentProjectId(),
+      title: plotCreateName?.value.trim() || "",
+      chapter: plotCreateChapter?.value || chapterKeys()[0],
+      insertAt: requestedSequence,
+      status: plotCreateStatusField?.value || "草稿",
+      accent: plotCreateAccent?.value || "#3f7fc1",
+      summary: plotCreateSummary?.value.trim() || "",
+      lanes: plotEditorListValues(plotCreateLanes?.value),
+      tags: plotEditorListValues(plotCreateTags?.value),
+      key: Boolean(plotCreateKey?.checked),
+      climax: Boolean(plotCreateClimax?.checked),
+      body: plotCreateBody?.value.trim() || "",
+    });
+    setPlotCreateMessage(`已保存为第 ${result.sequence} 章${result.shiftedCount ? `，${result.shiftedCount} 章已顺延` : ""}。`, "success");
+    window.sessionStorage?.setItem("story-teller-open-plot", String(result.id));
+    window.setTimeout(() => window.location.reload(), 560);
+  } catch (error) {
+    setPlotCreateMessage(error.message, "error");
+    setPlotCreateBusy(false);
+  }
 }
 
 function renderFragmentFilters() {
