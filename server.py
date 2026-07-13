@@ -181,6 +181,19 @@ def canonical_relationship_filename(character_ids, character_names):
     return filename
 
 
+def canonical_plot_filename(plot_id, title):
+    clean_id = str(plot_id or "").strip()
+    clean_title = str(title or "").strip()
+    if not clean_id or not clean_title:
+        raise ValueError("剧情文件名缺少 id 或标题")
+    if FORBIDDEN_FILENAME_PATTERN.search(clean_title) or clean_title.endswith((".", " ")):
+        raise ValueError("剧情标题包含不能用于文件名的字符")
+    filename = f"{int(clean_id):03d}-{clean_title}.md"
+    if len(filename.encode("utf-8")) > 240:
+        raise ValueError("剧情标题过长，无法生成安全文件名")
+    return filename
+
+
 class StoryTellerServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -341,7 +354,9 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "/api/refactor/apply",
             "/api/refactor/undo",
             "/api/relationships/create",
+            "/api/characters/create",
             "/api/characters/scope",
+            "/api/plots/create",
         }:
             return self.send_api_error("未知接口", HTTPStatus.NOT_FOUND)
         if not self.local_host():
@@ -356,8 +371,12 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 return self.apply_refactor(payload)
             if parsed.path == "/api/relationships/create":
                 return self.create_relationship(payload)
+            if parsed.path == "/api/characters/create":
+                return self.create_character(payload)
             if parsed.path == "/api/characters/scope":
                 return self.update_character_scope(payload)
+            if parsed.path == "/api/plots/create":
+                return self.create_plot(payload)
             return self.undo_refactor(payload)
         except ValueError as error:
             return self.send_api_error(str(error))
@@ -395,6 +414,110 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             if character_id and name:
                 names[character_id] = name
         return names
+
+    def create_character(self, payload):
+        project = str(payload.get("project", ""))
+        name = str(payload.get("name", "")).strip()
+        narrative_role = str(payload.get("narrativeRole", "配角")).strip()
+        scope = str(payload.get("characterScope", "常驻人物")).strip()
+        group = str(payload.get("group", "")).strip()
+        side = str(payload.get("side", "中立")).strip()
+        intro = str(payload.get("intro", "")).strip()
+        color = str(payload.get("color", "")).strip().lower()
+
+        if not name or len(name) > 80 or "\n" in name or "\r" in name:
+            raise ValueError("人物姓名长度需要在 1 到 80 个字符之间")
+        if narrative_role not in {"主角", "配角"}:
+            raise ValueError("人物定位不合法")
+        if scope not in CHARACTER_SCOPES:
+            raise ValueError("人物收纳状态不合法")
+        if side not in {"主角方", "中立", "反派方"}:
+            raise ValueError("人物阵营不合法")
+        if len(group) > 80 or "\n" in group or "\r" in group:
+            raise ValueError("人物分组不能超过 80 个字符")
+        if len(intro) > 20000:
+            raise ValueError("人物简介不能超过 20000 个字符")
+        if not HEX_COLOR_PATTERN.fullmatch(color):
+            raise ValueError("请选择有效的人物颜色")
+
+        try:
+            main_plot_impact = int(payload.get("mainPlotImpact", 50))
+        except (TypeError, ValueError) as error:
+            raise ValueError("主线影响必须是 0 到 100 的整数") from error
+        if not 0 <= main_plot_impact <= 100:
+            raise ValueError("主线影响必须是 0 到 100 的整数")
+
+        def clean_list(key, label):
+            values = payload.get(key, [])
+            if not isinstance(values, list) or len(values) > 24:
+                raise ValueError(f"{label}格式不合法")
+            cleaned = []
+            for item in values:
+                value = str(item).strip()
+                if not value:
+                    continue
+                if len(value) > 40 or "\n" in value or "\r" in value:
+                    raise ValueError(f"{label}中的单项不能超过 40 个字符")
+                if value not in cleaned:
+                    cleaned.append(value)
+            return cleaned
+
+        aliases = clean_list("aliases", "人物别名")
+        markers = clean_list("markers", "人物标识")
+        project_root = self.project_root(project)
+        characters_root = project_root / "characters"
+        existing_ids = []
+        existing_names = set()
+        if characters_root.is_dir():
+            for path in sorted(characters_root.rglob("*.md")):
+                fields = parse_frontmatter(path.read_text(encoding="utf-8"))
+                character_id = str(fields.get("id", "")).strip()
+                existing_name = str(fields.get("name", "")).strip()
+                if character_id.isdigit():
+                    existing_ids.append(int(character_id))
+                if existing_name:
+                    existing_names.add(existing_name)
+        if name in existing_names:
+            raise ValueError("已经存在同名人物，请使用别名或修改现有档案")
+
+        character_id = str(max(existing_ids, default=0) + 1)
+        filename = canonical_character_filename(character_id, name)
+        target = characters_root / filename
+        if target.exists():
+            raise ValueError("目标人物文件已经存在")
+
+        gradient = f"linear-gradient(135deg, {color}, #6676c7)"
+        fields = [
+            "---",
+            f"id: {character_id}",
+            f"name: {json.dumps(name, ensure_ascii=False)}",
+            f"narrativeRole: {json.dumps(narrative_role, ensure_ascii=False)}",
+            f"characterScope: {json.dumps(scope, ensure_ascii=False)}",
+            f"color: {json.dumps(color, ensure_ascii=False)}",
+            f"gradient: {json.dumps(gradient, ensure_ascii=False)}",
+            f"mainPlotImpact: {main_plot_impact}",
+            f"side: {json.dumps(side, ensure_ascii=False)}",
+        ]
+        if group:
+            fields.append(f"group: {json.dumps(group, ensure_ascii=False)}")
+        if markers:
+            fields.append(f"markers: {json.dumps(markers, ensure_ascii=False)}")
+        if aliases:
+            fields.append(f"aliases: {json.dumps(aliases, ensure_ascii=False)}")
+        content = "\n".join((*fields, "---", intro, ""))
+
+        characters_root.mkdir(parents=True, exist_ok=True)
+        atomic_write(target, content)
+        write_content_index(project_root, build_content_index(project_root))
+        self.send_json(
+            {
+                "ok": True,
+                "id": character_id,
+                "name": name,
+                "path": target.relative_to(project_root).as_posix(),
+            },
+            HTTPStatus.CREATED,
+        )
 
     def create_relationship(self, payload):
         project = str(payload.get("project", ""))
@@ -480,6 +603,150 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "path": target.relative_to(project_root).as_posix(),
                 "label": label,
+            },
+            HTTPStatus.CREATED,
+        )
+
+    def create_plot(self, payload):
+        project = str(payload.get("project", ""))
+        title = str(payload.get("title", "")).strip()
+        summary = str(payload.get("summary", "")).strip()
+        body = str(payload.get("body", "")).strip()
+        chapter = str(payload.get("chapter", "")).strip()
+        status = str(payload.get("status", "草稿")).strip()
+        accent = str(payload.get("accent", "")).strip().lower()
+
+        if not title or len(title) > 120 or "\n" in title or "\r" in title:
+            raise ValueError("剧情标题长度需要在 1 到 120 个字符之间")
+        if not body:
+            raise ValueError("请填写剧情正文")
+        if len(body) > 60000:
+            raise ValueError("剧情正文不能超过 60000 个字符")
+        if len(summary) > 500:
+            raise ValueError("剧情摘要不能超过 500 个字符")
+        if not chapter or len(chapter) > 80 or "\n" in chapter or "\r" in chapter:
+            raise ValueError("请选择有效的篇章")
+        if not status or len(status) > 40 or "\n" in status or "\r" in status:
+            raise ValueError("剧情状态不合法")
+        if not HEX_COLOR_PATTERN.fullmatch(accent):
+            raise ValueError("请选择有效的剧情颜色")
+
+        def clean_list(key, label):
+            values = payload.get(key, [])
+            if not isinstance(values, list) or len(values) > 30:
+                raise ValueError(f"{label}格式不合法")
+            cleaned = []
+            for item in values:
+                value = str(item).strip()
+                if not value:
+                    continue
+                if len(value) > 60 or "\n" in value or "\r" in value:
+                    raise ValueError(f"{label}中的单项不能超过 60 个字符")
+                if value not in cleaned:
+                    cleaned.append(value)
+            return cleaned
+
+        tags = clean_list("tags", "剧情标签")
+        lanes = clean_list("lanes", "剧情线")
+        project_root = self.project_root(project)
+        plots_root = project_root / "plots"
+        records = []
+        if plots_root.is_dir():
+            for path in sorted(plots_root.rglob("*.md")):
+                text = path.read_text(encoding="utf-8")
+                fields = parse_frontmatter(text)
+                plot_id = str(fields.get("id", "")).strip()
+                if not plot_id.isdigit():
+                    raise ValueError(f"剧情文件缺少数字 id：{path.relative_to(project_root).as_posix()}")
+                raw_sequence = str(fields.get("sequence", plot_id)).strip()
+                if not raw_sequence.isdigit() or int(raw_sequence) < 1:
+                    raise ValueError(f"剧情顺序不合法：{path.relative_to(project_root).as_posix()}")
+                records.append({
+                    "path": path,
+                    "text": text,
+                    "id": int(plot_id),
+                    "sequence": int(raw_sequence),
+                })
+
+        sequences = [record["sequence"] for record in records]
+        if len(sequences) != len(set(sequences)):
+            raise ValueError("剧情顺序存在重复，请先修复配置")
+        plot_ids = [record["id"] for record in records]
+        if len(plot_ids) != len(set(plot_ids)):
+            raise ValueError("剧情 id 存在重复，请先修复配置")
+        max_sequence = max(sequences, default=0)
+        raw_insert_at = payload.get("insertAt")
+        if raw_insert_at in (None, ""):
+            insert_at = max_sequence + 1
+        else:
+            try:
+                insert_at = int(raw_insert_at)
+            except (TypeError, ValueError) as error:
+                raise ValueError("插入位置必须是有效章节号") from error
+            if insert_at < 1 or insert_at > max_sequence + 1:
+                raise ValueError(f"插入位置需要在 1 到 {max_sequence + 1} 之间")
+
+        new_id = max((record["id"] for record in records), default=0) + 1
+        filename = canonical_plot_filename(new_id, title)
+        target = plots_root / filename
+        if target.exists():
+            raise ValueError("目标剧情文件已经存在")
+
+        fields = [
+            "---",
+            f"id: {new_id}",
+            f"sequence: {insert_at}",
+            f"chapter: {json.dumps(chapter, ensure_ascii=False)}",
+            f"title: {json.dumps(title, ensure_ascii=False)}",
+        ]
+        if summary:
+            fields.append(f"summary: {json.dumps(summary, ensure_ascii=False)}")
+        fields.extend([
+            f"accent: {json.dumps(accent, ensure_ascii=False)}",
+            f"status: {json.dumps(status, ensure_ascii=False)}",
+        ])
+        if lanes:
+            fields.append(f"lanes: {json.dumps(lanes, ensure_ascii=False)}")
+        if tags:
+            fields.append(f"tags: {json.dumps(tags, ensure_ascii=False)}")
+        if bool(payload.get("key")):
+            fields.append("key: true")
+        if bool(payload.get("climax")):
+            fields.append("climax: true")
+        content = "\n".join((*fields, "---", body, ""))
+
+        shifted = [record for record in records if record["sequence"] >= insert_at]
+        written = []
+        created = False
+        try:
+            for record in sorted(shifted, key=lambda item: item["sequence"], reverse=True):
+                updated = update_frontmatter_field(
+                    record["text"],
+                    "sequence",
+                    record["sequence"] + 1,
+                )
+                atomic_write(record["path"], updated)
+                written.append((record["path"], record["text"]))
+            plots_root.mkdir(parents=True, exist_ok=True)
+            atomic_write(target, content)
+            created = True
+            write_content_index(project_root, build_content_index(project_root))
+        except OSError:
+            if created:
+                target.unlink(missing_ok=True)
+            for path, original in reversed(written):
+                atomic_write(path, original)
+            write_content_index(project_root, build_content_index(project_root))
+            raise
+
+        self.send_json(
+            {
+                "ok": True,
+                "id": new_id,
+                "sequence": insert_at,
+                "title": title,
+                "shiftedCount": len(shifted),
+                "path": target.relative_to(project_root).as_posix(),
             },
             HTTPStatus.CREATED,
         )

@@ -80,6 +80,8 @@ characterSearch.addEventListener("search", () => {
 temporaryCharacterToggle?.addEventListener("click", () => {
   state.characterShelf = state.characterShelf === "temporary" ? "main" : "temporary";
   state.characterSearch = "";
+  state.characterCategory = "all";
+  state.characterGroup = "all";
   if (characterSearch) characterSearch.value = "";
   const nextPerson = characters.find((person) => (
     state.characterShelf === "temporary" ? isTemporaryCharacter(person) : !isTemporaryCharacter(person)
@@ -88,6 +90,11 @@ temporaryCharacterToggle?.addEventListener("click", () => {
   renderCharacterList();
   renderCharacterDetail();
 });
+
+characterCreateTrigger?.addEventListener("click", openCharacterCreateDialog);
+characterCreateClose?.addEventListener("click", closeCharacterCreateDialog);
+characterCreateCancel?.addEventListener("click", closeCharacterCreateDialog);
+characterCreateForm?.addEventListener("submit", createCharacterFromDialog);
 
 sideTaskToggle?.addEventListener("click", () => {
   state.plotShelf = state.plotShelf === "side" ? "all" : "side";
@@ -99,6 +106,14 @@ sideTaskToggle?.addEventListener("click", () => {
   renderStoryFilters();
   renderPlots();
 });
+
+plotCreateTrigger?.addEventListener("click", openPlotCreateDialog);
+plotCreateClose?.addEventListener("click", closePlotCreateDialog);
+plotCreateCancel?.addEventListener("click", closePlotCreateDialog);
+plotCreateForm?.addEventListener("submit", createPlotFromEditor);
+plotCreatePosition?.addEventListener("input", renderPlotInsertImpact);
+plotCreateBody?.addEventListener("input", renderPlotEditorPreview);
+plotCreateAccent?.addEventListener("input", renderPlotEditorPreview);
 
 placeSearch?.addEventListener("input", () => {
   state.placeSearch = placeSearch.value.trim();
@@ -116,6 +131,7 @@ timelineList?.addEventListener("scroll", () => scheduleTimelineViewportRender())
 window.addEventListener("scroll", () => {
   scheduleTimelineViewportRender();
   updateReadingProgress();
+  hideCharacterDensityFloat();
 });
 window.addEventListener("resize", () => {
   scheduleTimelineViewportRender(true);
@@ -282,8 +298,14 @@ async function init() {
     renderNodes();
     renderLinks();
     markRelatedNodes();
-    switchView("graph");
-    startGraphLoop();
+    const pendingPlotId = Number(window.sessionStorage?.getItem("story-teller-open-plot"));
+    if (pendingPlotId && plots.some((plot) => Number(plot.id) === pendingPlotId)) {
+      window.sessionStorage.removeItem("story-teller-open-plot");
+      openPlotDetail(pendingPlotId);
+    } else {
+      switchView("graph");
+      startGraphLoop();
+    }
   } catch (error) {
     plotStrip.innerHTML = `
       <article class="plot-card" style="--accent:#df7655">

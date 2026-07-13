@@ -161,7 +161,7 @@ function globalSearchMatches() {
       type: "plot",
       id: plot.id,
       title: plot.title,
-      meta: `剧情 · ${chapterName(plot.chapter)} · ${plot.status || "未标记"} · ${plot.id}`,
+      meta: `剧情 · ${chapterName(plot.chapter)} · 第 ${plotSequence(plot)} 章 · ${plot.status || "未标记"}`,
       text: plotExcerpt(plot),
     }));
 
@@ -359,7 +359,7 @@ function configureFloatingReadingTools(plot, navigation) {
   readingTools.querySelectorAll(".reading-progress-value").forEach((value) => {
     value.textContent = "0%";
   });
-  document.querySelector("#floatingPlotChapter").textContent = `${chapterName(plot.chapter)} · ${plot.id}`;
+  document.querySelector("#floatingPlotChapter").textContent = `${chapterName(plot.chapter)} · 第 ${plotSequence(plot)} 章`;
 
   const characterReturn = state.detailReturnContext?.source === "character"
     ? getCharacter(state.detailReturnContext.characterId)

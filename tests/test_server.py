@@ -9,6 +9,7 @@ from server import (
     StoryTellerHandler,
     build_content_index,
     canonical_character_filename,
+    canonical_plot_filename,
     canonical_relationship_filename,
     relationship_character_ids,
     write_content_index,
@@ -102,6 +103,7 @@ label: 母子
 """
 
         self.assertEqual(canonical_character_filename("3", "林越"), "3-林越.md")
+        self.assertEqual(canonical_plot_filename("8", "新的章节"), "008-新的章节.md")
         self.assertEqual(relationship_character_ids(relationship), ["9", "3"])
         self.assertEqual(
             canonical_relationship_filename(
@@ -236,6 +238,75 @@ label: 母子
             index["collections"]["relationships"],
             ["./relationships/9-沈清妙__3-林越.md"],
         )
+
+    def test_create_character_assigns_next_stable_id_and_refreshes_index(self):
+        handler, project_root, responses = self.relationship_handler()
+
+        handler.create_character(
+            {
+                "project": "novel",
+                "name": "顾遥",
+                "narrativeRole": "配角",
+                "characterScope": "常驻人物",
+                "group": "调查组",
+                "side": "主角方",
+                "mainPlotImpact": 64,
+                "color": "#3f7fc1",
+                "aliases": ["小顾"],
+                "markers": ["记者"],
+                "intro": "负责追踪旧港失踪案的记者。",
+            }
+        )
+
+        character_path = project_root / "characters" / "10-顾遥.md"
+        self.assertTrue(character_path.is_file())
+        character_text = character_path.read_text(encoding="utf-8")
+        self.assertIn("id: 10", character_text)
+        self.assertIn('narrativeRole: "配角"', character_text)
+        self.assertIn('aliases: ["小顾"]', character_text)
+        self.assertIn("负责追踪旧港失踪案的记者。", character_text)
+        self.assertEqual(responses[-1][1], 201)
+        index = json.loads((project_root / "content-index.json").read_text(encoding="utf-8"))
+        self.assertIn("./characters/10-顾遥.md", index["collections"]["characters"])
+
+    def test_create_plot_inserts_sequence_without_changing_stable_ids(self):
+        handler, project_root, responses = self.relationship_handler()
+        plot_seven = project_root / "plots" / "007-old.md"
+        plot_eight = project_root / "plots" / "008-later.md"
+        self.write_markdown_at(
+            plot_seven,
+            "---\nid: 7\nchapter: act2\ntitle: 原第七章\n---\n正文七",
+        )
+        self.write_markdown_at(
+            plot_eight,
+            "---\nid: 8\nchapter: act3\ntitle: 原第八章\n---\n正文八",
+        )
+
+        handler.create_plot(
+            {
+                "project": "novel",
+                "title": "插入的第八章",
+                "summary": "在原第八章之前发生。",
+                "body": "## 新章节\n\n这里是插入的剧情正文。",
+                "chapter": "act3",
+                "status": "草稿",
+                "accent": "#3f7fc1",
+                "tags": ["插入测试"],
+                "lanes": ["主线"],
+                "insertAt": 8,
+            }
+        )
+
+        inserted = project_root / "plots" / "009-插入的第八章.md"
+        self.assertTrue(inserted.is_file())
+        self.assertIn("id: 9", inserted.read_text(encoding="utf-8"))
+        self.assertIn("sequence: 8", inserted.read_text(encoding="utf-8"))
+        self.assertNotIn("sequence:", plot_seven.read_text(encoding="utf-8"))
+        shifted_text = plot_eight.read_text(encoding="utf-8")
+        self.assertIn("id: 8", shifted_text)
+        self.assertIn("sequence: 9", shifted_text)
+        self.assertEqual(responses[-1][0]["shiftedCount"], 1)
+        self.assertEqual(responses[-1][1], 201)
 
     def test_create_relationship_rejects_duplicate_pair_in_reverse_order(self):
         handler, project_root, _ = self.relationship_handler()

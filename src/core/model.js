@@ -212,6 +212,17 @@ function characterId(value) {
   return value === undefined || value === null ? "" : String(value);
 }
 
+function plotSequence(plot) {
+  const configured = Number(plot?.sequence);
+  if (Number.isInteger(configured) && configured > 0) return configured;
+  const fallback = Number(plot?.id);
+  return Number.isInteger(fallback) && fallback > 0 ? fallback : 0;
+}
+
+function comparePlotSequence(a, b) {
+  return plotSequence(a) - plotSequence(b) || Number(a.id) - Number(b.id);
+}
+
 function characterIds(values) {
   return Array.isArray(values) ? values.map(characterId).filter(Boolean) : [];
 }
@@ -417,6 +428,18 @@ function validateProjectConfiguration() {
   checkAmbiguousTerms(characters, "人物");
   checkAmbiguousTerms(places, "设定");
 
+  const plotSequences = new Map();
+  plots.forEach((plot) => {
+    const sequence = plotSequence(plot);
+    const items = plotSequences.get(sequence) || [];
+    items.push(plot);
+    plotSequences.set(sequence, items);
+  });
+  plotSequences.forEach((items, sequence) => {
+    if (items.length < 2) return;
+    add("error", `剧情顺序重复：${sequence}`, items.map((plot) => plot.title || plot.id).join("、"), "剧情");
+  });
+
   plots.forEach((plot) => {
     (plot.people || []).forEach((id) => {
       if (!hasId(characters, id)) {
@@ -500,21 +523,19 @@ function validateProjectConfiguration() {
     }
   });
 
-  const timelineLines = new Set(Array.isArray(timelineConfig.lines) ? timelineConfig.lines : []);
+  const timelineLines = new Set([
+    timelineConfig.mainLine || "主线",
+    ...plots.flatMap((plot) => (Array.isArray(plot.lanes) ? plot.lanes : [plot.lane]).filter(Boolean)),
+  ]);
   (timelineConfig.nodes || []).forEach((node) => {
     if (!hasId(plots, node.plotId)) {
       add("error", `时间线节点缺少剧情：${node.plotId}`, "节点的 plotId 没有对应剧情文件。", "时间线");
     }
-    if (node.line && !timelineLines.has(node.line)) {
-      add("error", `时间线缺少剧情线：${node.line}`, `剧情 ${node.plotId} 被放在未声明的剧情线上。`, "时间线");
-    }
   });
   (timelineConfig.branches || []).forEach((branch) => {
-    ["line", "startLine", "endLine"].forEach((field) => {
-      if (branch[field] && !timelineLines.has(branch[field])) {
-        add("error", `时间线缺少剧情线：${branch[field]}`, `${branch.line || "未命名分支"}的 ${field} 配置无效。`, "时间线");
-      }
-    });
+    if (branch.line && !timelineLines.has(branch.line)) {
+      add("warning", `时间线样式没有对应剧情线：${branch.line}`, "没有剧情文章归属于这条线，因此它不会显示。", "时间线");
+    }
   });
 
   const checkGraphMember = (id, source) => {
@@ -762,7 +783,7 @@ async function loadMarkdownData() {
   ]);
 
   characters = loadedCharacters.sort(compareCharacterPriority);
-  plots = loadedPlots.sort((a, b) => a.id - b.id);
+  plots = loadedPlots.sort(comparePlotSequence);
   fragments = loadedFragments;
   places = loadedPlaces;
   relationships = loadedRelationships;

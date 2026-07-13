@@ -24,6 +24,9 @@ const state = {
   relationType: "all",
   characterSearch: "",
   characterShelf: "main",
+  characterCategory: "all",
+  characterGroup: "all",
+  characterViewMode: "cards",
   characterAppearanceChapter: "all",
   placeSearch: "",
   entryType: "all",
@@ -63,6 +66,27 @@ const statusFilter = document.querySelector("#statusFilter");
 const tagFilter = document.querySelector("#tagFilter");
 const sideTaskToggle = document.querySelector("#sideTaskToggle");
 const sideTaskCount = document.querySelector("#sideTaskCount");
+const plotCreateTrigger = document.querySelector("#plotCreateTrigger");
+const plotCreateDialog = document.querySelector("#plotCreateDialog");
+const plotCreateForm = document.querySelector("#plotCreateForm");
+const plotCreateClose = document.querySelector("#plotCreateClose");
+const plotCreateCancel = document.querySelector("#plotCreateCancel");
+const plotCreateSubmit = document.querySelector("#plotCreateSubmit");
+const plotCreateName = document.querySelector("#plotCreateName");
+const plotCreateChapter = document.querySelector("#plotCreateChapter");
+const plotCreatePositionField = document.querySelector("#plotCreatePositionField");
+const plotCreatePosition = document.querySelector("#plotCreatePosition");
+const plotCreateStatusField = document.querySelector("#plotCreateStatusField");
+const plotCreateAccent = document.querySelector("#plotCreateAccent");
+const plotCreateSummary = document.querySelector("#plotCreateSummary");
+const plotCreateLanes = document.querySelector("#plotCreateLanes");
+const plotCreateTags = document.querySelector("#plotCreateTags");
+const plotCreateKey = document.querySelector("#plotCreateKey");
+const plotCreateClimax = document.querySelector("#plotCreateClimax");
+const plotCreateBody = document.querySelector("#plotCreateBody");
+const plotCreatePreview = document.querySelector("#plotCreatePreview");
+const plotInsertImpact = document.querySelector("#plotInsertImpact");
+const plotCreateMessage = document.querySelector("#plotCreateMessage");
 const fragmentBoard = document.querySelector("#fragmentBoard");
 const fragmentPagination = document.querySelector("#fragmentPagination");
 const fragmentTagFilter = document.querySelector("#fragmentTagFilter");
@@ -85,6 +109,30 @@ const profileDetailBtn = document.querySelector("#profileDetailBtn");
 const characterSearch = document.querySelector("#characterSearch");
 const temporaryCharacterToggle = document.querySelector("#temporaryCharacterToggle");
 const temporaryCharacterCount = document.querySelector("#temporaryCharacterCount");
+const characterOverview = document.querySelector("#characterOverview");
+const characterLibraryTitle = document.querySelector("#characterLibraryTitle");
+const characterVisibleCount = document.querySelector("#characterVisibleCount");
+const characterCategoryFilter = document.querySelector("#characterCategoryFilter");
+const characterGroupArchiveFilter = document.querySelector("#characterGroupArchiveFilter");
+const characterViewSwitch = document.querySelector("#characterViewSwitch");
+const characterCreateTrigger = document.querySelector("#characterCreateTrigger");
+const characterCreateDialog = document.querySelector("#characterCreateDialog");
+const characterCreateForm = document.querySelector("#characterCreateForm");
+const characterCreateClose = document.querySelector("#characterCreateClose");
+const characterCreateCancel = document.querySelector("#characterCreateCancel");
+const characterCreateSubmit = document.querySelector("#characterCreateSubmit");
+const characterCreateStatus = document.querySelector("#characterCreateStatus");
+const characterCreateName = document.querySelector("#characterCreateName");
+const characterCreateRole = document.querySelector("#characterCreateRole");
+const characterCreateScope = document.querySelector("#characterCreateScope");
+const characterCreateSide = document.querySelector("#characterCreateSide");
+const characterCreateGroup = document.querySelector("#characterCreateGroup");
+const characterCreateImpact = document.querySelector("#characterCreateImpact");
+const characterCreateColor = document.querySelector("#characterCreateColor");
+const characterCreateAliases = document.querySelector("#characterCreateAliases");
+const characterCreateMarkers = document.querySelector("#characterCreateMarkers");
+const characterCreateIntro = document.querySelector("#characterCreateIntro");
+const characterGroupSuggestions = document.querySelector("#characterGroupSuggestions");
 const placeList = document.querySelector("#placeList");
 const placeDetail = document.querySelector("#placeDetail");
 const placeSearch = document.querySelector("#placeSearch");

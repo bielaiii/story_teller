@@ -88,7 +88,10 @@
             <p class="eyebrow" id="storyEyebrow">Story Teller</p>
             <h1 id="storyTitle">小说剧情记录器</h1>
           </div>
-          <div class="chapter-switch" id="chapterSwitch" aria-label="章节筛选"></div>
+          <div class="story-head-actions">
+            <button class="plot-create-trigger" id="plotCreateTrigger" type="button"><span aria-hidden="true">＋</span>写新剧情</button>
+            <div class="chapter-switch" id="chapterSwitch" aria-label="章节筛选"></div>
+          </div>
         </header>
 
         <div class="story-filter-row">
@@ -107,6 +110,76 @@
 
         <div class="plot-strip" id="plotStrip" aria-label="剧情线"></div>
         <div class="pagination-bar" id="plotPagination" aria-label="剧情分页"></div>
+        <dialog class="plot-create-dialog" id="plotCreateDialog" aria-labelledby="plotCreateTitle">
+          <form class="plot-create-form" id="plotCreateForm">
+            <div class="plot-create-head">
+              <div>
+                <p class="eyebrow">Writing Desk</p>
+                <h3 id="plotCreateTitle">写新剧情</h3>
+                <p>稳定 ID 自动生成；插入章节只调整阅读顺序，不破坏已有引用。</p>
+              </div>
+              <button class="plot-create-close" id="plotCreateClose" type="button" aria-label="关闭剧情编辑器">×</button>
+            </div>
+            <div class="plot-create-meta">
+              <label class="plot-create-title-field">
+                <span>剧情标题</span>
+                <input id="plotCreateName" type="text" maxlength="120" autocomplete="off" placeholder="这一章发生了什么？" required />
+              </label>
+              <label class="plot-create-chapter">
+                <span>所属篇章 <small>按章序自动归类</small></span>
+                <select id="plotCreateChapter" disabled></select>
+              </label>
+              <label class="plot-create-position" id="plotCreatePositionField">
+                <span>放在第几章</span>
+                <input id="plotCreatePosition" type="number" min="1" step="1" required />
+              </label>
+              <label>
+                <span>整理状态</span>
+                <select id="plotCreateStatusField">
+                  <option value="草稿" selected>草稿</option>
+                  <option value="待串联">待串联</option>
+                  <option value="已接入">已接入</option>
+                </select>
+              </label>
+              <label>
+                <span>强调色</span>
+                <input id="plotCreateAccent" type="color" value="#3f7fc1" />
+              </label>
+              <label class="plot-create-wide">
+                <span>一句话摘要</span>
+                <input id="plotCreateSummary" type="text" maxlength="500" placeholder="可选，用一句话说明这一章的作用" />
+              </label>
+              <label class="plot-create-wide">
+                <span>剧情线 <small>用逗号分隔</small></span>
+                <input id="plotCreateLanes" type="text" placeholder="例如：主线，旧案线" />
+              </label>
+              <label class="plot-create-wide">
+                <span>标签 <small>用逗号分隔</small></span>
+                <input id="plotCreateTags" type="text" placeholder="例如：雨夜，身份暴露" />
+              </label>
+              <div class="plot-create-flags">
+                <label><input id="plotCreateKey" type="checkbox" />关键剧情</label>
+                <label><input id="plotCreateClimax" type="checkbox" />高潮剧情</label>
+              </div>
+            </div>
+            <div class="plot-insert-impact" id="plotInsertImpact"></div>
+            <div class="plot-editor-workspace">
+              <label class="plot-editor-pane">
+                <span>Markdown 正文</span>
+                <textarea id="plotCreateBody" maxlength="60000" spellcheck="true" placeholder="## 场景标题&#10;&#10;从这里开始写剧情……" required></textarea>
+              </label>
+              <section class="plot-preview-pane" aria-label="剧情预览">
+                <div class="plot-preview-head"><span>实时预览</span><small>Markdown</small></div>
+                <div class="plot-detail-body plot-create-preview" id="plotCreatePreview"><p>正文预览会显示在这里。</p></div>
+              </section>
+            </div>
+            <div class="plot-create-actions">
+              <p id="plotCreateMessage" aria-live="polite"></p>
+              <button class="plot-create-cancel" id="plotCreateCancel" type="button">取消</button>
+              <button class="plot-create-submit" id="plotCreateSubmit" type="submit">保存剧情</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <section class="fragment-page page-view" data-page="fragments" aria-label="灵感碎片箱">
@@ -286,13 +359,18 @@
         <div class="timeline-list" id="timelineList"></div>
       </section>
 
-      <section class="character-page page-view" data-page="characters" aria-label="人物详情">
-        <aside class="character-rail">
-          <div class="character-rail-head">
-            <div>
-              <p class="eyebrow">Characters</p>
-              <h2>人物详情</h2>
-            </div>
+      <section class="character-page page-view" data-page="characters" aria-label="人物管理中心">
+        <header class="character-manager-head">
+          <div>
+            <p class="eyebrow">Character Workspace</p>
+            <h2>人物管理中心</h2>
+            <p>从人物库中筛选、检查和整理角色，点击人物卡片查看完整档案。</p>
+          </div>
+          <div class="character-manager-head-actions">
+            <span class="character-demo-note">Demo · 定位由现有标识推导</span>
+            <button class="character-create-trigger" id="characterCreateTrigger" type="button">
+              <span aria-hidden="true">＋</span>新建人物
+            </button>
             <button
               class="temporary-character-toggle"
               id="temporaryCharacterToggle"
@@ -303,10 +381,104 @@
               <strong id="temporaryCharacterCount">0</strong>
             </button>
           </div>
-          <input id="characterSearch" class="character-search" type="search" placeholder="搜索人物" />
-          <div class="character-list" id="characterList"></div>
-        </aside>
-        <article class="character-detail" id="characterDetail"></article>
+        </header>
+        <div class="character-overview" id="characterOverview" aria-label="人物统计"></div>
+        <div class="character-manager-layout">
+          <aside class="character-rail">
+            <div class="character-library-title">
+              <div>
+                <p class="eyebrow">Archive</p>
+                <h3 id="characterLibraryTitle">长期人物</h3>
+              </div>
+              <strong id="characterVisibleCount">0</strong>
+            </div>
+            <input id="characterSearch" class="character-search" type="search" placeholder="搜索姓名、别名、阵营或关系" />
+            <div class="character-manager-filters">
+              <div class="character-category-filter" id="characterCategoryFilter" aria-label="人物定位筛选"></div>
+              <select id="characterGroupArchiveFilter" class="character-archive-select" aria-label="人物分组筛选">
+                <option value="all">全部分组</option>
+              </select>
+              <div class="character-view-switch" id="characterViewSwitch" aria-label="人物库视图">
+                <button type="button" data-mode="cards" aria-label="卡片视图">卡片</button>
+                <button type="button" data-mode="list" aria-label="列表视图">列表</button>
+              </div>
+            </div>
+            <div class="character-list" id="characterList"></div>
+          </aside>
+          <article class="character-detail" id="characterDetail"></article>
+        </div>
+        <dialog class="character-create-dialog" id="characterCreateDialog" aria-labelledby="characterCreateTitle">
+          <form class="character-create-form" id="characterCreateForm">
+            <div class="character-create-head">
+              <div>
+                <p class="eyebrow">New Character</p>
+                <h3 id="characterCreateTitle">新建人物档案</h3>
+                <p>保存后自动分配稳定 ID，并生成独立的人物 Markdown 文件。</p>
+              </div>
+              <button class="character-create-close" id="characterCreateClose" type="button" aria-label="关闭新建人物窗口">×</button>
+            </div>
+            <div class="character-create-fields">
+              <label class="character-create-name">
+                <span>人物姓名</span>
+                <input id="characterCreateName" type="text" maxlength="80" autocomplete="off" placeholder="例如：顾遥" required />
+              </label>
+              <label>
+                <span>叙事定位</span>
+                <select id="characterCreateRole">
+                  <option value="主角">主角</option>
+                  <option value="配角" selected>配角</option>
+                </select>
+              </label>
+              <label>
+                <span>收纳状态</span>
+                <select id="characterCreateScope">
+                  <option value="主线人物">主线人物</option>
+                  <option value="常驻人物" selected>常驻人物</option>
+                  <option value="一次性角色">一次性角色</option>
+                  <option value="待定角色">待定角色</option>
+                </select>
+              </label>
+              <label>
+                <span>人物阵营</span>
+                <select id="characterCreateSide">
+                  <option value="主角方">主角方</option>
+                  <option value="中立" selected>中立</option>
+                  <option value="反派方">反派方</option>
+                </select>
+              </label>
+              <label>
+                <span>人物分组</span>
+                <input id="characterCreateGroup" type="text" maxlength="80" list="characterGroupSuggestions" placeholder="例如：旧案调查组" />
+                <datalist id="characterGroupSuggestions"></datalist>
+              </label>
+              <label>
+                <span>主线影响</span>
+                <input id="characterCreateImpact" type="number" min="0" max="100" step="1" value="50" />
+              </label>
+              <label>
+                <span>人物颜色</span>
+                <input id="characterCreateColor" type="color" value="#3f7fc1" />
+              </label>
+              <label class="character-create-wide">
+                <span>别名 <small>用逗号分隔</small></span>
+                <input id="characterCreateAliases" type="text" placeholder="例如：小顾，阿遥" />
+              </label>
+              <label class="character-create-wide">
+                <span>人物标识 <small>用逗号分隔</small></span>
+                <input id="characterCreateMarkers" type="text" placeholder="例如：记者，知情者" />
+              </label>
+              <label class="character-create-wide">
+                <span>人物简介</span>
+                <textarea id="characterCreateIntro" rows="5" maxlength="20000" placeholder="写下人物身份、目标和当前设定。"></textarea>
+              </label>
+            </div>
+            <div class="character-create-actions">
+              <p id="characterCreateStatus" aria-live="polite"></p>
+              <button class="character-create-cancel" id="characterCreateCancel" type="button">取消</button>
+              <button class="character-create-submit" id="characterCreateSubmit" type="submit">创建人物档案</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <section class="place-page page-view" data-page="places" aria-label="设定档案">
