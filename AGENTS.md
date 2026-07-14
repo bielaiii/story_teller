@@ -46,6 +46,7 @@ Core style:
 
 * Use a light, soft, semi-transparent workspace style with subtle shadows and restrained glass-like panels.
 * Keep the interface calm and mature. It can feel alive, but avoid childish bounce, excessive glow, loud decoration, or over-animated effects.
+* Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states; use clearly recognizable rectangular controls for actions such as edit, delete, save, and cancel.
 * Prefer focus interactions: click a line, node, or person to emphasize related content; hide or de-emphasize unrelated content; click blank space to return to the default state.
 * Floating information panels should feel like lightweight side annotations, not heavy modal boxes.
 * Avoid visible grid backgrounds unless the user explicitly asks for one.
@@ -114,6 +115,9 @@ Prefer asynchronous, cancellable work whenever an operation crosses an I/O, rend
 ## Local content mutation
 
 Treat novel content as user data rather than application source.
+
+* Markdown files are persistence only. Do not require the user to open or edit local source files for routine content or configuration changes; provide the corresponding interface and localhost write API instead.
+* When a persisted structure needs migration, perform it through the application's validated write path and keep the UI as the ongoing source of operations.
 
 * Serve the frontend and local mutation APIs from the same loopback-only process and port.
 * Never expose content mutation endpoints beyond `127.0.0.1` or `localhost`.

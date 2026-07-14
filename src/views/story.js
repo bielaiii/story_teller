@@ -1,3 +1,12 @@
+function resetStoryNavigationState() {
+  state.chapter = "all";
+  state.plotStatus = "all";
+  state.plotTags = allPlotTags();
+  state.plotShelf = "all";
+  state.plotPage = 1;
+  state.highlightPlotId = null;
+}
+
 function renderChapterSwitch() {
   if (!chapterSwitch) return;
   const chapterButtons = chapterKeys().map((chapter) => `
@@ -106,9 +115,195 @@ function plotEditorListValues(value) {
     .filter((item, index, items) => item && items.indexOf(item) === index);
 }
 
+function selectPlotEditorStatus(status) {
+  if (!plotCreateStatusField) return;
+  const value = String(status || "草稿").trim() || "草稿";
+  const hasOption = [...plotCreateStatusField.options].some((option) => option.value === value);
+  if (!hasOption) {
+    plotCreateStatusField.add(new Option(value, value));
+  }
+  plotCreateStatusField.value = value;
+}
+
+function renderPlotReferenceOptions(plot = null) {
+  const people = new Set((plot?.people || []).map(String));
+  const entries = new Set((plot?.entries || []).map(String));
+  if (plotCreatePeople) {
+    plotCreatePeople.innerHTML = characters.map((person) => `<option value="${escapeHtml(person.id)}" ${people.has(String(person.id)) ? "selected" : ""}>${escapeHtml(person.name)}</option>`).join("");
+  }
+  if (plotCreateEntries) {
+    plotCreateEntries.innerHTML = places.map((place) => `<option value="${escapeHtml(place.id)}" ${entries.has(String(place.id)) ? "selected" : ""}>${escapeHtml(place.name)}</option>`).join("");
+  }
+}
+
+function selectedPlotReferences(select) {
+  return [...(select?.selectedOptions || [])].map((option) => option.value);
+}
+
+function moveDialogToVisibleRoot(dialog) {
+  if (dialog && dialog.parentElement !== document.body) document.body.append(dialog);
+}
+
+function setPlotTrashStatus(message = "", type = "") {
+  if (!plotTrashStatus) return;
+  plotTrashStatus.textContent = message;
+  plotTrashStatus.className = `plot-trash-status${type ? ` is-${type}` : ""}`;
+}
+
+function updatePlotTrashTrigger(count = 0, writable = false) {
+  if (plotTrashCount) plotTrashCount.textContent = String(count);
+  plotTrashWorkspace?.classList.toggle("is-hidden", !writable);
+  plotTrashTrigger?.classList.toggle("is-hidden", !writable);
+}
+
+function renderPlotTrashItems(items = []) {
+  if (!plotTrashList) return;
+  plotTrashList.innerHTML = items.length
+    ? items.map((item) => `
+        <article class="plot-trash-item">
+          <div>
+            <span>${item.kind === "plot" ? `原第 ${escapeHtml(item.sequence)} 章` : escapeHtml(CONTENT_KIND_LABELS[item.kind] || "档案")}</span>
+            <strong>${escapeHtml(item.title)}</strong>
+            <small>${escapeHtml(item.daysRemaining)} 天后永久删除</small>
+          </div>
+          <div class="plot-trash-item-actions">
+            <button class="plot-trash-preview-btn" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button">预览</button>
+            <button class="plot-trash-restore" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button">恢复</button>
+          </div>
+        </article>
+      `).join("")
+    : `
+        <div class="plot-trash-empty">
+          <strong>回收站是空的</strong>
+          <p>删除的内容会在这里保留 7 天。</p>
+        </div>
+      `;
+  plotTrashList.querySelectorAll(".plot-trash-preview-btn").forEach((button) => {
+    button.addEventListener("click", () => previewPlotFromTrash(button));
+  });
+  plotTrashList.querySelectorAll(".plot-trash-restore").forEach((button) => {
+    button.addEventListener("click", () => restorePlotFromTrash(button));
+  });
+}
+
+function resetPlotTrashPreview() {
+  if (!plotTrashPreview) return;
+  plotTrashPreview.innerHTML = `
+    <div class="plot-trash-preview-empty">
+      <strong>选择一项内容预览</strong>
+      <p>选择一项内容后加载预览。</p>
+    </div>
+  `;
+}
+
+async function previewPlotFromTrash(button) {
+  const trashId = button?.dataset.trashId || "";
+  const kind = button?.dataset.kind || "plot";
+  if (!trashId || !plotTrashPreview) return;
+  plotTrashList?.querySelectorAll(".plot-trash-preview-btn").forEach((item) => {
+    item.classList.toggle("is-active", item === button);
+  });
+  button.disabled = true;
+  button.textContent = "加载中…";
+  setPlotTrashStatus("正在加载正文预览…");
+  try {
+    const endpoint = kind === "plot" ? "/api/plots/trash/preview" : "/api/records/trash/preview";
+    const result = await refactorApi(`${endpoint}?project=${encodeURIComponent(currentProjectId())}&trashId=${encodeURIComponent(trashId)}`);
+    plotTrashPreview.style.setProperty("--accent", result.accent || "#3f7fc1");
+    plotTrashPreview.innerHTML = `
+      <header class="plot-trash-preview-head">
+        <span>${kind === "plot" ? `原第 ${escapeHtml(result.sequence)} 章 · ` : ""}${escapeHtml(result.daysRemaining)} 天后永久删除</span>
+        <h3>${escapeHtml(result.title)}</h3>
+      </header>
+      <div class="plot-detail-body plot-trash-preview-body">${renderMarkdownBody(result.body)}</div>
+    `;
+    setPlotTrashStatus("预览内容来自回收站，不会修改原文件。");
+  } catch (error) {
+    setPlotTrashStatus(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "预览";
+  }
+}
+
+async function fetchPlotTrash() {
+  const [plotResult, recordResult] = await Promise.all([
+    refactorApi(`/api/plots/trash?project=${encodeURIComponent(currentProjectId())}`),
+    refactorApi(`/api/records/trash?project=${encodeURIComponent(currentProjectId())}`),
+  ]);
+  return { ...plotResult, items: [
+    ...plotResult.items.map((item) => ({ ...item, kind: "plot" })),
+    ...recordResult.items,
+  ].sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0)) };
+}
+
+async function refreshPlotTrashAccess() {
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("只读模式");
+    const result = await fetchPlotTrash();
+    updatePlotTrashTrigger(result.items.length, true);
+    return result.items;
+  } catch {
+    updatePlotTrashTrigger(0, false);
+    return [];
+  }
+}
+
+async function openPlotTrashDialog() {
+  if (!plotTrashDialog) return;
+  if (plotTrashDialog.open) return;
+  moveDialogToVisibleRoot(plotTrashDialog);
+  renderPlotTrashItems([]);
+  resetPlotTrashPreview();
+  setPlotTrashStatus("正在读取回收站…");
+  plotTrashDialog.showModal();
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+    const result = await fetchPlotTrash();
+    renderPlotTrashItems(result.items);
+    updatePlotTrashTrigger(result.items.length, true);
+    setPlotTrashStatus(result.items.length ? "可在到期前恢复内容。" : "");
+  } catch (error) {
+    plotTrashList?.replaceChildren();
+    setPlotTrashStatus(error.message, "error");
+  }
+}
+
+function closePlotTrashDialog() {
+  if (plotTrashDialog?.open) plotTrashDialog.close();
+  setPlotTrashStatus();
+}
+
+async function restorePlotFromTrash(button) {
+  const trashId = button?.dataset.trashId || "";
+  const kind = button?.dataset.kind || "plot";
+  if (!trashId) return;
+  button.disabled = true;
+  button.textContent = "正在恢复…";
+  setPlotTrashStatus("正在恢复内容…");
+  try {
+    const result = await refactorApi(kind === "plot" ? "/api/plots/trash/restore" : "/api/records/trash/restore", {
+      project: currentProjectId(),
+      trashId,
+    });
+    setPlotTrashStatus("内容已恢复，正在刷新…", "success");
+    if (kind === "plot") window.sessionStorage?.setItem("story-teller-open-plot", String(result.id));
+    else window.sessionStorage?.setItem("story-teller-open-view", "diagnostics");
+    window.setTimeout(() => window.location.reload(), 420);
+  } catch (error) {
+    setPlotTrashStatus(error.message, "error");
+    button.disabled = false;
+    button.textContent = "恢复";
+  }
+}
+
 function setPlotCreateBusy(busy) {
   plotCreateForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
-    element.disabled = element === plotCreateChapter ? true : busy;
+    element.disabled = busy
+      || element === plotCreateChapter
+      || (Boolean(state.editingPlotId) && element === plotCreatePosition);
   });
   if (plotCreateClose) plotCreateClose.disabled = busy;
   if (plotCreateCancel) plotCreateCancel.disabled = busy;
@@ -120,6 +315,31 @@ function setPlotCreateMessage(message = "", type = "") {
   plotCreateMessage.className = type ? `is-${type}` : "";
 }
 
+let plotEditorSyncedElement = null;
+let plotEditorScrollUnlockFrame = 0;
+
+function syncPlotEditorScroll(source, target) {
+  if (!source || !target || plotEditorSyncedElement === source) return;
+  const sourceRange = Math.max(0, source.scrollHeight - source.clientHeight);
+  const targetRange = Math.max(0, target.scrollHeight - target.clientHeight);
+  const progress = sourceRange > 0 ? source.scrollTop / sourceRange : 0;
+  plotEditorSyncedElement = target;
+  target.scrollTop = progress * targetRange;
+  if (plotEditorScrollUnlockFrame) window.cancelAnimationFrame(plotEditorScrollUnlockFrame);
+  plotEditorScrollUnlockFrame = window.requestAnimationFrame(() => {
+    plotEditorSyncedElement = null;
+    plotEditorScrollUnlockFrame = 0;
+  });
+}
+
+function resetPlotEditorScroll() {
+  if (plotEditorScrollUnlockFrame) window.cancelAnimationFrame(plotEditorScrollUnlockFrame);
+  plotEditorScrollUnlockFrame = 0;
+  plotEditorSyncedElement = null;
+  if (plotCreateBody) plotCreateBody.scrollTop = 0;
+  if (plotCreatePreview) plotCreatePreview.scrollTop = 0;
+}
+
 function renderPlotEditorPreview() {
   if (!plotCreatePreview) return;
   const body = plotCreateBody?.value.trim() || "";
@@ -127,10 +347,30 @@ function renderPlotEditorPreview() {
   plotCreatePreview.innerHTML = body
     ? renderMarkdownBody(body)
     : "<p>正文预览会显示在这里。</p>";
+  syncPlotEditorScroll(plotCreateBody, plotCreatePreview);
 }
 
 function renderPlotInsertImpact() {
   if (!plotInsertImpact || !plotCreatePositionField || !plotCreatePosition) return;
+  if (state.editingPlotId) {
+    const current = plots.find((plot) => Number(plot.id) === Number(state.editingPlotId));
+    const currentSequence = plotSequence(current);
+    const requested = Number(plotCreatePosition.value);
+    plotCreatePosition.max = String(plots.length);
+    const affectedCount = Number.isInteger(requested) && requested >= 1 && requested <= plots.length
+      ? Math.abs(requested - currentSequence)
+      : 0;
+    const orderMessage = !Number.isInteger(requested) || requested < 1 || requested > plots.length
+      ? `请输入 1 到 ${plots.length} 之间的章节顺序。`
+      : (requested === currentSequence
+        ? "阅读顺序保持不变。"
+        : `保存后移动到第 ${requested} 章，并自动调整 ${affectedCount} 篇文章的顺序；已有引用不变。`);
+    plotInsertImpact.innerHTML = `
+      <strong>稳定 ID ${escapeHtml(state.editingPlotId)}</strong>
+      <span>${escapeHtml(orderMessage)}</span>
+    `;
+    return;
+  }
   const nextSequence = nextPlotSequence();
   plotCreatePosition.max = String(nextSequence);
   const requested = Number(plotCreatePosition.value);
@@ -160,15 +400,24 @@ function renderPlotInsertImpact() {
 
 async function openPlotCreateDialog() {
   if (!plotCreateDialog || !plotCreateForm) return;
+  moveDialogToVisibleRoot(plotCreateDialog);
+  state.editingPlotId = null;
   plotCreateForm.reset();
+  plotCreateSettings?.removeAttribute("open");
+  document.querySelector("#plotCreateTitle").textContent = "写新剧情";
+  if (plotCreateSubmit) plotCreateSubmit.textContent = "保存剧情";
+  const positionLabel = plotCreatePositionField?.querySelector("span");
+  if (positionLabel) positionLabel.textContent = "放在第几章";
   if (plotCreateAccent) plotCreateAccent.value = "#3f7fc1";
   if (plotCreatePosition) plotCreatePosition.value = String(nextPlotSequence());
+  renderPlotReferenceOptions();
   if (plotCreateChapter) {
     plotCreateChapter.innerHTML = chapterKeys().map((chapter) => (
       `<option value="${escapeHtml(chapter)}">${escapeHtml(chapterName(chapter))}</option>`
     )).join("");
   }
   renderPlotEditorPreview();
+  resetPlotEditorScroll();
   renderPlotInsertImpact();
   setPlotCreateMessage("正在连接本地内容库…");
   setPlotCreateBusy(true);
@@ -178,7 +427,54 @@ async function openPlotCreateDialog() {
     if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
     setPlotCreateBusy(false);
     setPlotCreateMessage("支持 Markdown；人物和设定会在保存后自动识别。");
-    plotCreateName?.focus();
+    plotCreateBody?.focus();
+  } catch (error) {
+    setPlotCreateMessage(error.message, "error");
+    if (plotCreateClose) plotCreateClose.disabled = false;
+    if (plotCreateCancel) plotCreateCancel.disabled = false;
+  }
+}
+
+async function openPlotEditDialog(plotId) {
+  const plot = plots.find((item) => Number(item.id) === Number(plotId));
+  if (!plotCreateDialog || !plotCreateForm || !plot) return;
+  moveDialogToVisibleRoot(plotCreateDialog);
+  state.editingPlotId = Number(plot.id);
+  plotCreateForm.reset();
+  plotCreateSettings?.removeAttribute("open");
+  document.querySelector("#plotCreateTitle").textContent = "修改剧情";
+  if (plotCreateSubmit) plotCreateSubmit.textContent = "保存修改";
+  const positionLabel = plotCreatePositionField?.querySelector("span");
+  if (positionLabel) positionLabel.textContent = "当前章节顺序";
+  if (plotCreateChapter) {
+    plotCreateChapter.innerHTML = chapterKeys().map((chapter) => (
+      `<option value="${escapeHtml(chapter)}">${escapeHtml(chapterName(chapter))}</option>`
+    )).join("");
+    plotCreateChapter.value = plot.chapter || chapterKeys()[0];
+  }
+  if (plotCreateName) plotCreateName.value = plot.title || "";
+  if (plotCreatePosition) plotCreatePosition.value = String(plotSequence(plot));
+  selectPlotEditorStatus(plot.status);
+  if (plotCreateAccent) plotCreateAccent.value = plot.accent || "#3f7fc1";
+  if (plotCreateSummary) plotCreateSummary.value = plot.summary || "";
+  if (plotCreateLanes) plotCreateLanes.value = (plot.lanes || []).join("，");
+  if (plotCreateTags) plotCreateTags.value = (plot.tags || []).join("，");
+  renderPlotReferenceOptions(plot);
+  if (plotCreateKey) plotCreateKey.checked = Boolean(plot.key);
+  if (plotCreateClimax) plotCreateClimax.checked = Boolean(plot.climax);
+  if (plotCreateBody) plotCreateBody.value = plot.text || "";
+  renderPlotEditorPreview();
+  resetPlotEditorScroll();
+  renderPlotInsertImpact();
+  setPlotCreateMessage("正在连接本地内容库…");
+  setPlotCreateBusy(true);
+  plotCreateDialog.showModal();
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+    setPlotCreateBusy(false);
+    setPlotCreateMessage("可以修改正文、关联和阅读顺序；稳定 ID 与已有引用保持不变。");
+    plotCreateBody?.focus();
   } catch (error) {
     setPlotCreateMessage(error.message, "error");
     if (plotCreateClose) plotCreateClose.disabled = false;
@@ -191,31 +487,53 @@ function closePlotCreateDialog() {
   plotCreateDialog.close();
   setPlotCreateMessage();
   setPlotCreateBusy(false);
+  state.editingPlotId = null;
+  pendingFragmentConversionId = "";
 }
 
 async function createPlotFromEditor(event) {
   event.preventDefault();
-  if (!plotCreateForm?.reportValidity()) return;
+  if (!plotCreateForm?.checkValidity()) {
+    plotCreateSettings?.setAttribute("open", "");
+    plotCreateForm.reportValidity();
+    return;
+  }
+  const editingPlotId = Number(state.editingPlotId) || null;
   const requestedSequence = Number(plotCreatePosition?.value);
-  const shiftingExistingPlots = requestedSequence < nextPlotSequence();
+  const shiftingExistingPlots = !editingPlotId && requestedSequence < nextPlotSequence();
   setPlotCreateBusy(true);
-  setPlotCreateMessage(shiftingExistingPlots ? "正在插入剧情并顺移后续章节…" : "正在保存新剧情…");
+  setPlotCreateMessage(editingPlotId
+    ? "正在保存修改…"
+    : (shiftingExistingPlots ? "正在插入剧情并顺移后续章节…" : "正在保存新剧情…"));
   try {
-    const result = await refactorApi("/api/plots/create", {
+    const result = await refactorApi(editingPlotId ? "/api/plots/update" : "/api/plots/create", {
       project: currentProjectId(),
+      ...(editingPlotId ? { id: editingPlotId } : {}),
       title: plotCreateName?.value.trim() || "",
       chapter: plotCreateChapter?.value || chapterKeys()[0],
-      insertAt: requestedSequence,
+      ...(!editingPlotId ? { insertAt: requestedSequence } : { sequence: requestedSequence }),
       status: plotCreateStatusField?.value || "草稿",
       accent: plotCreateAccent?.value || "#3f7fc1",
       summary: plotCreateSummary?.value.trim() || "",
       lanes: plotEditorListValues(plotCreateLanes?.value),
       tags: plotEditorListValues(plotCreateTags?.value),
+      people: selectedPlotReferences(plotCreatePeople),
+      entries: selectedPlotReferences(plotCreateEntries),
       key: Boolean(plotCreateKey?.checked),
       climax: Boolean(plotCreateClimax?.checked),
       body: plotCreateBody?.value.trim() || "",
     });
-    setPlotCreateMessage(`已保存为第 ${result.sequence} 章${result.shiftedCount ? `，${result.shiftedCount} 章已顺延` : ""}。`, "success");
+    if (!editingPlotId && pendingFragmentConversionId) {
+      await refactorApi("/api/records/delete", {
+        project: currentProjectId(),
+        kind: "fragment",
+        id: pendingFragmentConversionId,
+      });
+      pendingFragmentConversionId = "";
+    }
+    setPlotCreateMessage(editingPlotId
+      ? "修改已保存，正在刷新全文…"
+      : `已保存为第 ${result.sequence} 章${result.shiftedCount ? `，${result.shiftedCount} 章已顺延` : ""}。`, "success");
     window.sessionStorage?.setItem("story-teller-open-plot", String(result.id));
     window.setTimeout(() => window.location.reload(), 560);
   } catch (error) {
@@ -257,8 +575,21 @@ function renderFragments() {
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
       <div class="fragment-body">${renderMarkdownBody(fragment.text)}</div>
+      <div class="fragment-actions"><button class="fragment-edit-record" data-id="${escapeHtml(fragment.id)}" type="button">编辑</button><button class="fragment-convert-record" data-id="${escapeHtml(fragment.id)}" type="button">转为剧情</button><button class="fragment-delete-record" data-id="${escapeHtml(fragment.id)}" type="button">删除</button></div>
     </article>
   `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';
+  fragmentBoard.querySelectorAll(".fragment-edit-record").forEach((button) => button.addEventListener("click", () => {
+    const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
+    if (fragment) openContentEditor("fragment", fragment);
+  }));
+  fragmentBoard.querySelectorAll(".fragment-convert-record").forEach((button) => button.addEventListener("click", () => {
+    const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
+    if (fragment) convertFragmentToPlot(fragment);
+  }));
+  fragmentBoard.querySelectorAll(".fragment-delete-record").forEach((button) => button.addEventListener("click", () => {
+    const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
+    if (fragment) deleteContentRecord("fragment", fragment);
+  }));
   renderPagination(fragmentPagination, page.currentPage, page.totalPages, (nextPage) => {
     state.fragmentPage = nextPage;
     renderFragments();

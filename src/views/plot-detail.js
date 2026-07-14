@@ -76,6 +76,64 @@ function openPlotDetail(plotId, { preserveReturnContext = false } = {}) {
   restorePlotPosition(plotId);
 }
 
+async function deletePlotFromDetail(plot, button) {
+  if (!plot) return;
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
+  } catch (error) {
+    window.alert(error.message);
+    return;
+  }
+  const confirmed = window.confirm(
+    `确定将《${plot.title}》移入回收站吗？\n\n它会保留 7 天，期间可以从剧情页的回收站恢复。`,
+  );
+  if (!confirmed) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "正在删除…";
+  }
+  try {
+    await refactorApi("/api/plots/delete", {
+      project: currentProjectId(),
+      id: Number(plot.id),
+    });
+    const deletedSequence = plotSequence(plot);
+    plots = plots
+      .filter((item) => Number(item.id) !== Number(plot.id))
+      .map((item) => (
+        plotSequence(item) > deletedSequence
+          ? { ...item, sequence: plotSequence(item) - 1 }
+          : item
+      ));
+    characters.forEach((person) => {
+      person.events = (person.events || []).filter((id) => Number(id) !== Number(plot.id));
+    });
+    places.forEach((place) => {
+      place.plots = (place.plots || []).filter((id) => Number(id) !== Number(plot.id));
+    });
+    timelineModel = null;
+    timelineViewportKey = "";
+    state.selectedPlotId = null;
+    state.highlightPlotId = null;
+    state.detailReturnContext = null;
+    state.plotPage = 1;
+    setChapterFilter(plot.chapter);
+    switchView("story");
+    renderStoryFilters();
+    renderPlots();
+    refreshPlotTrashAccess();
+    window.sessionStorage?.setItem("story-teller-open-view", "story");
+    window.setTimeout(() => window.location.reload(), 360);
+  } catch (error) {
+    window.alert(error.message);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "删除";
+    }
+  }
+}
+
 function returnToCharacterContext() {
   const context = state.detailReturnContext;
   if (context?.source !== "character") return false;
@@ -394,6 +452,17 @@ function renderPlotDetail() {
   configureFloatingReadingTools(plot, navigation);
 
   plotPeopleRail.innerHTML = `
+    ${markdown.toc.length ? `
+      <section class="plot-rail-section">
+        <p class="eyebrow">Contents</p>
+        <h2>本章目录</h2>
+        <nav class="plot-toc" aria-label="本章目录">
+          ${markdown.toc.map((item) => `
+            <a href="#${item.id}" data-target-id="${escapeHtml(item.id)}" class="plot-toc-item level-${item.level}">${escapeHtml(item.title)}</a>
+          `).join("")}
+        </nav>
+      </section>
+    ` : ""}
     <section class="plot-rail-section">
       <p class="eyebrow">Cast</p>
       <h2>出场人物</h2>
@@ -466,22 +535,17 @@ function renderPlotDetail() {
         </div>
       </section>
     ` : ""}
-    ${markdown.toc.length ? `
-      <section class="plot-rail-section">
-        <p class="eyebrow">Contents</p>
-        <h2>本章目录</h2>
-        <nav class="plot-toc" aria-label="本章目录">
-          ${markdown.toc.map((item) => `
-            <a href="#${item.id}" class="plot-toc-item level-${item.level}">${escapeHtml(item.title)}</a>
-          `).join("")}
-        </nav>
-      </section>
-    ` : ""}
   `;
 
   plotDetail.innerHTML = `
     <div class="plot-detail-head" style="--accent:${escapeHtml(plot.accent)}">
-      <h2>${escapeHtml(plot.title)}</h2>
+      <div class="plot-detail-title-row">
+        <h2>${escapeHtml(plot.title)}</h2>
+        <div class="plot-detail-actions is-hidden" aria-label="剧情操作">
+          <button class="plot-edit-btn" type="button">修改</button>
+          <button class="plot-delete-btn" type="button">删除</button>
+        </div>
+      </div>
       <p class="plot-detail-summary">${escapeHtml(summary)}</p>
       <div class="badge-line">
         ${statusBadge(plot.status)}
@@ -497,7 +561,7 @@ function renderPlotDetail() {
   document.querySelectorAll(".plot-toc-item").forEach((item) => {
     item.addEventListener("click", (event) => {
       event.preventDefault();
-      document.querySelector(item.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(item.dataset.targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
   applyPlotReferenceHighlights();
@@ -507,6 +571,21 @@ function renderPlotDetail() {
   document.querySelectorAll(".plot-reference-open").forEach((button) => {
     button.addEventListener("click", () => openPlotReferenceDetail(button.dataset.referenceType, button.dataset.id));
   });
+  const plotActions = plotDetail.querySelector(".plot-detail-actions");
+  plotDetail.querySelector(".plot-edit-btn")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openPlotEditDialog(plot.id);
+  });
+  const deleteButton = plotDetail.querySelector(".plot-delete-btn");
+  deleteButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    deletePlotFromDetail(plot, deleteButton);
+  });
+  initializeRefactorWorkspace()
+    .then(() => plotActions?.classList.toggle("is-hidden", !refactorCapability?.writable))
+    .catch(() => plotActions?.classList.add("is-hidden"));
   window.requestAnimationFrame(updateReadingProgress);
 }
 

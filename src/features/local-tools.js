@@ -135,6 +135,21 @@ function refreshRelationshipCreator() {
   }
   setRelationshipCreatorBusy(false);
   if (characters.length >= 2 && refactorCapability?.writable) updateRelationshipPairState();
+  renderRelationshipManager();
+}
+
+function renderRelationshipManager() {
+  if (!relationshipManagerList) return;
+  relationshipManagerList.innerHTML = relationships.length ? `
+    <div class="relationship-manager-head"><strong>已有关系</strong><span>${relationships.length} 条</span></div>
+    ${relationships.map((link, index) => {
+      const from = getCharacter(link.from);
+      const to = getCharacter(link.to);
+      return `<article><div><strong>${escapeHtml(link.label || "未命名关系")}</strong><span>${escapeHtml(from?.name || link.from || "失效人物")} ↔ ${escapeHtml(to?.name || link.to || "失效人物")}</span></div><div><button class="relationship-manage-edit" data-index="${index}" type="button">编辑</button><button class="relationship-manage-delete" data-index="${index}" type="button">删除</button></div></article>`;
+    }).join("")}
+  ` : '<div class="relationship-manager-head"><strong>已有关系</strong><span>暂无</span></div>';
+  relationshipManagerList.querySelectorAll(".relationship-manage-edit").forEach((button) => button.addEventListener("click", () => openContentEditor("relationship", relationships[Number(button.dataset.index)])));
+  relationshipManagerList.querySelectorAll(".relationship-manage-delete").forEach((button) => button.addEventListener("click", () => deleteContentRecord("relationship", relationships[Number(button.dataset.index)])));
 }
 
 function relationshipPairExists(firstId, secondId) {

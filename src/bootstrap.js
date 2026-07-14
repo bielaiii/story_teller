@@ -111,9 +111,19 @@ plotCreateTrigger?.addEventListener("click", openPlotCreateDialog);
 plotCreateClose?.addEventListener("click", closePlotCreateDialog);
 plotCreateCancel?.addEventListener("click", closePlotCreateDialog);
 plotCreateForm?.addEventListener("submit", createPlotFromEditor);
+plotCreateForm?.addEventListener("invalid", () => {
+  plotCreateSettings?.setAttribute("open", "");
+}, true);
 plotCreatePosition?.addEventListener("input", renderPlotInsertImpact);
 plotCreateBody?.addEventListener("input", renderPlotEditorPreview);
 plotCreateAccent?.addEventListener("input", renderPlotEditorPreview);
+plotCreateBody?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreateBody, plotCreatePreview));
+plotCreatePreview?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreatePreview, plotCreateBody));
+plotTrashTrigger?.addEventListener("click", openPlotTrashDialog);
+plotTrashClose?.addEventListener("click", closePlotTrashDialog);
+plotTrashDialog?.addEventListener("click", (event) => {
+  if (event.target === plotTrashDialog) closePlotTrashDialog();
+});
 
 placeSearch?.addEventListener("input", () => {
   state.placeSearch = placeSearch.value.trim();
@@ -227,7 +237,7 @@ document.querySelectorAll(".view-btn").forEach((button) => {
     state.detailReturnContext = null;
     state.highlightedReferenceType = "";
     state.highlightedReferenceId = "";
-    switchView(button.dataset.view);
+    switchView(button.dataset.view, { resetStory: button.dataset.view === "story" });
   });
 });
 
@@ -235,6 +245,40 @@ timelineDirectionBtn?.addEventListener("click", () => {
   state.timelineReversed = !state.timelineReversed;
   hideTimelineFloat();
   requestTimelineRender();
+});
+
+timelineEditTrigger?.addEventListener("click", openTimelineEditor);
+timelineEditorClose?.addEventListener("click", closeTimelineEditor);
+timelineEditorCancel?.addEventListener("click", closeTimelineEditor);
+timelineEditorSave?.addEventListener("click", saveTimelineEditor);
+timelineEditorAddLine?.addEventListener("click", addTimelineEditorLine);
+timelineEditorSearch?.addEventListener("input", renderTimelineEditorEvents);
+timelineEditorDialog?.addEventListener("click", (event) => {
+  if (event.target === timelineEditorDialog) closeTimelineEditor();
+});
+timelineEditorDialog?.addEventListener("close", () => {
+  timelineEditorDraft = null;
+  timelineEditorDraggedPlotId = null;
+});
+timelineEditorUnassigned?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  timelineEditorUnassigned.classList.add("is-drop-target");
+});
+timelineEditorUnassigned?.addEventListener("dragleave", () => timelineEditorUnassigned.classList.remove("is-drop-target"));
+timelineEditorUnassigned?.addEventListener("drop", (event) => {
+  event.preventDefault();
+  timelineEditorUnassigned.classList.remove("is-drop-target");
+  const plotId = timelineEditorDraggedPlotId || Number(event.dataTransfer?.getData("text/plain"));
+  assignTimelineEditorPlot(plotId, "");
+});
+timelineEditorUnassigned?.addEventListener("click", () => {
+  timelineEditorUnassignedOnly = !timelineEditorUnassignedOnly;
+  timelineEditorSelectedLine = "";
+  timelineEditorSelectedPlotId = timelineEditorUnassignedOnly ? null : (plots[0]?.id || null);
+  timelineEditorEditingLine = "";
+  renderTimelineEditorLines();
+  renderTimelineEditorEvents();
+  renderTimelineEditorInspector();
 });
 
 diagnosticRefreshBtn?.addEventListener("click", () => {
@@ -298,10 +342,18 @@ async function init() {
     renderNodes();
     renderLinks();
     markRelatedNodes();
+    refreshPlotTrashAccess();
+    refreshTimelineEditorAccess();
+    refreshContentManagerAccess();
     const pendingPlotId = Number(window.sessionStorage?.getItem("story-teller-open-plot"));
+    const pendingView = window.sessionStorage?.getItem("story-teller-open-view");
     if (pendingPlotId && plots.some((plot) => Number(plot.id) === pendingPlotId)) {
       window.sessionStorage.removeItem("story-teller-open-plot");
+      window.sessionStorage.removeItem("story-teller-open-view");
       openPlotDetail(pendingPlotId);
+    } else if (["story", "timeline", "characters", "places", "fragments", "diagnostics", "graph"].includes(pendingView)) {
+      window.sessionStorage.removeItem("story-teller-open-view");
+      switchView(pendingView);
     } else {
       switchView("graph");
       startGraphLoop();

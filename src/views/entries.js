@@ -103,7 +103,7 @@ function renderPlaceDetail() {
       </div>
       <div class="character-copy">
         <p class="label">${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</p>
-        <h2>${escapeHtml(place.name)}</h2>
+        <div class="entry-title-actions"><h2>${escapeHtml(place.name)}</h2><button class="entry-edit-record" type="button">编辑</button><button class="entry-delete-record" type="button">删除</button></div>
         <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
         <div class="place-facts">
           ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
@@ -168,4 +168,6 @@ function renderPlaceDetail() {
     button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
   });
   placeDetail.querySelector(".return-to-plot-btn")?.addEventListener("click", returnToPlotContext);
+  placeDetail.querySelector(".entry-edit-record")?.addEventListener("click", () => openContentEditor("entry", place));
+  placeDetail.querySelector(".entry-delete-record")?.addEventListener("click", () => deleteContentRecord("entry", place));
 }

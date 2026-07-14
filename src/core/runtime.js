@@ -2,6 +2,7 @@ const state = {
   selected: "",
   selectedCharacter: "",
   selectedPlotId: null,
+  editingPlotId: null,
   hasSelection: false,
   chapter: "all",
   plotStatus: "all",
@@ -69,6 +70,7 @@ const sideTaskCount = document.querySelector("#sideTaskCount");
 const plotCreateTrigger = document.querySelector("#plotCreateTrigger");
 const plotCreateDialog = document.querySelector("#plotCreateDialog");
 const plotCreateForm = document.querySelector("#plotCreateForm");
+const plotCreateSettings = document.querySelector("#plotCreateSettings");
 const plotCreateClose = document.querySelector("#plotCreateClose");
 const plotCreateCancel = document.querySelector("#plotCreateCancel");
 const plotCreateSubmit = document.querySelector("#plotCreateSubmit");
@@ -81,12 +83,22 @@ const plotCreateAccent = document.querySelector("#plotCreateAccent");
 const plotCreateSummary = document.querySelector("#plotCreateSummary");
 const plotCreateLanes = document.querySelector("#plotCreateLanes");
 const plotCreateTags = document.querySelector("#plotCreateTags");
+const plotCreatePeople = document.querySelector("#plotCreatePeople");
+const plotCreateEntries = document.querySelector("#plotCreateEntries");
 const plotCreateKey = document.querySelector("#plotCreateKey");
 const plotCreateClimax = document.querySelector("#plotCreateClimax");
 const plotCreateBody = document.querySelector("#plotCreateBody");
 const plotCreatePreview = document.querySelector("#plotCreatePreview");
 const plotInsertImpact = document.querySelector("#plotInsertImpact");
 const plotCreateMessage = document.querySelector("#plotCreateMessage");
+const plotTrashWorkspace = document.querySelector("#plotTrashWorkspace");
+const plotTrashTrigger = document.querySelector("#plotTrashTrigger");
+const plotTrashCount = document.querySelector("#plotTrashCount");
+const plotTrashDialog = document.querySelector("#plotTrashDialog");
+const plotTrashClose = document.querySelector("#plotTrashClose");
+const plotTrashList = document.querySelector("#plotTrashList");
+const plotTrashPreview = document.querySelector("#plotTrashPreview");
+const plotTrashStatus = document.querySelector("#plotTrashStatus");
 const fragmentBoard = document.querySelector("#fragmentBoard");
 const fragmentPagination = document.querySelector("#fragmentPagination");
 const fragmentTagFilter = document.querySelector("#fragmentTagFilter");
@@ -103,6 +115,20 @@ const relationFilter = document.querySelector("#relationFilter");
 const timelineList = document.querySelector("#timelineList");
 const timelineDirectionBtn = document.querySelector("#timelineDirectionBtn");
 const timelineLegend = document.querySelector("#timelineLegend");
+const timelineEditTrigger = document.querySelector("#timelineEditTrigger");
+const timelineEditorDialog = document.querySelector("#timelineEditorDialog");
+const timelineEditorClose = document.querySelector("#timelineEditorClose");
+const timelineEditorCancel = document.querySelector("#timelineEditorCancel");
+const timelineEditorSave = document.querySelector("#timelineEditorSave");
+const timelineEditorAddLine = document.querySelector("#timelineEditorAddLine");
+const timelineEditorLineList = document.querySelector("#timelineEditorLineList");
+const timelineEditorLineCount = document.querySelector("#timelineEditorLineCount");
+const timelineEditorUnassigned = document.querySelector("#timelineEditorUnassigned");
+const timelineEditorUnassignedCount = document.querySelector("#timelineEditorUnassignedCount");
+const timelineEditorEventList = document.querySelector("#timelineEditorEventList");
+const timelineEditorInspector = document.querySelector("#timelineEditorInspector");
+const timelineEditorSearch = document.querySelector("#timelineEditorSearch");
+const timelineEditorStatus = document.querySelector("#timelineEditorStatus");
 const characterList = document.querySelector("#characterList");
 const characterDetail = document.querySelector("#characterDetail");
 const profileDetailBtn = document.querySelector("#profileDetailBtn");
@@ -169,3 +195,4 @@ const relationshipType = document.querySelector("#relationshipType");
 const relationshipColor = document.querySelector("#relationshipColor");
 const relationshipCreateStatus = document.querySelector("#relationshipCreateStatus");
 const relationshipCreateBtn = document.querySelector("#relationshipCreateBtn");
+const relationshipManagerList = document.querySelector("#relationshipManagerList");

@@ -113,56 +113,67 @@
         <dialog class="plot-create-dialog" id="plotCreateDialog" aria-labelledby="plotCreateTitle">
           <form class="plot-create-form" id="plotCreateForm">
             <div class="plot-create-head">
-              <div>
-                <p class="eyebrow">Writing Desk</p>
-                <h3 id="plotCreateTitle">写新剧情</h3>
-                <p>稳定 ID 自动生成；插入章节只调整阅读顺序，不破坏已有引用。</p>
-              </div>
+              <h3 id="plotCreateTitle">写新剧情</h3>
               <button class="plot-create-close" id="plotCreateClose" type="button" aria-label="关闭剧情编辑器">×</button>
             </div>
-            <div class="plot-create-meta">
-              <label class="plot-create-title-field">
-                <span>剧情标题</span>
-                <input id="plotCreateName" type="text" maxlength="120" autocomplete="off" placeholder="这一章发生了什么？" required />
-              </label>
-              <label class="plot-create-chapter">
-                <span>所属篇章 <small>按章序自动归类</small></span>
-                <select id="plotCreateChapter" disabled></select>
-              </label>
-              <label class="plot-create-position" id="plotCreatePositionField">
-                <span>放在第几章</span>
-                <input id="plotCreatePosition" type="number" min="1" step="1" required />
-              </label>
-              <label>
-                <span>整理状态</span>
-                <select id="plotCreateStatusField">
-                  <option value="草稿" selected>草稿</option>
-                  <option value="待串联">待串联</option>
-                  <option value="已接入">已接入</option>
-                </select>
-              </label>
-              <label>
-                <span>强调色</span>
-                <input id="plotCreateAccent" type="color" value="#3f7fc1" />
-              </label>
-              <label class="plot-create-wide">
-                <span>一句话摘要</span>
-                <input id="plotCreateSummary" type="text" maxlength="500" placeholder="可选，用一句话说明这一章的作用" />
-              </label>
-              <label class="plot-create-wide">
-                <span>剧情线 <small>用逗号分隔</small></span>
-                <input id="plotCreateLanes" type="text" placeholder="例如：主线，旧案线" />
-              </label>
-              <label class="plot-create-wide">
-                <span>标签 <small>用逗号分隔</small></span>
-                <input id="plotCreateTags" type="text" placeholder="例如：雨夜，身份暴露" />
-              </label>
-              <div class="plot-create-flags">
-                <label><input id="plotCreateKey" type="checkbox" />关键剧情</label>
-                <label><input id="plotCreateClimax" type="checkbox" />高潮剧情</label>
+            <details class="plot-create-settings" id="plotCreateSettings">
+              <summary>
+                <strong>剧情设置</strong>
+                <span class="plot-create-settings-action" aria-hidden="true"></span>
+              </summary>
+              <div class="plot-create-meta">
+                <label class="plot-create-title-field">
+                  <span>剧情标题</span>
+                  <input id="plotCreateName" type="text" maxlength="120" autocomplete="off" placeholder="这一章发生了什么？" required />
+                </label>
+                <label class="plot-create-chapter">
+                  <span>所属篇章 <small>按章序自动归类</small></span>
+                  <select id="plotCreateChapter" disabled></select>
+                </label>
+                <label class="plot-create-position" id="plotCreatePositionField">
+                  <span>放在第几章</span>
+                  <input id="plotCreatePosition" type="number" min="1" step="1" required />
+                </label>
+                <label>
+                  <span>整理状态</span>
+                  <select id="plotCreateStatusField">
+                    <option value="草稿" selected>草稿</option>
+                    <option value="素材">素材</option>
+                    <option value="待串联">待串联</option>
+                    <option value="已接入">已接入</option>
+                  </select>
+                </label>
+                <label>
+                  <span>强调色</span>
+                  <input id="plotCreateAccent" type="color" value="#3f7fc1" />
+                </label>
+                <label class="plot-create-wide">
+                  <span>一句话摘要</span>
+                  <input id="plotCreateSummary" type="text" maxlength="500" placeholder="可选，用一句话说明这一章的作用" />
+                </label>
+                <label class="plot-create-wide">
+                  <span>剧情线 <small>在时间线编辑器中编排</small></span>
+                  <input id="plotCreateLanes" type="text" placeholder="新文章保存后会进入未编排剧情" readonly />
+                </label>
+                <label class="plot-create-wide">
+                  <span>标签 <small>用逗号分隔</small></span>
+                  <input id="plotCreateTags" type="text" placeholder="例如：雨夜，身份暴露" />
+                </label>
+                <label>
+                  <span>手动补充人物</span>
+                  <select id="plotCreatePeople" multiple aria-label="手动补充出场人物"></select>
+                </label>
+                <label>
+                  <span>手动补充设定</span>
+                  <select id="plotCreateEntries" multiple aria-label="手动补充关联设定"></select>
+                </label>
+                <div class="plot-create-flags">
+                  <label><input id="plotCreateKey" type="checkbox" />关键剧情</label>
+                  <label><input id="plotCreateClimax" type="checkbox" />高潮剧情</label>
+                </div>
               </div>
-            </div>
-            <div class="plot-insert-impact" id="plotInsertImpact"></div>
+              <div class="plot-insert-impact" id="plotInsertImpact"></div>
+            </details>
             <div class="plot-editor-workspace">
               <label class="plot-editor-pane">
                 <span>Markdown 正文</span>
@@ -207,6 +218,14 @@
           </div>
           <button class="diagnostic-refresh-btn" id="diagnosticRefreshBtn" type="button">重新检查</button>
         </header>
+        <section class="plot-trash-workspace is-hidden" id="plotTrashWorkspace">
+          <div>
+            <p class="eyebrow">Recovery</p>
+            <h3>内容回收站</h3>
+            <p>删除的剧情、人物、关系、设定和碎片保留 7 天，可在永久清理前恢复。</p>
+          </div>
+          <button class="plot-trash-trigger" id="plotTrashTrigger" type="button">查看回收站（<span id="plotTrashCount">0</span>）</button>
+        </section>
         <section class="refactor-workspace" id="refactorWorkspace">
           <div class="refactor-head">
             <div>
@@ -299,6 +318,7 @@
               <button id="relationshipCreateBtn" type="submit">创建关系</button>
             </div>
           </form>
+          <div class="relationship-manager-list" id="relationshipManagerList"></div>
         </section>
         <div class="diagnostic-summary" id="diagnosticSummary"></div>
         <div class="diagnostic-list" id="diagnosticList"></div>
@@ -352,6 +372,7 @@
             <h2>剧情时间线</h2>
           </div>
           <div class="timeline-actions">
+            <button class="timeline-edit-trigger is-hidden" id="timelineEditTrigger" type="button">编辑时间线</button>
             <button class="timeline-direction-btn" id="timelineDirectionBtn" type="button">顶端：开始</button>
             <div class="hint">点击节点跳到剧情页阅读全文</div>
           </div>
@@ -494,6 +515,73 @@
       </section>
     </main>
 
+    <dialog class="timeline-editor-dialog" id="timelineEditorDialog" aria-labelledby="timelineEditorTitle">
+      <div class="timeline-editor-shell">
+        <header class="timeline-editor-head">
+          <div>
+            <p class="eyebrow">Timeline Workspace</p>
+            <h3 id="timelineEditorTitle">编辑时间线</h3>
+            <p>文章顺序决定节点上下位置；这里负责剧情线归属、分支和汇合。</p>
+          </div>
+          <button class="timeline-editor-close" id="timelineEditorClose" type="button" aria-label="关闭时间线编辑器">×</button>
+        </header>
+        <div class="timeline-editor-workspace">
+          <aside class="timeline-editor-lines">
+            <div class="timeline-editor-section-head">
+              <div>
+                <strong>剧情线</strong>
+                <span id="timelineEditorLineCount">0 条</span>
+              </div>
+              <button id="timelineEditorAddLine" type="button">新建剧情线</button>
+            </div>
+            <div class="timeline-editor-line-list" id="timelineEditorLineList"></div>
+            <button class="timeline-editor-unassigned" id="timelineEditorUnassigned" type="button">
+              <span>未编排剧情</span>
+              <strong id="timelineEditorUnassignedCount">0</strong>
+            </button>
+          </aside>
+          <section class="timeline-editor-events">
+            <div class="timeline-editor-events-head">
+              <div>
+                <strong>文章节点</strong>
+                <span>纵向顺序固定跟随文章；拖到左侧可切换剧情线</span>
+              </div>
+              <input id="timelineEditorSearch" type="search" placeholder="搜索文章" />
+            </div>
+            <div class="timeline-editor-event-list" id="timelineEditorEventList"></div>
+          </section>
+          <aside class="timeline-editor-inspector" id="timelineEditorInspector"></aside>
+        </div>
+        <footer class="timeline-editor-footer">
+          <p id="timelineEditorStatus" aria-live="polite"></p>
+          <div>
+            <button class="timeline-editor-cancel" id="timelineEditorCancel" type="button">取消</button>
+            <button class="timeline-editor-save" id="timelineEditorSave" type="button">保存时间线</button>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog class="plot-trash-dialog" id="plotTrashDialog" aria-labelledby="plotTrashTitle">
+      <div class="plot-trash-head">
+        <div>
+          <h3 id="plotTrashTitle">内容回收站</h3>
+          <p>删除的内容会保留 7 天，到期后才会永久删除。</p>
+        </div>
+        <button class="plot-trash-close" id="plotTrashClose" type="button" aria-label="关闭回收站">×</button>
+      </div>
+      <div class="plot-trash-content">
+        <div class="plot-trash-list" id="plotTrashList"></div>
+        <article class="plot-trash-preview" id="plotTrashPreview">
+          <div class="plot-trash-preview-empty">
+            <strong>选择一项内容预览</strong>
+            <p>内容只会在点击预览时加载。</p>
+          </div>
+        </article>
+      </div>
+      <p class="plot-trash-status" id="plotTrashStatus" aria-live="polite"></p>
+    </dialog>
+
     <script src="./vendor/js-yaml/js-yaml.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./graph-renderer.js?v=fluid-appearance-panel"></script>
@@ -507,6 +595,7 @@
     <script src="./src/views/characters.js?v=fluid-appearance-panel"></script>
     <script src="./src/views/entries.js?v=fluid-appearance-panel"></script>
     <script src="./src/views/graph.js?v=fluid-appearance-panel"></script>
+    <script src="./src/features/content-manager.js?v=fluid-appearance-panel"></script>
     <script src="./src/bootstrap.js?v=fluid-appearance-panel"></script>
   </body>
 </html>

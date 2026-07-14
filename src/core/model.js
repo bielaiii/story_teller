@@ -23,6 +23,7 @@ let configDiagnostics = [];
 let refactorCapability = null;
 let refactorOperationId = "";
 let refactorCapabilityProject = "";
+let trashedPlotIds = new Set();
 const DATA_VERSION = "content-index-v1";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
@@ -370,6 +371,7 @@ function validateProjectConfiguration() {
   const diagnostics = [];
   const add = (level, title, detail, source) => diagnostics.push({ level, title, detail, source });
   const hasId = (records, id) => records.some((record) => String(record.id) === String(id));
+  const hasActiveOrTrashedPlot = (id) => hasId(plots, id) || trashedPlotIds.has(String(id));
 
   const checkDuplicateIds = (records, label) => {
     const groups = new Map();
@@ -465,7 +467,7 @@ function validateProjectConfiguration() {
       );
     }
     (person.events || []).forEach((id) => {
-      if (!hasId(plots, id)) {
+      if (!hasActiveOrTrashedPlot(id)) {
         add("error", `人物引用了不存在的剧情：${id}`, `${person.name}的 events 中存在失效编号。`, `人物 ${person.id}`);
       }
     });
@@ -478,7 +480,7 @@ function validateProjectConfiguration() {
       }
     });
     (place.plots || []).forEach((id) => {
-      if (!hasId(plots, id)) {
+      if (!hasActiveOrTrashedPlot(id)) {
         add("error", `设定引用了不存在的剧情：${id}`, `${place.name}的 plots 中存在失效编号。`, `设定 ${place.id}`);
       }
     });
@@ -523,20 +525,23 @@ function validateProjectConfiguration() {
     }
   });
 
-  const timelineLines = new Set([
-    timelineConfig.mainLine || "主线",
-    ...plots.flatMap((plot) => (Array.isArray(plot.lanes) ? plot.lanes : [plot.lane]).filter(Boolean)),
-  ]);
-  (timelineConfig.nodes || []).forEach((node) => {
-    if (!hasId(plots, node.plotId)) {
-      add("error", `时间线节点缺少剧情：${node.plotId}`, "节点的 plotId 没有对应剧情文件。", "时间线");
-    }
-  });
-  (timelineConfig.branches || []).forEach((branch) => {
-    if (branch.line && !timelineLines.has(branch.line)) {
-      add("warning", `时间线样式没有对应剧情线：${branch.line}`, "没有剧情文章归属于这条线，因此它不会显示。", "时间线");
-    }
-  });
+  if (timelineConfigLoaded) {
+    const timelineLines = new Set((timelineConfig.lineConfigs || []).map((line) => line.name));
+    plots.forEach((plot) => {
+      (plot.lanes || []).forEach((lane) => {
+        if (!timelineLines.has(lane)) {
+          add("warning", `文章使用了未登记的剧情线：${lane}`, `《${plot.title}》可以在时间线编辑器中重新编排。`, "时间线");
+        }
+      });
+    });
+    (timelineConfig.lineConfigs || []).forEach((line) => {
+      for (const key of ["startPlotId", "endPlotId"]) {
+        if (line[key] && !hasActiveOrTrashedPlot(line[key])) {
+          add("error", `${line.name}的分支锚点失效`, `剧情 ${line[key]} 不存在，请在时间线编辑器中重新选择。`, "时间线");
+        }
+      }
+    });
+  }
 
   const checkGraphMember = (id, source) => {
     if (!hasId(characters, id)) {
@@ -587,6 +592,19 @@ async function loadStaticContentIndex() {
   return result.collections;
 }
 
+async function loadTrashedPlotIds() {
+  try {
+    const response = await fetch(`/api/plots/trash?project=${encodeURIComponent(projectConfig.id)}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return new Set();
+    const result = await response.json();
+    return new Set((result.items || []).map((item) => String(item.id)));
+  } catch {
+    return new Set();
+  }
+}
+
 function parseConfigBlocks(body, sectionName) {
   const lines = body.split("\n");
   const blocks = [];
@@ -616,12 +634,76 @@ function parseConfigBlocks(body, sectionName) {
 }
 
 async function loadTimelineConfig(path) {
-  if (!path) return {};
+  if (!path) return normalizeTimelineConfig({});
   const { meta, body } = parseMarkdownFile(await fetchText(path));
-  return {
+  return normalizeTimelineConfig({
     ...meta,
     branches: parseConfigBlocks(body, "Branches"),
     nodes: parseConfigBlocks(body, "Nodes"),
+    lineConfigs: parseConfigBlocks(body, "Lines"),
+  });
+}
+
+function normalizeTimelineConfig(config = {}) {
+  const mainLine = String(config.mainLine || "主线").trim() || "主线";
+  const legacyNames = Array.isArray(config.lines)
+    ? config.lines.map((line) => String(line || "").trim()).filter(Boolean)
+    : [];
+  const discoveredNames = plots.flatMap((plot) => (
+    Array.isArray(plot.lanes) ? plot.lanes : [plot.lane]
+  )).map((line) => String(line || "").trim()).filter(Boolean);
+  const branchByName = new Map((config.branches || []).map((branch) => [branch.line, branch]));
+  let lineConfigs = Array.isArray(config.lineConfigs)
+    ? config.lineConfigs.map((line) => ({
+      ...line,
+      name: String(line.name || line.line || "").trim(),
+    })).filter((line) => line.name)
+    : [];
+  if (!lineConfigs.length) {
+    const palette = Array.isArray(config.palette) ? config.palette : [];
+    const names = [...new Set([mainLine, ...legacyNames, ...discoveredNames])];
+    lineConfigs = names.map((name, index) => ({
+      ...(branchByName.get(name) || {}),
+      name,
+      color: safeCssColor(branchByName.get(name)?.color || palette[index], generatedTimelineColor(index)),
+      side: name === mainLine
+        ? "center"
+        : (branchByName.get(name)?.side === "left" ? "left" : "right"),
+      order: index + 1,
+    }));
+  }
+  const configuredNames = new Set(lineConfigs.map((line) => line.name));
+  [...new Set([mainLine, ...discoveredNames])].forEach((name) => {
+    if (configuredNames.has(name)) return;
+    lineConfigs.push({
+      name,
+      color: generatedTimelineColor(lineConfigs.length),
+      side: name === mainLine ? "center" : (lineConfigs.length % 2 ? "right" : "left"),
+      order: lineConfigs.length + 1,
+    });
+    configuredNames.add(name);
+  });
+  lineConfigs.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  if (!lineConfigs.some((line) => line.name === mainLine)) {
+    lineConfigs.unshift({ name: mainLine, color: "#d65f8f", side: "center", order: 1 });
+  }
+  lineConfigs = lineConfigs.map((line, index) => ({
+    ...line,
+    color: safeCssColor(line.color, generatedTimelineColor(index)),
+    side: line.name === mainLine ? "center" : (line.side === "left" ? "left" : "right"),
+    order: index + 1,
+  }));
+  const branches = lineConfigs
+    .filter((line) => line.name !== mainLine)
+    .map((line) => ({ ...line, line: line.name }));
+  return {
+    ...config,
+    version: Number(config.version || 1),
+    mainLine,
+    lineConfigs,
+    lines: lineConfigs.map((line) => line.name),
+    palette: lineConfigs.map((line) => line.color),
+    branches,
   };
 }
 
@@ -664,12 +746,18 @@ async function loadGraphLayoutConfig(path) {
     id: characterId(node.id),
     orbitOf: characterId(node.orbitOf),
   }));
+  const savedPositions = parseConfigBlocks(body, "Saved Positions").map((position) => ({
+    id: characterId(position.id),
+    x: Number(position.x),
+    y: Number(position.y),
+  })).filter((position) => position.id && Number.isFinite(position.x) && Number.isFinite(position.y));
   return {
     ...meta,
     formations,
     distances,
     clusters,
     nodes,
+    savedPositions,
   };
 }
 
@@ -708,6 +796,7 @@ async function loadMarkdownData() {
   timelineConfig = {};
   timelineConfigPromise = null;
   timelineConfigLoaded = false;
+  const loadedTrashedPlotIds = await loadTrashedPlotIds();
 
   const [
     loadedCharacters,
@@ -788,6 +877,16 @@ async function loadMarkdownData() {
   places = loadedPlaces;
   relationships = loadedRelationships;
   graphLayoutConfig = loadedGraphLayoutConfig;
+  const savedPositionById = new Map((graphLayoutConfig.savedPositions || []).map((item) => [String(item.id), item]));
+  characters.forEach((person) => {
+    const saved = savedPositionById.get(String(person.id));
+    if (!saved) return;
+    person.px = saved.x;
+    person.py = saved.y;
+    person.manualAnchorX = saved.x;
+    person.manualAnchorY = saved.y;
+  });
+  trashedPlotIds = loadedTrashedPlotIds;
   await connectPlotReferences();
   await yieldToMain();
   configDiagnostics = validateProjectConfiguration();

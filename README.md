@@ -32,7 +32,7 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 
 小说数据按内容包放在 `content/` 目录中。当前仓库只跟踪 `content/demo/` 作为开发样例，真实小说内容包可以放在 `content/你的项目名/`，默认不会被提交。
 
-使用 `./run.sh` 启动 localhost 后，服务会自动扫描当前内容包中的 `characters/`、`plots/`、`fragments/`、`entries/` 和 `relationships/` 目录。新增或删除 Markdown 文件后刷新网页即可同步，不需要再把文件路径登记到 `manifest.md`。
+使用 `./run.sh` 启动 localhost 后，从网页完成剧情、人物、关系、设定、碎片、时间线、篇章和图谱布局的新增与修改。Markdown 是内部持久化格式，不需要通过文件编辑器维护。
 
 扫描结果会同时写入当前内容包的 `content-index.json`。localhost 和静态部署读取同一份索引结构，不再维护两套文件清单；准备静态部署前，先在 localhost 刷新一次对应项目即可更新索引。
 
@@ -42,10 +42,10 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 http://127.0.0.1:4180/index.html?project=demo
 ```
 
-人物、剧情、关系、时间线都使用 Markdown 文件配置。具体格式见 `content/demo/README.md`。
+所有内容类型都支持网页写入；删除内容统一保留 7 天后才永久清理。`timeline.md`、`graph-layout.md`、`manifest.md` 和 `content-index.json` 都由对应页面或本地服务维护。具体操作说明见 `content/demo/README.md`。
 
 ## 安全重命名
 
 打开“配置检查”，在“安全重命名”中选择人物或设定档案。工具会先列出所有受影响的 Markdown 文件和行，确认后才会写入，并支持撤销最近一次重命名。
 
-重命名只改变档案的 `name` 和正文中的同名引用，不改变 ID、文件名和关系配置。
+重命名不会改变稳定 ID，但会同步正文引用以及人物、关系的可读文件名。

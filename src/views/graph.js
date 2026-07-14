@@ -1,8 +1,9 @@
 let graphLinesReady = false;
 
-function switchView(view) {
+function switchView(view, { resetStory = false } = {}) {
   const previousView = state.view;
   const activeNav = view === "plot-detail" ? "story" : view;
+  if (view === "story" && resetStory) resetStoryNavigationState();
   if (previousView === "graph" && view !== "graph") {
     graphStage?.classList.add("has-completed-node-entry");
   }
@@ -46,11 +47,9 @@ function switchView(view) {
   }
   if (state.view === "diagnostics") {
     requestDiagnosticsRender();
+    refreshPlotTrashAccess();
   }
-  if (state.view === "story" && previousView !== "story" && previousView !== "plot-detail") {
-    state.plotShelf = "all";
-    state.plotTags = allPlotTags();
-    state.plotPage = 1;
+  if (state.view === "story" && (previousView !== "story" || resetStory)) {
     renderChapterSwitch();
     renderStoryFilters();
     renderPlots();
@@ -77,12 +76,26 @@ function renderProfile() {
 
   eventList.innerHTML = items
     .map((plot, index) => `
-      <article class="event-item" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 70}ms">
+      <button
+        class="event-item"
+        data-plot-id="${escapeHtml(plot.id)}"
+        type="button"
+        style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 70}ms"
+        aria-label="打开《${escapeHtml(plot.title)}》，${escapeHtml(chapterName(plot.chapter))}第 ${escapeHtml(plotSequence(plot))} 章"
+      >
         <span class="event-dot"></span>
-        <p>${escapeHtml(plot.title)}：${escapeHtml(markdownExcerpt(plot.text, 120))}</p>
-      </article>
+        <span class="event-copy">
+          <strong>${escapeHtml(plot.title)}</strong>
+          <small>${escapeHtml(chapterName(plot.chapter))} · 第 ${escapeHtml(plotSequence(plot))} 章</small>
+          <p>${escapeHtml(markdownExcerpt(plot.text, 120))}</p>
+        </span>
+        <span class="event-arrow" aria-hidden="true">→</span>
+      </button>
     `)
     .join("");
+  eventList.querySelectorAll(".event-item[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => openPlotDetail(Number(button.dataset.plotId)));
+  });
   profileFloat.classList.remove("is-hidden");
 }
 

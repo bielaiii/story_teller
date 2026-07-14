@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote, urlparse
 from unittest.mock import patch
 
 from server import (
@@ -11,6 +12,8 @@ from server import (
     canonical_character_filename,
     canonical_plot_filename,
     canonical_relationship_filename,
+    plot_trash_records,
+    purge_expired_plot_trash,
     relationship_character_ids,
     write_content_index,
 )
@@ -308,6 +311,253 @@ label: 母子
         self.assertEqual(responses[-1][0]["shiftedCount"], 1)
         self.assertEqual(responses[-1][1], 201)
 
+    def test_update_plot_preserves_stable_fields_and_renames_file(self):
+        handler, project_root, responses = self.relationship_handler()
+        original = project_root / "plots" / "007-old-title.md"
+        self.write_markdown_at(
+            original,
+            """---
+id: 7
+sequence: 4
+chapter: act2
+title: 旧标题
+people: [3]
+entries: [dock]
+customField: keep-me
+accent: "#3f7fc1"
+status: 草稿
+---
+旧正文
+""",
+        )
+        write_content_index(project_root, build_content_index(project_root))
+
+        handler.update_plot(
+            {
+                "project": "novel",
+                "id": 7,
+                "title": "新标题",
+                "summary": "更新后的摘要",
+                "body": "## 新正文\n\n修改已经保存。",
+                "chapter": "act2",
+                "status": "已接入",
+                "accent": "#2A9D8F",
+                "tags": ["修改"],
+                "lanes": ["主线"],
+                "key": True,
+                "climax": False,
+            }
+        )
+
+        updated = project_root / "plots" / "007-新标题.md"
+        self.assertFalse(original.exists())
+        self.assertTrue(updated.is_file())
+        text = updated.read_text(encoding="utf-8")
+        self.assertIn("id: 7", text)
+        self.assertIn("sequence: 4", text)
+        self.assertIn("people: [3]", text)
+        self.assertIn("customField: keep-me", text)
+        self.assertIn('title: "新标题"', text)
+        self.assertIn('accent: "#2a9d8f"', text)
+        self.assertIn("key: true", text)
+        self.assertNotIn("climax:", text)
+        self.assertIn("修改已经保存。", text)
+        self.assertEqual(responses[-1][0]["id"], 7)
+
+    def test_update_timeline_uses_plot_sequence_and_atomically_updates_assignments(self):
+        handler, project_root, responses = self.relationship_handler()
+        first = project_root / "plots" / "001-first.md"
+        second = project_root / "plots" / "002-second.md"
+        self.write_markdown_at(
+            first,
+            "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 开始\nlanes: [旧线]\n---\n正文一\n",
+        )
+        self.write_markdown_at(
+            second,
+            "---\nid: 2\nsequence: 2\nchapter: act1\ntitle: 汇合\n---\n正文二\n",
+        )
+        self.write_markdown_at(project_root / "timeline.md", "## Nodes\n\n- plotId: 1\n  linePosition: 99\n")
+
+        handler.update_timeline(
+            {
+                "project": "novel",
+                "config": {
+                    "mainLine": "主线",
+                    "lineSpacing": 70,
+                    "topPadding": 60,
+                    "sidePadding": 32,
+                    "pixelsPerStoryUnit": 760,
+                    "lines": [
+                        {"name": "主线", "color": "#d65f8f", "side": "center"},
+                        {
+                            "name": "支线",
+                            "color": "#3f7fc1",
+                            "side": "right",
+                            "startPlotId": 1,
+                            "endPlotId": 2,
+                        },
+                    ],
+                },
+                "assignments": [
+                    {"plotId": 1, "lanes": ["主线"]},
+                    {"plotId": 2, "lanes": ["支线"]},
+                ],
+            }
+        )
+
+        timeline_text = (project_root / "timeline.md").read_text(encoding="utf-8")
+        self.assertIn("version: 2", timeline_text)
+        self.assertIn("## Lines", timeline_text)
+        self.assertNotIn("## Nodes", timeline_text)
+        self.assertIn("startPlotId: 1", timeline_text)
+        self.assertIn('lanes: ["主线"]', first.read_text(encoding="utf-8"))
+        self.assertIn('lanes: ["支线"]', second.read_text(encoding="utf-8"))
+        self.assertEqual(responses[-1][0]["updatedPlotCount"], 2)
+
+    def test_update_timeline_rejects_branch_with_reversed_anchors(self):
+        handler, project_root, _ = self.relationship_handler()
+        self.write_markdown_at(
+            project_root / "plots" / "001-first.md",
+            "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 开始\n---\n正文一\n",
+        )
+        self.write_markdown_at(
+            project_root / "plots" / "002-second.md",
+            "---\nid: 2\nsequence: 2\nchapter: act1\ntitle: 汇合\n---\n正文二\n",
+        )
+
+        with self.assertRaisesRegex(ValueError, "必须晚于"):
+            handler.update_timeline(
+                {
+                    "project": "novel",
+                    "config": {
+                        "mainLine": "主线",
+                        "lines": [
+                            {"name": "主线", "color": "#d65f8f", "side": "center"},
+                            {
+                                "name": "支线",
+                                "color": "#3f7fc1",
+                                "side": "left",
+                                "startPlotId": 2,
+                                "endPlotId": 1,
+                            },
+                        ],
+                    },
+                    "assignments": [
+                        {"plotId": 1, "lanes": ["主线"]},
+                        {"plotId": 2, "lanes": ["支线"]},
+                    ],
+                }
+            )
+
+    def test_delete_plot_moves_to_trash_and_restore_recovers_it(self):
+        handler, project_root, responses = self.relationship_handler()
+        earlier = project_root / "plots" / "001-earlier.md"
+        target = project_root / "plots" / "007-delete-me.md"
+        later = project_root / "plots" / "008-later.md"
+        self.write_markdown_at(earlier, "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 前一章\n---\n正文一\n")
+        self.write_markdown_at(target, "---\nid: 7\nsequence: 2\nchapter: act2\ntitle: 删除我\n---\n正文七\n")
+        self.write_markdown_at(later, "---\nid: 8\nsequence: 3\nchapter: act2\ntitle: 后一章\n---\n正文八\n")
+        character = project_root / "characters" / "3-林越.md"
+        self.write_markdown_at(character, "---\nid: 3\nname: 林越\nevents: [7, 8]\n---\n人物设定\n")
+        entry = project_root / "entries" / "dock.md"
+        self.write_markdown_at(entry, "---\nid: dock\nname: 码头\nplots: [7, 8]\n---\n设定\n")
+        timeline = project_root / "timeline.md"
+        self.write_markdown_at(
+            timeline,
+            "## Nodes\n\n- plotId: 7\n  line: 主线\n  linePosition: 1\n- plotId: 8\n  line: 主线\n  linePosition: 2\n",
+        )
+        write_content_index(project_root, build_content_index(project_root))
+
+        handler.delete_plot({"project": "novel", "id": 7})
+
+        self.assertFalse(target.exists())
+        self.assertIn("sequence: 2", later.read_text(encoding="utf-8"))
+        self.assertIn("events: [7, 8]", character.read_text(encoding="utf-8"))
+        self.assertIn("plots: [7, 8]", entry.read_text(encoding="utf-8"))
+        timeline_text = timeline.read_text(encoding="utf-8")
+        self.assertIn("plotId: 7", timeline_text)
+        self.assertIn("plotId: 8", timeline_text)
+        self.assertNotIn("./plots/007-delete-me.md", (project_root / "content-index.json").read_text(encoding="utf-8"))
+        self.assertEqual(responses[-1][0]["shiftedCount"], 1)
+        trash_id = responses[-1][0]["trashId"]
+        self.assertTrue((project_root / ".trash" / "plots" / trash_id).is_file())
+
+        handler.local_host = lambda: True
+        handler.plot_trash_preview(
+            urlparse(f"/api/plots/trash/preview?project=novel&trashId={quote(trash_id)}")
+        )
+        self.assertIn("正文七", responses[-1][0]["body"])
+
+        handler.restore_plot({"project": "novel", "trashId": trash_id})
+
+        self.assertTrue(target.is_file())
+        self.assertIn("sequence: 2", target.read_text(encoding="utf-8"))
+        self.assertIn("sequence: 3", later.read_text(encoding="utf-8"))
+        self.assertFalse((project_root / ".trash" / "plots" / trash_id).exists())
+
+    def test_delete_plot_normalizes_missing_and_gapped_sequences(self):
+        handler, project_root, _ = self.relationship_handler()
+        first = project_root / "plots" / "001-first.md"
+        target = project_root / "plots" / "002-target.md"
+        later = project_root / "plots" / "003-later.md"
+        self.write_markdown_at(first, "---\nid: 1\nchapter: act1\ntitle: 第一章\n---\n正文一\n")
+        self.write_markdown_at(target, "---\nid: 2\nsequence: 2\nchapter: act1\ntitle: 删除我\n---\n正文二\n")
+        self.write_markdown_at(later, "---\nid: 3\nsequence: 9\nchapter: act1\ntitle: 后一章\n---\n正文三\n")
+
+        handler.delete_plot({"project": "novel", "id": 2})
+
+        self.assertIn("sequence: 1", first.read_text(encoding="utf-8"))
+        self.assertIn("sequence: 2", later.read_text(encoding="utf-8"))
+
+    def test_expired_plot_trash_is_permanently_deleted_and_cleans_references(self):
+        handler, project_root, _ = self.relationship_handler()
+        target = project_root / "plots" / "007-delete-me.md"
+        self.write_markdown_at(target, "---\nid: 7\nsequence: 7\nchapter: act2\ntitle: 删除我\n---\n正文七\n")
+        character = project_root / "characters" / "3-林越.md"
+        self.write_markdown_at(character, "---\nid: 3\nname: 林越\nevents: [7, 8]\n---\n人物设定\n")
+        entry = project_root / "entries" / "dock.md"
+        self.write_markdown_at(entry, "---\nid: dock\nname: 码头\nplots: [7, 8]\n---\n设定\n")
+        timeline = project_root / "timeline.md"
+        self.write_markdown_at(
+            timeline,
+            "## Lines\n\n- name: 支线\n  startPlotId: 7\n  endPlotId: 8\n\n## Nodes\n\n- plotId: 7\n  line: 主线\n  linePosition: 1\n",
+        )
+
+        handler.delete_plot({"project": "novel", "id": 7})
+        record = plot_trash_records(project_root)[0]
+        purged = purge_expired_plot_trash(project_root, now=record["expiresAt"] + 1)
+
+        self.assertEqual(purged, 1)
+        self.assertFalse(record["_path"].exists())
+        self.assertIn("events: [8]", character.read_text(encoding="utf-8"))
+        self.assertIn("plots: [8]", entry.read_text(encoding="utf-8"))
+        timeline_text = timeline.read_text(encoding="utf-8")
+        self.assertNotIn("plotId: 7", timeline_text)
+        self.assertNotIn("startPlotId: 7", timeline_text)
+        self.assertIn("endPlotId: 8", timeline_text)
+
+    def test_create_plot_does_not_reuse_an_id_held_in_trash(self):
+        handler, project_root, responses = self.relationship_handler()
+        target = project_root / "plots" / "007-delete-me.md"
+        self.write_markdown_at(target, "---\nid: 7\nsequence: 1\nchapter: act1\ntitle: 删除我\n---\n正文\n")
+        handler.delete_plot({"project": "novel", "id": 7})
+
+        handler.create_plot(
+            {
+                "project": "novel",
+                "title": "新剧情",
+                "body": "新正文",
+                "chapter": "act1",
+                "status": "草稿",
+                "accent": "#3f7fc1",
+                "tags": [],
+                "lanes": [],
+            }
+        )
+
+        self.assertEqual(responses[-1][0]["id"], 8)
+        self.assertTrue((project_root / "plots" / "008-新剧情.md").is_file())
+
     def test_create_relationship_rejects_duplicate_pair_in_reverse_order(self):
         handler, project_root, _ = self.relationship_handler()
         self.write_markdown_at(
@@ -378,6 +628,108 @@ label: 母子
         character_text = (project_root / "characters" / "3-林越.md").read_text(encoding="utf-8")
         self.assertIn('characterScope: "主线人物"', character_text)
         self.assertNotIn('characterScope: "一次性角色"', character_text)
+
+    def test_update_plot_reorders_all_articles_and_saves_manual_references(self):
+        handler, project_root, responses = self.relationship_handler()
+        for plot_id in (1, 2, 3):
+            self.write_markdown_at(
+                project_root / "plots" / f"{plot_id:03d}-plot.md",
+                f"---\nid: {plot_id}\nsequence: {plot_id}\nchapter: act1\ntitle: 第{plot_id}章\naccent: \"#3f7fc1\"\nstatus: 草稿\n---\n正文{plot_id}\n",
+            )
+
+        handler.update_plot({
+            "project": "novel",
+            "id": 3,
+            "sequence": 1,
+            "title": "移动后的章节",
+            "summary": "",
+            "body": "正文三",
+            "chapter": "act1",
+            "status": "草稿",
+            "accent": "#3f7fc1",
+            "tags": [],
+            "lanes": [],
+            "people": ["3"],
+            "entries": ["dock"],
+        })
+
+        moved = project_root / "plots" / "003-移动后的章节.md"
+        self.assertIn("sequence: 1", moved.read_text(encoding="utf-8"))
+        self.assertIn('people: ["3"]', moved.read_text(encoding="utf-8"))
+        self.assertIn('entries: ["dock"]', moved.read_text(encoding="utf-8"))
+        self.assertIn("sequence: 2", (project_root / "plots" / "001-plot.md").read_text(encoding="utf-8"))
+        self.assertIn("sequence: 3", (project_root / "plots" / "002-plot.md").read_text(encoding="utf-8"))
+        self.assertEqual(responses[-1][0]["sequence"], 1)
+
+    def test_character_delete_and_restore_includes_relationships_and_references(self):
+        handler, project_root, responses = self.relationship_handler()
+        relationship = project_root / "relationships" / "3-林越__9-沈清妙.md"
+        self.write_markdown_at(
+            relationship,
+            "---\npeople:\n  - id: 3\n    role: 朋友\n  - id: 9\n    role: 朋友\nlabel: 同伴\n---\n",
+        )
+        plot = project_root / "plots" / "001.md"
+        entry = project_root / "entries" / "dock.md"
+        self.write_markdown_at(plot, "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 测试\npeople: [3, 9]\n---\n正文\n")
+        self.write_markdown_at(entry, "---\nid: dock\nname: 码头\npeople: [3, 9]\n---\n设定\n")
+
+        handler.delete_record({"project": "novel", "kind": "character", "id": "3"})
+
+        self.assertFalse((project_root / "characters" / "3-林越.md").exists())
+        self.assertFalse(relationship.exists())
+        self.assertIn("people: [9]", plot.read_text(encoding="utf-8"))
+        self.assertIn("people: [9]", entry.read_text(encoding="utf-8"))
+        trash_id = responses[-1][0]["trashId"]
+
+        handler.restore_record({"project": "novel", "trashId": trash_id})
+
+        self.assertTrue((project_root / "characters" / "3-林越.md").is_file())
+        self.assertTrue(relationship.is_file())
+        self.assertIn("people: [3, 9]", plot.read_text(encoding="utf-8"))
+        self.assertFalse((project_root / ".trash" / "records" / trash_id).exists())
+
+    def test_entry_and_fragment_can_be_created_and_updated(self):
+        handler, project_root, _ = self.relationship_handler()
+        handler.save_entry({
+            "project": "novel", "create": True, "id": "old-dock", "name": "旧码头",
+            "type": "地点", "subtype": "码头", "area": "东区", "accent": "#3f7fc1",
+            "aliases": ["东码头"], "tags": ["旧案"], "people": ["3"], "plots": [],
+            "status": "草稿", "body": "码头设定",
+        })
+        handler.save_fragment({
+            "project": "novel", "create": True, "id": "rain-note", "title": "雨夜想法",
+            "status": "灵感", "accent": "#7d6bd6", "tags": ["雨夜"], "body": "一句台词。",
+        })
+        handler.save_fragment({
+            "project": "novel", "create": False, "id": "rain-note", "title": "雨夜场景",
+            "status": "待整理", "accent": "#d65f8f", "tags": ["雨夜"], "body": "扩写后的场景。",
+        })
+
+        self.assertIn("码头设定", (project_root / "entries" / "old-dock.md").read_text(encoding="utf-8"))
+        fragment = (project_root / "fragments" / "rain-note.md").read_text(encoding="utf-8")
+        self.assertIn('title: "雨夜场景"', fragment)
+        self.assertIn("扩写后的场景。", fragment)
+
+    def test_project_and_graph_layout_are_saved_through_api(self):
+        handler, project_root, responses = self.relationship_handler()
+        self.write_markdown_at(project_root / "manifest.md", "---\ntitle: 旧标题\nchapters: [act1]\nchapterAct1: 第一篇\n---\n")
+        handler.update_project({
+            "project": "novel", "title": "新作品", "eyebrow": "Novel",
+            "chapters": [{"id": "act1", "label": "开篇"}, {"id": "act2", "label": "反击篇"}],
+        })
+        handler.update_graph_layout({
+            "project": "novel", "nodeSpacing": 130, "relationshipDistance": 280,
+            "leafDistanceExtra": 60, "centerStrength": 1, "groupStrength": 1,
+            "leafStrength": 1, "anchors": [{"id": "3", "x": 120.5, "y": 240.25}],
+        })
+
+        manifest = (project_root / "manifest.md").read_text(encoding="utf-8")
+        graph = (project_root / "graph-layout.md").read_text(encoding="utf-8")
+        self.assertIn('title: "新作品"', manifest)
+        self.assertIn('chapters: ["act1", "act2"]', manifest)
+        self.assertIn("## Saved Positions", graph)
+        self.assertIn("x: 120.5", graph)
+        self.assertEqual(responses[-1][0]["anchorCount"], 1)
 
     def relationship_handler(self):
         content_root = self.project_root / "content"

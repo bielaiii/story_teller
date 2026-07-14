@@ -647,6 +647,8 @@ function renderCharacterDetail() {
           >
             <span aria-hidden="true">✎</span>
           </button>
+          <button class="character-edit-record" type="button">编辑档案</button>
+          <button class="character-delete-record" type="button">删除</button>
         </div>
         <div class="character-rename-editor is-hidden">
           <div class="character-rename-input-row">
@@ -691,13 +693,8 @@ function renderCharacterDetail() {
           const perspective = relationshipPerspective(link, person.id);
           const other = getCharacter(perspective.otherId);
           return `
-            <button
-              class="relation-row"
-              data-character-id="${escapeHtml(perspective.otherId)}"
-              type="button"
-              style="--accent:${escapeHtml(link.color)}"
-              aria-label="查看${escapeHtml(other?.name || perspective.otherId)}的人物详情"
-            >
+            <div class="relation-row-wrap">
+            <button class="relation-row" data-character-id="${escapeHtml(perspective.otherId)}" type="button" style="--accent:${escapeHtml(link.color)}" aria-label="查看${escapeHtml(other?.name || perspective.otherId)}的人物详情">
               <span class="mini-avatar" style="--avatar-gradient:${escapeHtml(other?.gradient || "linear-gradient(135deg, #3f7fc1, #7d6bd6)")}">
                 ${other ? avatarContent(other) : escapeHtml(perspective.otherId)}
               </span>
@@ -711,6 +708,8 @@ function renderCharacterDetail() {
               </span>
               <span class="relation-arrow" aria-hidden="true">→</span>
             </button>
+            <button class="relation-edit-record" data-from="${escapeHtml(link.from)}" data-to="${escapeHtml(link.to)}" type="button">编辑</button>
+            </div>
           `;
         }).join("") || '<p class="empty-state">这个人物还没有配置关系。</p>'}
       </div>
@@ -743,6 +742,15 @@ function renderCharacterDetail() {
   bindCharacterDensityFloat();
   bindCharacterRename(person);
   bindCharacterScopeTools(person);
+  characterDetail.querySelector(".character-edit-record")?.addEventListener("click", () => openContentEditor("character", person));
+  characterDetail.querySelector(".character-delete-record")?.addEventListener("click", () => deleteContentRecord("character", person));
+  characterDetail.querySelectorAll(".relation-edit-record").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const link = relationships.find((item) => item.from === button.dataset.from && item.to === button.dataset.to);
+      if (link) openContentEditor("relationship", link);
+    });
+  });
 }
 
 function temporaryCharacterPlots(person) {
