@@ -9,18 +9,21 @@ function renderPlaceList() {
     container: entryTypeFilter,
     label: "类型",
     items: entryTypes,
-    selected: state.entryType,
+    selected: state.entryTypes,
+    mode: "multi",
     onChange: (value) => {
-      state.entryType = value;
+      state.entryTypes = nextSelectedTags(state.entryTypes, entryTypes, value);
       renderPlaceList();
       renderPlaceDetail();
     },
   });
 
   const entryTags = allEntryTags();
+  const entryTagCount = document.querySelector("#entryTagCount");
+  if (entryTagCount) entryTagCount.textContent = String(entryTags.length);
   renderChipFilter({
     container: entryTagFilter,
-    label: "标签",
+    label: "",
     items: entryTags,
     selected: state.entryTags,
     mode: "multi",
@@ -32,7 +35,7 @@ function renderPlaceList() {
   });
 
   const visiblePlaces = places.filter((place) => {
-    if (state.entryType !== "all" && place.type !== state.entryType) return false;
+    if (!matchesSelectedTags([place.type].filter(Boolean), state.entryTypes, entryTypes)) return false;
     if (!matchesSelectedTags(place.tags || [], state.entryTags, entryTags)) return false;
     if (!state.placeSearch) return true;
     const keyword = state.placeSearch.toLowerCase();
@@ -96,14 +99,22 @@ function renderPlaceDetail() {
 
   placeDetail.innerHTML = `
     ${detailReturnButton()}
+    <header class="place-detail-toolbar" style="--accent:${escapeHtml(place.accent)}">
+      <div>
+        <p class="label">${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</p>
+        <h2>${escapeHtml(place.name)}</h2>
+      </div>
+      <div class="place-detail-actions" aria-label="${escapeHtml(place.name)}的设定操作">
+        <button class="entry-edit-record icon-action" type="button" aria-label="编辑${escapeHtml(place.name)}" title="编辑设定">${uiIcon("edit")}</button>
+        <button class="entry-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(place.name)}" title="删除设定">${uiIcon("trash")}</button>
+      </div>
+    </header>
     <div class="place-hero" style="--accent:${escapeHtml(place.accent)}">
       <div class="place-symbol ${entrySymbolClass(place.type)}" aria-label="${escapeHtml(place.type || "设定")}">
         <span class="place-symbol-glyph" aria-hidden="true"></span>
         <span class="place-symbol-label">${escapeHtml(place.type || "设定")}</span>
       </div>
       <div class="character-copy">
-        <p class="label">${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</p>
-        <div class="entry-title-actions"><h2>${escapeHtml(place.name)}</h2><button class="entry-edit-record icon-action" type="button" aria-label="编辑${escapeHtml(place.name)}" title="编辑设定">${uiIcon("edit")}</button><button class="entry-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(place.name)}" title="删除设定">${uiIcon("trash")}</button></div>
         <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
         <div class="place-facts">
           ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}

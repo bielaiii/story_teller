@@ -75,13 +75,14 @@ function ensureContentEditorDialog() {
 }
 
 function contentEditorField(id, label, value = "", options = {}) {
+  const fieldLabel = `<span>${escapeHtml(label)}${options.note ? `<small>${escapeHtml(options.note)}</small>` : ""}</span>`;
   if (options.type === "textarea") {
-    return `<label class="${options.wide ? "is-wide" : ""}"><span>${escapeHtml(label)}</span><textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""}>${escapeHtml(value)}</textarea></label>`;
+    return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""}>${escapeHtml(value)}</textarea></label>`;
   }
   if (options.type === "select") {
-    return `<label><span>${escapeHtml(label)}</span><select id="${id}" ${options.multiple ? "multiple" : ""} ${options.required ? "required" : ""}>${options.html || ""}</select></label>`;
+    return `<label>${fieldLabel}<select id="${id}" ${options.multiple ? "multiple" : ""} ${options.required ? "required" : ""}>${options.html || ""}</select></label>`;
   }
-  return `<label class="${options.wide ? "is-wide" : ""}"><span>${escapeHtml(label)}</span><input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} /></label>`;
+  return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} /></label>`;
 }
 
 function contentEditorSelected(id) {
@@ -150,13 +151,13 @@ async function openContentEditor(kind, record = null) {
       ${contentEditorField("ceScope", "收纳状态", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
       ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
       ${contentEditorField("ceGroup", "人物分组", record?.group || "")}
-      ${contentEditorField("ceImpact", "主线影响", record?.mainPlotImpact ?? 50, { type: "number", min: 0, max: 100 })}
+      ${contentEditorField("ceImpact", "主线影响", record?.mainPlotImpact ?? 50, { type: "number", min: 0, max: 100, note: "0 最小 · 100 最大" })}
       ${contentEditorField("ceColor", "人物颜色", record?.color || "#3f7fc1", { type: "color" })}
       ${contentEditorField("ceAvatar", "头像路径", record?.avatar?.replace(`${contentBasePath()}/`, "") || "")}
       ${contentEditorField("ceAliases", "别名", editorListValue(record?.aliases))}
       ${contentEditorField("ceMarkers", "人物标识", editorListValue(record?.markers))}
       ${contentEditorField("ceFacts", "档案字段（每行“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
-      ${contentEditorField("ceIntro", "人物简介", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
+      ${contentEditorField("ceIntro", "人物设定（每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
       ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}
     `;
@@ -217,6 +218,9 @@ async function openContentEditor(kind, record = null) {
   if (!contentManagerWritable()) {
     throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
   }
+  form.querySelectorAll("button, input, select, textarea").forEach((element) => {
+    element.disabled = false;
+  });
   dialog.showModal();
 }
 
@@ -268,10 +272,13 @@ async function saveContentEditor(event) {
       path = "/api/fragments/save";
       payload = { ...payload, create: creating, id: value("ceId"), title: value("ceTitle"), status: value("ceStatus"), accent: value("ceColor"), tags: commaSeparatedValues(value("ceTags")), body: value("ceBody") };
     }
-    await refactorApi(path, payload);
-    status.textContent = "保存成功，正在刷新…";
-    window.sessionStorage?.setItem("story-teller-open-view", { character: "characters", entry: "places", fragment: "fragments", relationship: "characters" }[kind] || "diagnostics");
-    window.setTimeout(() => window.location.reload(), 360);
+    const result = await refactorApi(path, payload);
+    status.textContent = "已保存";
+    await refreshWorkspaceDataInPlace({
+      characterId: kind === "character" ? result.id || form.dataset.recordId : "",
+      placeId: kind === "entry" ? result.id || form.dataset.recordId : "",
+    });
+    ensureContentEditorDialog().close();
   } catch (error) {
     status.textContent = error.message;
     form.querySelectorAll("button, input, select, textarea").forEach((element) => { element.disabled = false; });
@@ -287,9 +294,10 @@ async function deleteContentRecord(kind, record) {
   status.textContent = "正在移入回收站…";
   try {
     await refactorApi("/api/records/delete", { project: currentProjectId(), kind, id });
-    status.textContent = "已移入回收站，正在刷新…";
-    window.sessionStorage?.setItem("story-teller-open-view", "diagnostics");
-    window.setTimeout(() => window.location.reload(), 360);
+    status.textContent = "已移入回收站";
+    await refreshWorkspaceDataInPlace();
+    ensureContentEditorDialog().close();
+    refreshPlotTrashAccess();
   } catch (error) {
     status.textContent = error.message;
   }
@@ -314,6 +322,77 @@ function projectChapterRows() {
       <button class="project-chapter-remove icon-action is-danger" type="button" aria-label="删除篇章" title="${plots.some((plot) => plot.chapter === id) ? "该篇章仍有文章" : "删除篇章"}" ${plots.some((plot) => plot.chapter === id) ? "disabled" : ""}>${uiIcon("trash")}</button>
     </div>
   `).join("");
+}
+
+async function openProjectInPlace(projectId) {
+  const targetProjectId = String(projectId || "").trim();
+  if (targetProjectId && targetProjectId === currentProjectId()) return;
+  const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const nextUrl = new URL(window.location.href);
+  if (targetProjectId) nextUrl.searchParams.set("project", targetProjectId);
+  else nextUrl.searchParams.delete("project");
+  window.history.pushState({ project: targetProjectId }, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+
+  refactorCapability = null;
+  refactorCapabilityProject = "";
+  try {
+    await loadMarkdownData();
+  } catch (error) {
+    window.history.replaceState({}, "", previousUrl);
+    await loadMarkdownData();
+    throw error;
+  }
+
+  Object.assign(state, {
+    selected: "",
+    selectedCharacter: (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "",
+    selectedPlotId: null,
+    editingPlotId: null,
+    hasSelection: false,
+    chapter: "all",
+    plotStatus: "all",
+    plotTags: allPlotTags(),
+    plotShelf: "all",
+    fragmentTags: allFragmentTags(),
+    plotPage: 1,
+    fragmentPage: 1,
+    highlightPlotId: null,
+    dragging: null,
+    panning: null,
+    graphScale: 1,
+    graphPanX: 0,
+    graphPanY: 0,
+    search: "",
+    group: "all",
+    relationType: "all",
+    characterSearch: "",
+    characterShelf: "main",
+    characterCategory: "all",
+    characterGroup: "all",
+    characterViewMode: "cards",
+    characterAppearanceChapter: "all",
+    placeSearch: "",
+    entryTypes: [],
+    entryTags: allEntryTags(),
+    selectedPlace: places[0]?.id || "",
+    globalSearch: "",
+    highlightedReferenceType: "",
+    highlightedReferenceId: "",
+    detailReturnContext: null,
+    plotReadingPositions: {},
+    timelineReversed: false,
+  });
+  timelineModel = null;
+  timelineViewportKey = "";
+  graphDataDirty = true;
+  renderProjectChrome();
+  renderProfile();
+  hideGlobalSearchResults();
+  switchView("graph");
+  markRelatedNodes();
+  refreshPlotTrashAccess();
+  refreshTimelineEditorAccess();
+  refreshContentManagerAccess();
 }
 
 async function openProjectSettings() {
@@ -356,7 +435,9 @@ async function openProjectSettings() {
     const status = dialog.querySelector("#contentEditorStatus");
     try {
       await refactorApi("/api/projects/create", { id, title });
-      window.location.href = `${window.location.pathname}?project=${encodeURIComponent(id)}`;
+      status.textContent = "正在打开新作品…";
+      await openProjectInPlace(id);
+      dialog.close();
     } catch (error) {
       status.textContent = error.message;
     }
@@ -364,8 +445,15 @@ async function openProjectSettings() {
   const projectResult = await refactorApi("/api/projects");
   const projectSelect = dialog.querySelector("#projectSwitchSelect");
   projectSelect.innerHTML = projectResult.items.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === currentProjectId() ? "selected" : ""}>${escapeHtml(item.title)}（${escapeHtml(item.id)}）</option>`).join("");
-  dialog.querySelector("#projectSwitchOpen").onclick = () => {
-    window.location.href = `${window.location.pathname}?project=${encodeURIComponent(projectSelect.value)}`;
+  dialog.querySelector("#projectSwitchOpen").onclick = async () => {
+    const status = dialog.querySelector("#contentEditorStatus");
+    status.textContent = "正在切换作品…";
+    try {
+      await openProjectInPlace(projectSelect.value);
+      dialog.close();
+    } catch (error) {
+      status.textContent = error.message;
+    }
   };
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -374,7 +462,9 @@ async function openProjectSettings() {
     status.textContent = "正在保存作品设置…";
     try {
       await refactorApi("/api/project/update", { project: currentProjectId(), title: dialog.querySelector("#ceProjectTitle").value.trim(), eyebrow: dialog.querySelector("#ceProjectEyebrow").value.trim(), chapters });
-      window.location.reload();
+      status.textContent = "已保存";
+      await refreshWorkspaceDataInPlace();
+      dialog.close();
     } catch (error) {
       status.textContent = error.message;
     }
@@ -409,7 +499,8 @@ async function openGraphSettings() {
     try {
       await refactorApi("/api/graph-layout/update", { project: currentProjectId(), nodeSpacing: number("ceNodeSpacing"), relationshipDistance: number("ceRelationDistance"), leafDistanceExtra: number("ceLeafExtra"), centerStrength: number("ceCenterStrength"), groupStrength: number("ceGroupStrength"), leafStrength: number("ceLeafStrength"), anchors });
       status.textContent = `已保存 ${anchors.length} 个人物位置。`;
-      window.setTimeout(() => window.location.reload(), 350);
+      await refreshWorkspaceDataInPlace();
+      dialog.close();
     } catch (error) {
       status.textContent = error.message;
     }
@@ -426,8 +517,10 @@ async function repairProjectDiagnostics() {
   setIconButton(button, "restore", "正在安全修复…");
   try {
     const result = await refactorApi("/api/diagnostics/repair", { project: currentProjectId() });
+    await refreshWorkspaceDataInPlace();
+    button.disabled = false;
+    setIconButton(button, "repair", "安全修复");
     window.alert(result.changeCount ? `已完成 ${result.changeCount} 项安全修复。` : "没有需要自动修复的项目。");
-    window.location.reload();
   } catch (error) {
     window.alert(error.message);
     button.disabled = false;
@@ -452,7 +545,7 @@ function installContentManagerActions() {
   };
   addButton(document.querySelector('[data-page="places"] .place-rail'), "entryCreateTrigger", "新建设定", "add", () => openContentEditor("entry"));
   addButton(document.querySelector('[data-page="fragments"] .topbar'), "fragmentCreateTrigger", "新建碎片", "add", () => openContentEditor("fragment"));
-  addButton(document.querySelector('[data-page="story"] .story-head-actions'), "projectSettingsTrigger", "作品与篇章", "book", openProjectSettings);
+  addButton(document.querySelector('[data-page="story"] .story-head-actions'), "projectSettingsTrigger", "作品与篇章", "layout", openProjectSettings);
   addButton(document.querySelector('[data-page="graph"] .graph-tools'), "graphSettingsTrigger", "布局设置", "layout", openGraphSettings);
   addButton(document.querySelector('[data-page="diagnostics"] .topbar'), "diagnosticRepairTrigger", "安全修复", "repair", repairProjectDiagnostics);
 }

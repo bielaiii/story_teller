@@ -345,19 +345,8 @@ async function init() {
     refreshPlotTrashAccess();
     refreshTimelineEditorAccess();
     refreshContentManagerAccess();
-    const pendingPlotId = Number(window.sessionStorage?.getItem("story-teller-open-plot"));
-    const pendingView = window.sessionStorage?.getItem("story-teller-open-view");
-    if (pendingPlotId && plots.some((plot) => Number(plot.id) === pendingPlotId)) {
-      window.sessionStorage.removeItem("story-teller-open-plot");
-      window.sessionStorage.removeItem("story-teller-open-view");
-      openPlotDetail(pendingPlotId);
-    } else if (["story", "timeline", "characters", "places", "fragments", "diagnostics", "graph"].includes(pendingView)) {
-      window.sessionStorage.removeItem("story-teller-open-view");
-      switchView(pendingView);
-    } else {
-      switchView("graph");
-      startGraphLoop();
-    }
+    switchView("graph");
+    startGraphLoop();
   } catch (error) {
     plotStrip.innerHTML = `
       <article class="plot-card" style="--accent:#df7655">

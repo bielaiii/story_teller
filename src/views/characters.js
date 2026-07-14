@@ -475,8 +475,9 @@ async function createCharacterFromDialog(event) {
       markers: commaSeparatedValues(characterCreateMarkers?.value),
       intro: characterCreateIntro?.value.trim() || "",
     });
-    setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}），正在刷新人物库…`, "success");
-    window.setTimeout(() => window.location.reload(), 520);
+    setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}）`, "success");
+    await refreshWorkspaceDataInPlace({ characterId: result.id });
+    closeCharacterCreateDialog();
   } catch (error) {
     setCharacterCreateStatus(error.message, "error");
     setCharacterCreateBusy(false);
@@ -642,7 +643,7 @@ function renderCharacterDetail() {
           <button class="character-edit-record icon-action" type="button" aria-label="编辑${escapeHtml(person.name)}的档案" title="编辑档案">${uiIcon("edit")}</button>
           <button class="character-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(person.name)}" title="删除人物">${uiIcon("trash")}</button>
         </div>
-        <p>${escapeHtml(person.intro)}</p>
+        ${renderBulletNotes(person.intro, "character-intro-list")}
         ${person.facts.length ? `
           <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
             ${person.facts.map((fact) => `

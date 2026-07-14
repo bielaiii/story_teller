@@ -349,18 +349,18 @@
           <aside class="profile-float is-hidden" id="profileFloat" aria-live="polite">
             <div class="profile-head">
               <div class="selected-avatar" id="selectedAvatar">林</div>
-              <div>
+              <div class="profile-head-copy">
                 <p class="label">人物设定</p>
                 <h3 id="personName">林秋</h3>
               </div>
+              <button class="profile-detail-btn icon-action" id="profileDetailBtn" type="button" aria-label="进入完整人物档案" title="进入完整人物档案"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h5v5M19 3l-7 7"/><path d="M19 13v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h5"/></svg></button>
             </div>
-            <p id="personIntro">旧港档案馆修复师，负责整理一批被火烧过的航海日记。</p>
+            <ul class="profile-note-list graph-profile-note-list" id="personIntro"><li>旧港档案馆修复师</li><li>负责整理一批被火烧过的航海日记</li></ul>
             <div class="section-title">
               <p class="label">关键情节</p>
               <span class="profile-orbit" aria-hidden="true"></span>
             </div>
             <div class="event-list" id="eventList"></div>
-            <button class="profile-detail-btn icon-action" id="profileDetailBtn" type="button" aria-label="查看人物详情" title="查看人物详情"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
           </aside>
         </div>
       </section>
@@ -471,7 +471,7 @@
                 <datalist id="characterGroupSuggestions"></datalist>
               </label>
               <label>
-                <span>主线影响</span>
+                <span>主线影响 <small>0 最小 · 100 最大</small></span>
                 <input id="characterCreateImpact" type="number" min="0" max="100" step="1" value="50" />
               </label>
               <label>
@@ -502,11 +502,20 @@
 
       <section class="place-page page-view" data-page="places" aria-label="设定档案">
         <aside class="place-rail">
-          <p class="eyebrow">Entries</p>
-          <h2>设定档案</h2>
-          <input id="placeSearch" class="place-search" type="search" placeholder="搜索公司、地点、物品" />
-          <div class="entry-type-filter story-filter-group" id="entryTypeFilter" aria-label="设定类型筛选"></div>
-          <div class="entry-tag-filter story-filter-group" id="entryTagFilter" aria-label="设定标签筛选"></div>
+          <div class="place-rail-tools">
+            <p class="eyebrow">Entries</p>
+            <h2>设定档案</h2>
+            <input id="placeSearch" class="place-search" type="search" placeholder="搜索公司、地点、物品" />
+            <div class="entry-type-filter story-filter-group" id="entryTypeFilter" aria-label="设定类型筛选"></div>
+            <details class="entry-tag-panel" id="entryTagPanel" open>
+              <summary title="展开或折叠全部标签">
+                <span>标签</span>
+                <strong id="entryTagCount">0</strong>
+                <svg class="entry-tag-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </summary>
+              <div class="entry-tag-filter story-filter-group" id="entryTagFilter" aria-label="设定标签筛选"></div>
+            </details>
+          </div>
           <div class="place-list" id="placeList"></div>
         </aside>
         <article class="place-detail" id="placeDetail"></article>

@@ -187,8 +187,9 @@ async function createRelationship(event) {
       type: relationshipType?.value.trim() || "",
       color: relationshipColor?.value || "",
     });
-    setRelationshipCreateStatus(`已创建“${result.label}”，正在刷新图谱…`, "success");
-    window.setTimeout(() => window.location.reload(), 450);
+    setRelationshipCreateStatus(`已创建“${result.label}”`, "success");
+    await refreshWorkspaceDataInPlace();
+    refreshRelationshipCreator();
   } catch (error) {
     setRelationshipCreateStatus(error.message, "error");
     setRelationshipCreatorBusy(false);
@@ -242,7 +243,7 @@ function setRefactorUnavailable(message) {
   refreshRelationshipCreator();
 }
 
-async function refactorApi(path, body) {
+async function refactorApi(path, body, retryAuthorization = true) {
   const options = body
     ? {
         method: "POST",
@@ -259,6 +260,12 @@ async function refactorApi(path, body) {
     throw new Error("当前是公开只读部署；请使用项目自带的本地启动命令");
   }
   const result = await response.json();
+  if (response.status === 403 && body && retryAuthorization) {
+    refactorCapability = null;
+    refactorCapabilityProject = "";
+    await initializeRefactorWorkspace(true);
+    return refactorApi(path, body, false);
+  }
   if (response.status === 404 && result.error === "未知接口") {
     throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
   }
@@ -354,10 +361,23 @@ async function previewRefactor() {
 
 async function applyRefactor() {
   if (!refactorOperationId) return;
+  const oldName = refactorRecords().find((record) => String(record.id) === refactorTarget?.value)?.name || "档案";
+  const newName = refactorNewName?.value.trim() || "新名称";
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   setRefactorBusy(true);
   try {
     await refactorApi("/api/refactor/apply", { operationId: refactorOperationId });
-    window.location.reload();
+    await refreshWorkspaceDataInPlace();
+    await initializeRefactorWorkspace(true);
+    refactorOperationId = "";
+    if (refactorPreviewSummary) {
+      refactorPreviewSummary.innerHTML = `<strong>重命名已完成</strong><span>${escapeHtml(oldName)} → ${escapeHtml(newName)}</span>`;
+    }
+    refactorChangeList?.replaceChildren();
+    refactorPreview?.classList.remove("is-hidden");
+    setRefactorBusy(false);
+    window.requestAnimationFrame(() => window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" }));
   } catch (error) {
     renderRefactorError(error.message);
     setRefactorBusy(false);
@@ -365,10 +385,20 @@ async function applyRefactor() {
 }
 
 async function undoRefactor() {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   setRefactorBusy(true);
   try {
     await refactorApi("/api/refactor/undo", { project: currentProjectId() });
-    window.location.reload();
+    await refreshWorkspaceDataInPlace();
+    await initializeRefactorWorkspace(true);
+    if (refactorPreviewSummary) {
+      refactorPreviewSummary.innerHTML = "<strong>已撤销上次重命名</strong><span>档案和引用已经原地恢复。</span>";
+    }
+    refactorChangeList?.replaceChildren();
+    refactorPreview?.classList.remove("is-hidden");
+    setRefactorBusy(false);
+    window.requestAnimationFrame(() => window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" }));
   } catch (error) {
     renderRefactorError(error.message);
     setRefactorBusy(false);

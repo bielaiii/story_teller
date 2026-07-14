@@ -969,7 +969,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if not self.local_host():
             return self.send_api_error("只允许从本机访问写入服务", HTTPStatus.FORBIDDEN)
         if not self.authorized():
-            return self.send_api_error("本地写入授权已失效，请刷新页面", HTTPStatus.FORBIDDEN)
+            return self.send_api_error("本地写入授权已失效，正在重新连接本地服务", HTTPStatus.FORBIDDEN)
         try:
             payload = self.read_json()
             if parsed.path == "/api/refactor/preview":

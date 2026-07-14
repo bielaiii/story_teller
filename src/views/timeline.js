@@ -1446,9 +1446,9 @@ async function saveTimelineEditor() {
         lanes: timelineEditorAssignment(plot.id),
       })),
     });
-    setTimelineEditorStatus(`已保存 ${result.lineCount} 条剧情线和 ${result.plotCount} 个文章节点，正在刷新…`, "success");
-    window.sessionStorage?.setItem("story-teller-open-view", "timeline");
-    window.setTimeout(() => window.location.reload(), 420);
+    setTimelineEditorStatus(`已保存 ${result.lineCount} 条剧情线和 ${result.plotCount} 个文章节点`, "success");
+    await refreshWorkspaceDataInPlace();
+    closeTimelineEditor();
   } catch (error) {
     setTimelineEditorStatus(error.message, "error");
     timelineEditorSave.disabled = false;

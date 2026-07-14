@@ -1,4 +1,5 @@
 let graphLinesReady = false;
+let graphDataDirty = false;
 
 function switchView(view, { resetStory = false } = {}) {
   const previousView = state.view;
@@ -15,6 +16,12 @@ function switchView(view, { resetStory = false } = {}) {
   state.view = view;
 
   if (state.view === "graph") {
+    if (graphDataDirty) {
+      renderGraphFilters();
+      renderNodes();
+      renderLinks();
+      graphDataDirty = false;
+    }
     updateGraphBounds();
     if (state.selected) selectPerson(state.selected);
     drawGraph();
@@ -69,10 +76,12 @@ function renderProfile() {
   const items = plots.filter((plot) => person.events.includes(plot.id));
 
   personName.textContent = person.name;
-  personIntro.textContent = person.intro;
+  setIconButton(profileDetailBtn, "convert", `进入${person.name}的完整档案`);
+  personIntro.innerHTML = renderBulletNoteItems(person.intro);
   personAvatar.innerHTML = avatarContent(person);
   personAvatar.classList.toggle("has-image", Boolean(person.avatar));
   personAvatar.style.setProperty("--selected-gradient", person.gradient);
+  profileFloat.style.setProperty("--accent", person.color);
 
   eventList.innerHTML = items
     .map((plot, index) => `
@@ -115,6 +124,8 @@ function renderNodes() {
     node.className = "person-node";
     node.type = "button";
     node.dataset.id = person.id;
+    node.setAttribute("aria-label", `选中${person.name}，查看关联剧情`);
+    node.title = "查看关联剧情";
     node.style.setProperty("--accent", person.color);
     node.style.setProperty("--avatar-gradient", person.gradient);
     node.style.animationDelay = shouldAnimateEntry ? `${index * 36}ms` : "0ms";

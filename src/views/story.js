@@ -288,10 +288,12 @@ async function restorePlotFromTrash(button) {
       project: currentProjectId(),
       trashId,
     });
-    setPlotTrashStatus("内容已恢复，正在刷新…", "success");
-    if (kind === "plot") window.sessionStorage?.setItem("story-teller-open-plot", String(result.id));
-    else window.sessionStorage?.setItem("story-teller-open-view", "diagnostics");
-    window.setTimeout(() => window.location.reload(), 420);
+    await refreshWorkspaceDataInPlace();
+    const trash = await fetchPlotTrash();
+    renderPlotTrashItems(trash.items);
+    resetPlotTrashPreview();
+    updatePlotTrashTrigger(trash.items.length, true);
+    setPlotTrashStatus(`已恢复“${result.title || result.name || result.id}”`, "success");
   } catch (error) {
     setPlotTrashStatus(error.message, "error");
     button.disabled = false;
@@ -532,10 +534,10 @@ async function createPlotFromEditor(event) {
       pendingFragmentConversionId = "";
     }
     setPlotCreateMessage(editingPlotId
-      ? "修改已保存，正在刷新全文…"
+      ? "修改已保存"
       : `已保存为第 ${result.sequence} 章${result.shiftedCount ? `，${result.shiftedCount} 章已顺延` : ""}。`, "success");
-    window.sessionStorage?.setItem("story-teller-open-plot", String(result.id));
-    window.setTimeout(() => window.location.reload(), 560);
+    await refreshWorkspaceDataInPlace({ plotId: result.id });
+    closePlotCreateDialog();
   } catch (error) {
     setPlotCreateMessage(error.message, "error");
     setPlotCreateBusy(false);

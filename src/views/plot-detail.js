@@ -122,9 +122,8 @@ async function deletePlotFromDetail(plot, button) {
     switchView("story");
     renderStoryFilters();
     renderPlots();
+    await refreshWorkspaceDataInPlace();
     refreshPlotTrashAccess();
-    window.sessionStorage?.setItem("story-teller-open-view", "story");
-    window.setTimeout(() => window.location.reload(), 360);
   } catch (error) {
     window.alert(error.message);
     if (button) {

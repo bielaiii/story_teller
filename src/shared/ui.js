@@ -29,6 +29,88 @@ function setIconButton(button, icon, label) {
   button.dataset.icon = icon;
 }
 
+async function refreshWorkspaceDataInPlace(options = {}) {
+  const activeView = state.view;
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  const scrollPositions = [...document.querySelectorAll("[id]")]
+    .filter((element) => element.scrollTop || element.scrollLeft)
+    .map((element) => ({ id: element.id, top: element.scrollTop, left: element.scrollLeft }));
+  const graphPositions = new Map(characters.map((person) => [String(person.id), {
+    px: person.px,
+    py: person.py,
+  }]));
+
+  await loadMarkdownData();
+
+  characters.forEach((person) => {
+    const previous = graphPositions.get(String(person.id));
+    if (!previous) return;
+    if (Number.isFinite(previous.px)) person.px = previous.px;
+    if (Number.isFinite(previous.py)) person.py = previous.py;
+  });
+
+  if (options.characterId && getCharacter(options.characterId)) {
+    state.selectedCharacter = String(options.characterId);
+    if (state.selected === String(options.characterId)) state.selected = String(options.characterId);
+    setCharacterShelfForPerson(getCharacter(options.characterId));
+  }
+  if (options.placeId && getPlace(options.placeId)) state.selectedPlace = String(options.placeId);
+  if (options.plotId && plots.some((plot) => Number(plot.id) === Number(options.plotId))) {
+    state.selectedPlotId = Number(options.plotId);
+  }
+
+  if (state.selected && !getCharacter(state.selected)) {
+    state.selected = "";
+    state.hasSelection = false;
+  }
+  if (state.selectedCharacter && !getCharacter(state.selectedCharacter)) {
+    state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
+  }
+  if (state.selectedPlace && !getPlace(state.selectedPlace)) state.selectedPlace = places[0]?.id || "";
+
+  renderProjectChrome();
+  graphDataDirty = true;
+  if (activeView === "graph") {
+    renderGraphFilters();
+    renderNodes();
+    renderLinks();
+    markRelatedNodes();
+    renderProfile();
+    graphDataDirty = false;
+  } else if (activeView === "characters") {
+    renderCharacterList();
+    renderCharacterDetail();
+  } else if (activeView === "places") {
+    renderPlaceList();
+    renderPlaceDetail();
+  } else if (activeView === "fragments") {
+    renderFragmentFilters();
+    renderFragments();
+  } else if (activeView === "story") {
+    renderChapterSwitch();
+    renderStoryFilters();
+    renderPlots();
+  } else if (activeView === "plot-detail") {
+    renderPlotDetail();
+  } else if (activeView === "timeline") {
+    requestTimelineRender();
+  } else if (activeView === "diagnostics") {
+    requestDiagnosticsRender();
+    refreshPlotTrashAccess();
+  }
+
+  const restoreScrollPositions = () => {
+    scrollPositions.forEach(({ id, top, left }) => {
+      const element = document.getElementById(id);
+      if (element) element.scrollTo({ top, left, behavior: "instant" });
+    });
+    window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
+  };
+  restoreScrollPositions();
+  window.requestAnimationFrame(restoreScrollPositions);
+}
+
 function initial(name) {
   return name.slice(0, 1);
 }
@@ -184,6 +266,23 @@ function renderMarkdownBody(text) {
   return renderMarkdownContent(text).html;
 }
 
+function bulletNoteLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^(?:[-*+]\s+|\d+[.)、]\s*)/, ""))
+    .filter(Boolean);
+}
+
+function renderBulletNoteItems(text) {
+  const lines = bulletNoteLines(text);
+  if (!lines.length) return '<li class="is-empty">暂无设定</li>';
+  return lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+}
+
+function renderBulletNotes(text, className = "") {
+  return `<ul class="profile-note-list ${escapeHtml(className)}">${renderBulletNoteItems(text)}</ul>`;
+}
+
 function markdownPlainText(text) {
   if (!String(text || "").trim()) return "";
   const container = document.createElement("div");
@@ -275,7 +374,16 @@ function nextSelectedTags(selected, allTags, tag) {
     : [...activeTags, tag];
 }
 
-function renderChipFilter({ container, label, items, selected, mode = "single", onChange }) {
+function renderChipFilter({
+  container,
+  label,
+  items,
+  selected,
+  mode = "single",
+  includeAll = true,
+  allowClear = false,
+  onChange,
+}) {
   if (!container) return;
   if (!items.length) {
     container.innerHTML = "";
@@ -283,16 +391,24 @@ function renderChipFilter({ container, label, items, selected, mode = "single", 
   }
   const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
   container.innerHTML = `
-    <span class="filter-label">${escapeHtml(label)}</span>
-    ${mode === "single" ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
-    ${items.map((item) => `
-      <button class="filter-chip ${
-        mode === "multi" ? (activeItems.includes(item) ? "is-active" : "") : (selected === item ? "is-active" : "")
-      }" data-value="${escapeHtml(item)}" type="button">${escapeHtml(item)}</button>
-    `).join("")}
+    ${label ? `<span class="filter-label">${escapeHtml(label)}</span>` : ""}
+    ${mode === "single" && includeAll ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
+    ${items.map((item) => {
+      const active = mode === "multi"
+        ? activeItems.includes(item)
+        : selected === item || (!includeAll && selected === "all");
+      return `
+        <button class="filter-chip ${active ? "is-active" : ""}" data-value="${escapeHtml(item)}" type="button" aria-pressed="${active}">${escapeHtml(item)}</button>
+      `;
+    }).join("")}
   `;
   container.querySelectorAll("[data-value]").forEach((button) => {
-    button.addEventListener("click", () => onChange(button.dataset.value, activeItems));
+    button.addEventListener("click", () => {
+      const value = allowClear && mode === "single" && button.dataset.value === selected
+        ? "all"
+        : button.dataset.value;
+      onChange(value, activeItems);
+    });
   });
 }
 

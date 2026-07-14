@@ -30,7 +30,7 @@ const state = {
   characterViewMode: "cards",
   characterAppearanceChapter: "all",
   placeSearch: "",
-  entryType: "all",
+  entryTypes: [],
   entryTags: [],
   selectedPlace: "",
   globalSearch: "",

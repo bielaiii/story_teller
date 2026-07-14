@@ -32,6 +32,7 @@ Do not ask the user about routine frontend implementation choices.
 ## Implementation style
 
 * Implement user-facing features as complete vertical slices. A visible control is not complete until its interaction, API, persistence, reload, and error states all work together.
+* Successful saves must refresh persisted data in place. Do not use a full page reload as save handling; preserve the active page, selection, filters, editor mode, graph viewport, and scroll positions without a visible flash.
 * Keep changes focused.
 * Avoid large rewrites unless clearly needed.
 * Avoid introducing new libraries for small UI changes.
@@ -50,7 +51,7 @@ Before reporting an interactive feature as finished:
 * Confirm that the frontend files and the running backend process come from compatible versions. Backend source changes require a service restart before browser verification.
 * Use an explicit capability/version contract for optional write features. Do not show enabled controls when the running service does not advertise the required capability.
 * Run destructive or persistence tests against an isolated temporary content root. Never skip the final write merely to avoid changing real novel data.
-* After a write, reload from disk and verify the result that the user will actually see. A successful HTTP response alone is insufficient.
+* After a write, read the persisted data back from disk and verify the result that the user will actually see. A successful HTTP response alone is insufficient; this readback must not require a browser page reload.
 * Add a regression test for every defect found after delivery, at the lowest layer that reproduces the real failure and, where practical, an end-to-end browser check for the full user path.
 
 When reporting repository status, distinguish clearly between:

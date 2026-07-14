@@ -1,0 +1,45 @@
+import re
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class FrontendNavigationTests(unittest.TestCase):
+    def test_place_workspace_keeps_tools_outside_scrollable_content(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        entries_source = (ROOT / "src" / "views" / "entries.js").read_text(encoding="utf-8")
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        self.assertRegex(markup, re.compile(r'class="place-rail-tools".*id="placeList"', re.DOTALL))
+        self.assertIn('class="entry-tag-panel"', markup)
+        self.assertIn('id="entryTagCount"', markup)
+        self.assertIn('class="place-detail-toolbar"', entries_source)
+        self.assertRegex(styles, re.compile(r"\.place-detail-toolbar\s*\{[^}]*position:\s*sticky", re.DOTALL))
+
+    def test_character_detail_entry_stays_in_graph_profile_card(self):
+        graph_source = (ROOT / "src" / "views" / "graph.js").read_text(encoding="utf-8")
+        bootstrap_source = (ROOT / "src" / "bootstrap.js").read_text(encoding="utf-8")
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("person-node-detail", graph_source)
+        self.assertIn('class="profile-detail-btn icon-action"', markup)
+        self.assertIn("openCharacterDetail(state.selected)", bootstrap_source)
+
+    def test_editing_ui_does_not_reload_or_replace_the_page(self):
+        forbidden = {
+            "location.reload": re.compile(r"\blocation\.reload\s*\("),
+            "location.href assignment": re.compile(r"\blocation\.href\s*="),
+            "location.assign": re.compile(r"\blocation\.assign\s*\("),
+            "location.replace": re.compile(r"\blocation\.replace\s*\("),
+        }
+        violations = []
+        for path in sorted((ROOT / "src").rglob("*.js")):
+            source = path.read_text(encoding="utf-8")
+            for label, pattern in forbidden.items():
+                if pattern.search(source):
+                    violations.append(f"{path.relative_to(ROOT)}: {label}")
+        self.assertEqual([], violations, "编辑功能不得依赖整页刷新或页面替换：\n" + "\n".join(violations))
+
+
+if __name__ == "__main__":
+    unittest.main()
