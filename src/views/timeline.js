@@ -881,7 +881,7 @@ function ensureTimelineFloat() {
     <span id="timelineFloatLane"></span>
     <strong id="timelineFloatTitle"></strong>
     <p id="timelineFloatText"></p>
-    <button class="timeline-float-open is-hidden" id="timelineFloatOpen" type="button">打开完整文章</button>
+    <button class="timeline-float-open icon-action is-hidden" id="timelineFloatOpen" type="button" aria-label="打开完整文章" title="打开完整文章">${uiIcon("convert")}</button>
   `;
   document.querySelector(".timeline-board")?.append(float);
   float.querySelector("#timelineFloatClose")?.addEventListener("click", hideTimelineFloat);
@@ -1025,7 +1025,7 @@ function renderTimelineEditorLines() {
           <span><strong>${escapeHtml(line.name)}</strong><small>${line.name === timelineEditorDraft.mainLine ? "主线" : (line.side === "left" ? "左侧分支" : "右侧分支")}</small></span>
           <b>${count}</b>
         </button>
-        <button class="timeline-editor-line-settings-trigger ${timelineEditorEditingLine === line.name ? "is-active" : ""}" data-line="${escapeHtml(line.name)}" type="button">设置</button>
+        <button class="timeline-editor-line-settings-trigger icon-action ${timelineEditorEditingLine === line.name ? "is-active" : ""}" data-line="${escapeHtml(line.name)}" type="button" aria-label="设置${escapeHtml(line.name)}" title="设置剧情线">${uiIcon("layout")}</button>
       </div>
     `;
   }).join("");
@@ -1152,7 +1152,7 @@ function renderTimelineEditorPlotInspector(plot) {
       `).join("")}
     </fieldset>
     <div class="timeline-editor-note">标题、摘要和正文由文章负责，时间线不会保存第二份副本。</div>
-    <button class="timeline-editor-open-plot" id="timelineEditorOpenPlot" type="button">打开这篇文章</button>
+    <button class="timeline-editor-open-plot icon-action" id="timelineEditorOpenPlot" type="button" aria-label="打开这篇文章" title="打开这篇文章">${uiIcon("convert")}</button>
   `;
   document.querySelector("#timelineEditorPrimaryLine")?.addEventListener("change", (event) => {
     assignTimelineEditorPlot(plot.id, event.target.value);
@@ -1278,13 +1278,13 @@ function renderTimelineEditorLineSettings(line) {
       <label class="timeline-editor-field"><span>从这篇文章后分出</span><select id="timelineEditorStartPlot"><option value="">自动按首个节点</option>${timelineEditorPlotOptions(line.startPlotId)}</select></label>
       <label class="timeline-editor-field"><span>在这篇文章前汇合</span><select id="timelineEditorEndPlot"><option value="">自动按最后节点</option>${timelineEditorPlotOptions(line.endPlotId)}</select></label>
     `}
-    <div class="timeline-editor-order-actions"><button id="timelineEditorMoveLineUp" type="button" ${isMain ? "disabled" : ""}>向前显示</button><button id="timelineEditorMoveLineDown" type="button" ${isMain ? "disabled" : ""}>向后显示</button></div>
+    <div class="timeline-editor-order-actions"><button class="icon-action" id="timelineEditorMoveLineUp" type="button" aria-label="向前显示" title="向前显示" ${isMain ? "disabled" : ""}>${uiIcon("up")}</button><button class="icon-action" id="timelineEditorMoveLineDown" type="button" aria-label="向后显示" title="向后显示" ${isMain ? "disabled" : ""}>${uiIcon("down")}</button></div>
     ${isMain ? "" : `
       <div class="timeline-editor-delete-line">
         <strong>删除剧情线</strong>
         <p>${assignedCount ? `需要先转移 ${assignedCount} 篇文章。` : "这条线没有文章，可以直接删除。"}</p>
         ${assignedCount ? `<select id="timelineEditorTransferLine"><option value="">选择接收剧情线</option>${transferOptions}</select>` : ""}
-        <button id="timelineEditorDeleteLine" type="button">删除这条剧情线</button>
+        <button class="icon-action is-danger" id="timelineEditorDeleteLine" type="button" aria-label="删除这条剧情线" title="删除剧情线">${uiIcon("trash")}</button>
       </div>
     `}
   `;

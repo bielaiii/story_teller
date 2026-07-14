@@ -31,12 +31,6 @@
 .entry-edit-record,
 .entry-delete-record,
 .fragment-actions button {
-  border: 1px solid rgba(72, 91, 112, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.88);
-  color: #43566a;
-  min-height: 34px;
-  padding: 7px 12px;
   cursor: pointer;
   font: inherit;
 }
@@ -61,7 +55,6 @@ body:not(.is-content-writable) #characterCreateTrigger {
 .fragment-delete-record,
 .content-editor-delete {
   color: #ad4f4f;
-  border-color: rgba(173, 79, 79, 0.28) !important;
 }
 
 .character-title-row {
@@ -111,12 +104,6 @@ body:not(.is-content-writable) #characterCreateTrigger {
 }
 
 .relationship-manager-list button {
-  min-height: 32px;
-  padding: 6px 11px;
-  border: 1px solid rgba(72, 91, 112, 0.2);
-  border-radius: 7px;
-  background: #fff;
-  color: #43566a;
   cursor: pointer;
 }
 
@@ -7332,6 +7319,121 @@ body.is-graph-view .avatar-text {
   color: var(--markdown-coral, #d95b6b);
   font-size: 16px;
   scroll-margin-top: 88px;
+}
+
+/* Icon-first action language */
+button.icon-action {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  box-sizing: border-box;
+  border: 0 !important;
+  border-radius: 50% !important;
+  padding: 0 !important;
+  color: #53687a !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  position: relative;
+}
+
+button.icon-action .ui-icon {
+  width: 19px;
+  height: 19px;
+  pointer-events: none;
+}
+
+.icon-action-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 9px;
+  padding: 0 3px;
+  color: #fff;
+  background: #d65f8f;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+button.icon-action:hover,
+button.icon-action:focus-visible {
+  color: #236f79 !important;
+  background: rgba(42, 167, 155, 0.1) !important;
+  box-shadow: 0 7px 18px rgba(42, 90, 110, 0.11) !important;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+button.icon-action.is-primary,
+button.icon-action.content-editor-submit {
+  color: #fff !important;
+  background: linear-gradient(135deg, #2aa79b, #3f7fc1) !important;
+  box-shadow: 0 7px 18px rgba(51, 120, 153, 0.2) !important;
+}
+
+button.icon-action.is-primary:hover,
+button.icon-action.is-primary:focus-visible,
+button.icon-action.content-editor-submit:hover,
+button.icon-action.content-editor-submit:focus-visible {
+  background: linear-gradient(135deg, #238f86, #356eaa) !important;
+  box-shadow: 0 10px 22px rgba(51, 120, 153, 0.28) !important;
+}
+
+button.icon-action.is-danger,
+button.icon-action.content-editor-delete,
+button.icon-action.plot-delete-btn {
+  color: #b65b55 !important;
+}
+
+button.icon-action.is-danger:hover,
+button.icon-action.is-danger:focus-visible,
+button.icon-action.content-editor-delete:hover,
+button.icon-action.content-editor-delete:focus-visible,
+button.icon-action.plot-delete-btn:hover,
+button.icon-action.plot-delete-btn:focus-visible {
+  color: #a6423b !important;
+  background: rgba(190, 78, 69, 0.1) !important;
+}
+
+button.icon-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none !important;
+}
+
+button.icon-action.content-editor-convert {
+  justify-self: start;
+}
+
+.fragment-actions,
+.plot-detail-actions,
+.entry-title-actions,
+.character-title-row,
+.relationship-manager-list article > div:last-child {
+  align-items: center;
+}
+
+@keyframes iconActionSpin {
+  to { transform: rotate(360deg); }
+}
+
+button.icon-action[data-icon="restore"] .ui-icon {
+  animation: iconActionSpin 900ms linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

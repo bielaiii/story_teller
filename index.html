@@ -89,7 +89,7 @@
             <h1 id="storyTitle">小说剧情记录器</h1>
           </div>
           <div class="story-head-actions">
-            <button class="plot-create-trigger" id="plotCreateTrigger" type="button"><span aria-hidden="true">＋</span>写新剧情</button>
+            <button class="plot-create-trigger icon-action is-primary" id="plotCreateTrigger" type="button" aria-label="写新剧情" title="写新剧情"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             <div class="chapter-switch" id="chapterSwitch" aria-label="章节筛选"></div>
           </div>
         </header>
@@ -114,7 +114,7 @@
           <form class="plot-create-form" id="plotCreateForm">
             <div class="plot-create-head">
               <h3 id="plotCreateTitle">写新剧情</h3>
-              <button class="plot-create-close" id="plotCreateClose" type="button" aria-label="关闭剧情编辑器">×</button>
+              <button class="plot-create-close icon-action" id="plotCreateClose" type="button" aria-label="关闭剧情编辑器" title="关闭"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
             </div>
             <details class="plot-create-settings" id="plotCreateSettings">
               <summary>
@@ -186,8 +186,8 @@
             </div>
             <div class="plot-create-actions">
               <p id="plotCreateMessage" aria-live="polite"></p>
-              <button class="plot-create-cancel" id="plotCreateCancel" type="button">取消</button>
-              <button class="plot-create-submit" id="plotCreateSubmit" type="submit">保存剧情</button>
+              <button class="plot-create-cancel icon-action" id="plotCreateCancel" type="button" aria-label="取消编辑剧情" title="取消"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+              <button class="plot-create-submit icon-action is-primary" id="plotCreateSubmit" type="submit" aria-label="保存剧情" title="保存剧情"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
             </div>
           </form>
         </dialog>
@@ -216,7 +216,7 @@
             <p class="eyebrow">Content Check</p>
             <h2>配置检查</h2>
           </div>
-          <button class="diagnostic-refresh-btn" id="diagnosticRefreshBtn" type="button">重新检查</button>
+          <button class="diagnostic-refresh-btn icon-action" id="diagnosticRefreshBtn" type="button" aria-label="重新检查" title="重新检查"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
         </header>
         <section class="plot-trash-workspace is-hidden" id="plotTrashWorkspace">
           <div>
@@ -224,7 +224,7 @@
             <h3>内容回收站</h3>
             <p>删除的剧情、人物、关系、设定和碎片保留 7 天，可在永久清理前恢复。</p>
           </div>
-          <button class="plot-trash-trigger" id="plotTrashTrigger" type="button">查看回收站（<span id="plotTrashCount">0</span>）</button>
+          <button class="plot-trash-trigger icon-action" id="plotTrashTrigger" type="button" aria-label="查看回收站" title="查看回收站"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></svg><span class="icon-action-count" id="plotTrashCount">0</span></button>
         </section>
         <section class="refactor-workspace" id="refactorWorkspace">
           <div class="refactor-head">
@@ -250,15 +250,15 @@
               <span>新名称</span>
               <input id="refactorNewName" type="text" maxlength="80" autocomplete="off" />
             </label>
-            <button class="refactor-preview-btn" id="refactorPreviewBtn" type="button">预览修改</button>
-            <button class="refactor-undo-btn is-hidden" id="refactorUndoBtn" type="button">撤销上次重命名</button>
+            <button class="refactor-preview-btn icon-action" id="refactorPreviewBtn" type="button" aria-label="预览修改" title="预览修改"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+            <button class="refactor-undo-btn icon-action is-hidden" id="refactorUndoBtn" type="button" aria-label="撤销上次重命名" title="撤销上次重命名"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
           </div>
           <div class="refactor-preview is-hidden" id="refactorPreview">
             <div class="refactor-preview-summary" id="refactorPreviewSummary"></div>
             <div class="refactor-change-list" id="refactorChangeList"></div>
             <div class="refactor-preview-actions">
-              <button class="refactor-cancel-btn" id="refactorCancelBtn" type="button">取消</button>
-              <button class="refactor-apply-btn" id="refactorApplyBtn" type="button">确认并应用</button>
+              <button class="refactor-cancel-btn icon-action" id="refactorCancelBtn" type="button" aria-label="取消重命名" title="取消"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+              <button class="refactor-apply-btn icon-action is-primary" id="refactorApplyBtn" type="button" aria-label="确认并应用" title="确认并应用"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
             </div>
           </div>
         </section>
@@ -315,7 +315,7 @@
             </div>
             <div class="relationship-create-actions">
               <p id="relationshipCreateStatus" aria-live="polite"></p>
-              <button id="relationshipCreateBtn" type="submit">创建关系</button>
+              <button class="icon-action is-primary" id="relationshipCreateBtn" type="submit" aria-label="创建关系" title="创建关系"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
           </form>
           <div class="relationship-manager-list" id="relationshipManagerList"></div>
@@ -360,7 +360,7 @@
               <span class="profile-orbit" aria-hidden="true"></span>
             </div>
             <div class="event-list" id="eventList"></div>
-            <button class="profile-detail-btn" id="profileDetailBtn" type="button">查看人物详情</button>
+            <button class="profile-detail-btn icon-action" id="profileDetailBtn" type="button" aria-label="查看人物详情" title="查看人物详情"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
           </aside>
         </div>
       </section>
@@ -372,7 +372,7 @@
             <h2>剧情时间线</h2>
           </div>
           <div class="timeline-actions">
-            <button class="timeline-edit-trigger is-hidden" id="timelineEditTrigger" type="button">编辑时间线</button>
+            <button class="timeline-edit-trigger icon-action is-hidden" id="timelineEditTrigger" type="button" aria-label="编辑时间线" title="编辑时间线"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
             <button class="timeline-direction-btn" id="timelineDirectionBtn" type="button">顶端：开始</button>
             <div class="hint">点击节点跳到剧情页阅读全文</div>
           </div>
@@ -389,9 +389,7 @@
           </div>
           <div class="character-manager-head-actions">
             <span class="character-demo-note">Demo · 定位由现有标识推导</span>
-            <button class="character-create-trigger" id="characterCreateTrigger" type="button">
-              <span aria-hidden="true">＋</span>新建人物
-            </button>
+            <button class="character-create-trigger icon-action is-primary" id="characterCreateTrigger" type="button" aria-label="新建人物" title="新建人物"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             <button
               class="temporary-character-toggle"
               id="temporaryCharacterToggle"
@@ -436,7 +434,7 @@
                 <h3 id="characterCreateTitle">新建人物档案</h3>
                 <p>保存后自动分配稳定 ID，并生成独立的人物 Markdown 文件。</p>
               </div>
-              <button class="character-create-close" id="characterCreateClose" type="button" aria-label="关闭新建人物窗口">×</button>
+              <button class="character-create-close icon-action" id="characterCreateClose" type="button" aria-label="关闭新建人物窗口" title="关闭"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
             </div>
             <div class="character-create-fields">
               <label class="character-create-name">
@@ -495,8 +493,8 @@
             </div>
             <div class="character-create-actions">
               <p id="characterCreateStatus" aria-live="polite"></p>
-              <button class="character-create-cancel" id="characterCreateCancel" type="button">取消</button>
-              <button class="character-create-submit" id="characterCreateSubmit" type="submit">创建人物档案</button>
+              <button class="character-create-cancel icon-action" id="characterCreateCancel" type="button" aria-label="取消新建人物" title="取消"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+              <button class="character-create-submit icon-action is-primary" id="characterCreateSubmit" type="submit" aria-label="创建人物档案" title="创建人物档案"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
           </form>
         </dialog>
@@ -523,7 +521,7 @@
             <h3 id="timelineEditorTitle">编辑时间线</h3>
             <p>文章顺序决定节点上下位置；这里负责剧情线归属、分支和汇合。</p>
           </div>
-          <button class="timeline-editor-close" id="timelineEditorClose" type="button" aria-label="关闭时间线编辑器">×</button>
+          <button class="timeline-editor-close icon-action" id="timelineEditorClose" type="button" aria-label="关闭时间线编辑器" title="关闭"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         </header>
         <div class="timeline-editor-workspace">
           <aside class="timeline-editor-lines">
@@ -532,7 +530,7 @@
                 <strong>剧情线</strong>
                 <span id="timelineEditorLineCount">0 条</span>
               </div>
-              <button id="timelineEditorAddLine" type="button">新建剧情线</button>
+              <button class="icon-action" id="timelineEditorAddLine" type="button" aria-label="新建剧情线" title="新建剧情线"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
             <div class="timeline-editor-line-list" id="timelineEditorLineList"></div>
             <button class="timeline-editor-unassigned" id="timelineEditorUnassigned" type="button">
@@ -555,8 +553,8 @@
         <footer class="timeline-editor-footer">
           <p id="timelineEditorStatus" aria-live="polite"></p>
           <div>
-            <button class="timeline-editor-cancel" id="timelineEditorCancel" type="button">取消</button>
-            <button class="timeline-editor-save" id="timelineEditorSave" type="button">保存时间线</button>
+            <button class="timeline-editor-cancel icon-action" id="timelineEditorCancel" type="button" aria-label="取消编辑时间线" title="取消"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+            <button class="timeline-editor-save icon-action is-primary" id="timelineEditorSave" type="button" aria-label="保存时间线" title="保存时间线"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
           </div>
         </footer>
       </div>
@@ -568,7 +566,7 @@
           <h3 id="plotTrashTitle">内容回收站</h3>
           <p>删除的内容会保留 7 天，到期后才会永久删除。</p>
         </div>
-        <button class="plot-trash-close" id="plotTrashClose" type="button" aria-label="关闭回收站">×</button>
+        <button class="plot-trash-close icon-action" id="plotTrashClose" type="button" aria-label="关闭回收站" title="关闭"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="plot-trash-content">
         <div class="plot-trash-list" id="plotTrashList"></div>

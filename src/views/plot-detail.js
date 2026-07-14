@@ -542,8 +542,8 @@ function renderPlotDetail() {
       <div class="plot-detail-title-row">
         <h2>${escapeHtml(plot.title)}</h2>
         <div class="plot-detail-actions is-hidden" aria-label="剧情操作">
-          <button class="plot-edit-btn" type="button">修改</button>
-          <button class="plot-delete-btn" type="button">删除</button>
+          <button class="plot-edit-btn icon-action" type="button" aria-label="修改${escapeHtml(plot.title)}" title="修改剧情">${uiIcon("edit")}</button>
+          <button class="plot-delete-btn icon-action is-danger" type="button" aria-label="删除${escapeHtml(plot.title)}" title="删除剧情">${uiIcon("trash")}</button>
         </div>
       </div>
       <p class="plot-detail-summary">${escapeHtml(summary)}</p>

@@ -145,7 +145,7 @@ function renderRelationshipManager() {
     ${relationships.map((link, index) => {
       const from = getCharacter(link.from);
       const to = getCharacter(link.to);
-      return `<article><div><strong>${escapeHtml(link.label || "未命名关系")}</strong><span>${escapeHtml(from?.name || link.from || "失效人物")} ↔ ${escapeHtml(to?.name || link.to || "失效人物")}</span></div><div><button class="relationship-manage-edit" data-index="${index}" type="button">编辑</button><button class="relationship-manage-delete" data-index="${index}" type="button">删除</button></div></article>`;
+      return `<article><div><strong>${escapeHtml(link.label || "未命名关系")}</strong><span>${escapeHtml(from?.name || link.from || "失效人物")} ↔ ${escapeHtml(to?.name || link.to || "失效人物")}</span></div><div><button class="relationship-manage-edit icon-action" data-index="${index}" type="button" aria-label="编辑${escapeHtml(link.label || "人物关系")}" title="编辑人物关系">${uiIcon("edit")}</button><button class="relationship-manage-delete icon-action is-danger" data-index="${index}" type="button" aria-label="删除${escapeHtml(link.label || "人物关系")}" title="删除人物关系">${uiIcon("trash")}</button></div></article>`;
     }).join("")}
   ` : '<div class="relationship-manager-head"><strong>已有关系</strong><span>暂无</span></div>';
   relationshipManagerList.querySelectorAll(".relationship-manage-edit").forEach((button) => button.addEventListener("click", () => openContentEditor("relationship", relationships[Number(button.dataset.index)])));
@@ -288,7 +288,7 @@ async function initializeRefactorWorkspace(force = false) {
     }
     refactorUndoBtn?.classList.toggle("is-hidden", !capability.canUndo);
     if (refactorUndoBtn && capability.undoLabel) {
-      refactorUndoBtn.textContent = `撤销：${capability.undoLabel}`;
+      setIconButton(refactorUndoBtn, "restore", `撤销：${capability.undoLabel}`);
     }
     refreshRefactorTargets();
     setRefactorBusy(false);

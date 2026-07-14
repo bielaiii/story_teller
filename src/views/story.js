@@ -167,8 +167,8 @@ function renderPlotTrashItems(items = []) {
             <small>${escapeHtml(item.daysRemaining)} 天后永久删除</small>
           </div>
           <div class="plot-trash-item-actions">
-            <button class="plot-trash-preview-btn" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button">预览</button>
-            <button class="plot-trash-restore" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button">恢复</button>
+            <button class="plot-trash-preview-btn icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="预览${escapeHtml(item.title)}" title="预览">${uiIcon("eye")}</button>
+            <button class="plot-trash-restore icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="恢复${escapeHtml(item.title)}" title="恢复">${uiIcon("restore")}</button>
           </div>
         </article>
       `).join("")
@@ -405,7 +405,7 @@ async function openPlotCreateDialog() {
   plotCreateForm.reset();
   plotCreateSettings?.removeAttribute("open");
   document.querySelector("#plotCreateTitle").textContent = "写新剧情";
-  if (plotCreateSubmit) plotCreateSubmit.textContent = "保存剧情";
+  setIconButton(plotCreateSubmit, "save", "保存剧情");
   const positionLabel = plotCreatePositionField?.querySelector("span");
   if (positionLabel) positionLabel.textContent = "放在第几章";
   if (plotCreateAccent) plotCreateAccent.value = "#3f7fc1";
@@ -443,7 +443,7 @@ async function openPlotEditDialog(plotId) {
   plotCreateForm.reset();
   plotCreateSettings?.removeAttribute("open");
   document.querySelector("#plotCreateTitle").textContent = "修改剧情";
-  if (plotCreateSubmit) plotCreateSubmit.textContent = "保存修改";
+  setIconButton(plotCreateSubmit, "save", "保存修改");
   const positionLabel = plotCreatePositionField?.querySelector("span");
   if (positionLabel) positionLabel.textContent = "当前章节顺序";
   if (plotCreateChapter) {
@@ -575,7 +575,7 @@ function renderFragments() {
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
       <div class="fragment-body">${renderMarkdownBody(fragment.text)}</div>
-      <div class="fragment-actions"><button class="fragment-edit-record" data-id="${escapeHtml(fragment.id)}" type="button">编辑</button><button class="fragment-convert-record" data-id="${escapeHtml(fragment.id)}" type="button">转为剧情</button><button class="fragment-delete-record" data-id="${escapeHtml(fragment.id)}" type="button">删除</button></div>
+      <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
     </article>
   `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';
   fragmentBoard.querySelectorAll(".fragment-edit-record").forEach((button) => button.addEventListener("click", () => {

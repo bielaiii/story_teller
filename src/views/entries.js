@@ -103,7 +103,7 @@ function renderPlaceDetail() {
       </div>
       <div class="character-copy">
         <p class="label">${escapeHtml(place.type || "未分类")}${place.subtype ? ` · ${escapeHtml(place.subtype)}` : ""} · ${escapeHtml(place.area || "未分区")}</p>
-        <div class="entry-title-actions"><h2>${escapeHtml(place.name)}</h2><button class="entry-edit-record" type="button">编辑</button><button class="entry-delete-record" type="button">删除</button></div>
+        <div class="entry-title-actions"><h2>${escapeHtml(place.name)}</h2><button class="entry-edit-record icon-action" type="button" aria-label="编辑${escapeHtml(place.name)}" title="编辑设定">${uiIcon("edit")}</button><button class="entry-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(place.name)}" title="删除设定">${uiIcon("trash")}</button></div>
         <div class="place-intro">${renderMarkdownBody(place.intro)}</div>
         <div class="place-facts">
           ${(place.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}

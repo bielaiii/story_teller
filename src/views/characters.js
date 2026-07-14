@@ -639,8 +639,8 @@ function renderCharacterDetail() {
         <p class="label">${escapeHtml(characterNarrativeRole(person))} · ${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
         <div class="character-title-row">
           <h2>${escapeHtml(person.name)}</h2>
-          <button class="character-edit-record" type="button">编辑档案</button>
-          <button class="character-delete-record" type="button">删除</button>
+          <button class="character-edit-record icon-action" type="button" aria-label="编辑${escapeHtml(person.name)}的档案" title="编辑档案">${uiIcon("edit")}</button>
+          <button class="character-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(person.name)}" title="删除人物">${uiIcon("trash")}</button>
         </div>
         <p>${escapeHtml(person.intro)}</p>
         ${person.facts.length ? `
@@ -685,7 +685,7 @@ function renderCharacterDetail() {
               </span>
               <span class="relation-arrow" aria-hidden="true">→</span>
             </button>
-            <button class="relation-edit-record" data-from="${escapeHtml(link.from)}" data-to="${escapeHtml(link.to)}" type="button">编辑</button>
+            <button class="relation-edit-record icon-action" data-from="${escapeHtml(link.from)}" data-to="${escapeHtml(link.to)}" type="button" aria-label="编辑与${escapeHtml(other?.name || perspective.otherId)}的关系" title="编辑人物关系">${uiIcon("edit")}</button>
             </div>
           `;
         }).join("") || '<p class="empty-state">这个人物还没有配置关系。</p>'}

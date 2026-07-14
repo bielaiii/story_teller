@@ -52,15 +52,15 @@ function ensureContentEditorDialog() {
     <form class="content-editor-form" id="contentEditorForm">
       <header>
         <div><p>内容管理</p><h3 id="contentEditorTitle">编辑档案</h3></div>
-        <button class="content-editor-close" id="contentEditorClose" type="button" aria-label="关闭">×</button>
+        <button class="content-editor-close icon-action" id="contentEditorClose" type="button" aria-label="关闭" title="关闭">${uiIcon("close")}</button>
       </header>
       <div class="content-editor-fields" id="contentEditorFields"></div>
       <footer>
         <p id="contentEditorStatus" aria-live="polite"></p>
         <div>
-          <button class="content-editor-delete is-hidden" id="contentEditorDelete" type="button">删除</button>
-          <button id="contentEditorCancel" type="button">取消</button>
-          <button class="content-editor-submit" id="contentEditorSubmit" type="submit">保存</button>
+          <button class="content-editor-delete icon-action is-danger is-hidden" id="contentEditorDelete" type="button" aria-label="删除" title="删除">${uiIcon("trash")}</button>
+          <button class="icon-action" id="contentEditorCancel" type="button" aria-label="取消" title="取消">${uiIcon("close")}</button>
+          <button class="content-editor-submit icon-action is-primary" id="contentEditorSubmit" type="submit" aria-label="保存" title="保存">${uiIcon("save")}</button>
         </div>
       </footer>
     </form>
@@ -97,7 +97,7 @@ function clearCharacterRenamePreview(form) {
     preview.classList.add("is-hidden");
   }
   if (form.dataset.kind === "character" && form.dataset.creating !== "true") {
-    form.querySelector("#contentEditorSubmit").textContent = "保存修改";
+    setIconButton(form.querySelector("#contentEditorSubmit"), "save", "保存修改");
   }
 }
 
@@ -120,7 +120,7 @@ function renderCharacterRenamePreview(form, result) {
     <p class="content-editor-rename-warning">请核对以上影响范围，再点击“确认改名并保存”。</p>
   `;
   preview.classList.remove("is-hidden");
-  form.querySelector("#contentEditorSubmit").textContent = "确认改名并保存";
+  setIconButton(form.querySelector("#contentEditorSubmit"), "save", "确认改名并保存");
   preview.scrollIntoView({ block: "nearest" });
 }
 
@@ -139,7 +139,8 @@ async function openContentEditor(kind, record = null) {
   form.dataset.originalCharacterName = kind === "character" ? (record?.name || "") : "";
   clearCharacterRenamePreview(form);
   title.textContent = `${creating ? "新建" : "编辑"}${CONTENT_KIND_LABELS[kind] || "档案"}`;
-  submit.textContent = creating ? "创建" : "保存修改";
+  setIconButton(submit, creating ? "add" : "save", creating ? `创建${CONTENT_KIND_LABELS[kind] || "档案"}` : "保存修改");
+  setIconButton(deleteButton, "trash", `删除${CONTENT_KIND_LABELS[kind] || "档案"}`);
   deleteButton.classList.toggle("is-hidden", creating);
 
   if (kind === "character") {
@@ -199,7 +200,7 @@ async function openContentEditor(kind, record = null) {
       ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
       ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
       ${contentEditorField("ceBody", "碎片内容", record?.text || "", { type: "textarea", wide: true, rows: 12, required: true })}
-      ${!creating ? '<button class="content-editor-convert is-wide" id="contentEditorConvert" type="button">转为正式剧情</button>' : ""}
+      ${!creating ? `<button class="content-editor-convert icon-action is-wide" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button>` : ""}
     `;
     dialog.querySelector("#contentEditorConvert")?.addEventListener("click", () => convertFragmentToPlot(record));
   }
@@ -310,7 +311,7 @@ function projectChapterRows() {
     <div class="project-chapter-row">
       <input class="project-chapter-id" value="${escapeHtml(id)}" ${plots.some((plot) => plot.chapter === id) ? "readonly" : ""} aria-label="篇章 ID" />
       <input class="project-chapter-label" value="${escapeHtml(chapterName(id))}" aria-label="篇章名称" />
-      <button class="project-chapter-remove" type="button" ${plots.some((plot) => plot.chapter === id) ? "disabled title=\"该篇章仍有文章\"" : ""}>删除</button>
+      <button class="project-chapter-remove icon-action is-danger" type="button" aria-label="删除篇章" title="${plots.some((plot) => plot.chapter === id) ? "该篇章仍有文章" : "删除篇章"}" ${plots.some((plot) => plot.chapter === id) ? "disabled" : ""}>${uiIcon("trash")}</button>
     </div>
   `).join("");
 }
@@ -321,22 +322,22 @@ async function openProjectSettings() {
   form.dataset.kind = "project";
   form.dataset.creating = "false";
   dialog.querySelector("#contentEditorTitle").textContent = "作品与篇章";
-  dialog.querySelector("#contentEditorSubmit").textContent = "保存设置";
+  setIconButton(dialog.querySelector("#contentEditorSubmit"), "save", "保存作品与篇章设置");
   dialog.querySelector("#contentEditorDelete").classList.add("is-hidden");
   dialog.querySelector("#contentEditorFields").innerHTML = `
     ${contentEditorField("ceProjectTitle", "作品名称", projectConfig.title || "", { required: true })}
     ${contentEditorField("ceProjectEyebrow", "顶部名称", projectConfig.eyebrow || "Story Teller", { required: true })}
     <section class="project-chapter-editor is-wide">
-      <div><strong>篇章</strong><button id="projectChapterAdd" type="button">新增篇章</button></div>
+      <div><strong>篇章</strong><button class="icon-action" id="projectChapterAdd" type="button" aria-label="新增篇章" title="新增篇章">${uiIcon("add")}</button></div>
       <div id="projectChapterRows">${projectChapterRows()}</div>
     </section>
     <section class="project-create-panel is-wide">
       <strong>切换作品</strong>
-      <div><select id="projectSwitchSelect"></select><button id="projectSwitchOpen" type="button">打开所选作品</button></div>
+      <div><select id="projectSwitchSelect"></select><button class="icon-action" id="projectSwitchOpen" type="button" aria-label="打开所选作品" title="打开所选作品">${uiIcon("folder")}</button></div>
     </section>
     <section class="project-create-panel is-wide">
       <strong>创建另一部作品</strong>
-      <div><input id="newProjectId" placeholder="项目 ID，例如 new-story" /><input id="newProjectTitle" placeholder="作品名称" /><button id="newProjectCreate" type="button">创建并打开</button></div>
+      <div><input id="newProjectId" placeholder="项目 ID，例如 new-story" /><input id="newProjectTitle" placeholder="作品名称" /><button class="icon-action" id="newProjectCreate" type="button" aria-label="创建并打开作品" title="创建并打开作品">${uiIcon("add")}</button></div>
     </section>
   `;
   const rows = dialog.querySelector("#projectChapterRows");
@@ -346,7 +347,7 @@ async function openProjectSettings() {
   bindRemove();
   dialog.querySelector("#projectChapterAdd").onclick = () => {
     const number = rows.children.length + 1;
-    rows.insertAdjacentHTML("beforeend", `<div class="project-chapter-row"><input class="project-chapter-id" value="act${number}" aria-label="篇章 ID" /><input class="project-chapter-label" value="第${number}篇" aria-label="篇章名称" /><button class="project-chapter-remove" type="button">删除</button></div>`);
+    rows.insertAdjacentHTML("beforeend", `<div class="project-chapter-row"><input class="project-chapter-id" value="act${number}" aria-label="篇章 ID" /><input class="project-chapter-label" value="第${number}篇" aria-label="篇章名称" /><button class="project-chapter-remove icon-action is-danger" type="button" aria-label="删除篇章" title="删除篇章">${uiIcon("trash")}</button></div>`);
     bindRemove();
   };
   dialog.querySelector("#newProjectCreate").onclick = async () => {
@@ -388,7 +389,7 @@ async function openGraphSettings() {
   const form = dialog.querySelector("#contentEditorForm");
   form.dataset.kind = "graph";
   dialog.querySelector("#contentEditorTitle").textContent = "人物图谱布局";
-  dialog.querySelector("#contentEditorSubmit").textContent = "保存布局";
+  setIconButton(dialog.querySelector("#contentEditorSubmit"), "save", "保存图谱布局");
   dialog.querySelector("#contentEditorDelete").classList.add("is-hidden");
   dialog.querySelector("#contentEditorFields").innerHTML = `
     ${contentEditorField("ceNodeSpacing", "节点最小间距", graphLayoutConfig.nodeSpacing || 116, { type: "number", min: 80, max: 260 })}
@@ -422,7 +423,7 @@ async function repairProjectDiagnostics() {
   if (!window.confirm("安全修复会整理文章顺序并修正人物、关系文件名。稳定 ID 和正文不会改变，是否继续？")) return;
   const button = document.querySelector("#diagnosticRepairTrigger");
   button.disabled = true;
-  button.textContent = "修复中…";
+  setIconButton(button, "restore", "正在安全修复…");
   try {
     const result = await refactorApi("/api/diagnostics/repair", { project: currentProjectId() });
     window.alert(result.changeCount ? `已完成 ${result.changeCount} 项安全修复。` : "没有需要自动修复的项目。");
@@ -430,18 +431,18 @@ async function repairProjectDiagnostics() {
   } catch (error) {
     window.alert(error.message);
     button.disabled = false;
-    button.textContent = "安全修复";
+    setIconButton(button, "repair", "安全修复");
   }
 }
 
 function installContentManagerActions() {
-  const addButton = (container, id, text, handler) => {
+  const addButton = (container, id, label, icon, handler) => {
     if (!container || document.querySelector(`#${id}`)) return;
     const button = document.createElement("button");
     button.id = id;
-    button.className = "content-manager-action";
+    button.className = "content-manager-action icon-action";
     button.type = "button";
-    button.textContent = text;
+    setIconButton(button, icon, label);
     button.addEventListener("click", handler);
     if (id === "entryCreateTrigger" && document.querySelector("#placeSearch")) {
       document.querySelector("#placeSearch").before(button);
@@ -449,11 +450,11 @@ function installContentManagerActions() {
       container.append(button);
     }
   };
-  addButton(document.querySelector('[data-page="places"] .place-rail'), "entryCreateTrigger", "新建设定", () => openContentEditor("entry"));
-  addButton(document.querySelector('[data-page="fragments"] .topbar'), "fragmentCreateTrigger", "新建碎片", () => openContentEditor("fragment"));
-  addButton(document.querySelector('[data-page="story"] .story-head-actions'), "projectSettingsTrigger", "作品与篇章", openProjectSettings);
-  addButton(document.querySelector('[data-page="graph"] .graph-tools'), "graphSettingsTrigger", "布局设置", openGraphSettings);
-  addButton(document.querySelector('[data-page="diagnostics"] .topbar'), "diagnosticRepairTrigger", "安全修复", repairProjectDiagnostics);
+  addButton(document.querySelector('[data-page="places"] .place-rail'), "entryCreateTrigger", "新建设定", "add", () => openContentEditor("entry"));
+  addButton(document.querySelector('[data-page="fragments"] .topbar'), "fragmentCreateTrigger", "新建碎片", "add", () => openContentEditor("fragment"));
+  addButton(document.querySelector('[data-page="story"] .story-head-actions'), "projectSettingsTrigger", "作品与篇章", "book", openProjectSettings);
+  addButton(document.querySelector('[data-page="graph"] .graph-tools'), "graphSettingsTrigger", "布局设置", "layout", openGraphSettings);
+  addButton(document.querySelector('[data-page="diagnostics"] .topbar'), "diagnosticRepairTrigger", "安全修复", "repair", repairProjectDiagnostics);
 }
 
 async function refreshContentManagerAccess() {
