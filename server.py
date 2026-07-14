@@ -60,18 +60,27 @@ def update_frontmatter_field(text, key, value):
     match = FRONTMATTER_PATTERN.match(text)
     if not match:
         raise ValueError("目标档案缺少 frontmatter")
-    replacement = f"{key}: {json.dumps(value, ensure_ascii=False)}"
+    if isinstance(value, dict):
+        replacement = [f"{key}:"]
+        for child_key, child_value in value.items():
+            label = clean_text(child_key, "档案字段名", 60, required=True)
+            replacement.append(f"  {label}: {json.dumps(str(child_value), ensure_ascii=False)}")
+    else:
+        replacement = [f"{key}: {json.dumps(value, ensure_ascii=False)}"]
     lines = match.group("meta").splitlines()
     for index, line in enumerate(lines):
         if re.match(rf"^{re.escape(key)}\s*:", line):
-            lines[index] = replacement
+            end = index + 1
+            while end < len(lines) and (not lines[end].strip() or lines[end][:1].isspace()):
+                end += 1
+            lines[index:end] = replacement
             break
     else:
         insert_at = 0
         for index, line in enumerate(lines):
             if re.match(r"^(id|name)\s*:", line):
                 insert_at = index + 1
-        lines.insert(insert_at, replacement)
+        lines[insert_at:insert_at] = replacement
     return text[: match.start("meta")] + "\n".join(lines) + text[match.end("meta") :]
 
 
@@ -79,11 +88,15 @@ def remove_frontmatter_field(text, key):
     match = FRONTMATTER_PATTERN.match(text)
     if not match:
         raise ValueError("目标档案缺少 frontmatter")
-    lines = [
-        line
-        for line in match.group("meta").splitlines()
-        if not re.match(rf"^{re.escape(key)}\s*:", line)
-    ]
+    lines = match.group("meta").splitlines()
+    for index, line in enumerate(lines):
+        if not re.match(rf"^{re.escape(key)}\s*:", line):
+            continue
+        end = index + 1
+        while end < len(lines) and (not lines[end].strip() or lines[end][:1].isspace()):
+            end += 1
+        del lines[index:end]
+        break
     return text[: match.start("meta")] + "\n".join(lines) + text[match.end("meta") :]
 
 
@@ -788,6 +801,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             {
                 "ok": True,
                 "writable": True,
+                "features": ["content-management-v1"],
                 "token": self.server.api_token,
                 "trashCount": trash_count,
                 "canUndo": bool(undo and undo.get("project") == project),
@@ -1202,23 +1216,34 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         facts = payload.get("facts", {})
         if not isinstance(facts, dict) or len(facts) > 30:
             raise ValueError("人物档案字段格式不合法")
-        values = [
-            ("id", int(character_id) if character_id.isdigit() else character_id),
-            ("name", name),
-            ("aliases", clean_values(payload.get("aliases"), "人物别名", 24, 40)),
-            ("color", color),
-            ("gradient", f"linear-gradient(135deg, {color}, #6676c7)"),
-            ("avatar", clean_text(payload.get("avatar"), "头像路径", 500)),
-            ("group", clean_text(payload.get("group"), "人物分组", 80)),
-            ("markers", clean_values(payload.get("markers"), "人物标识", 24, 40)),
-            ("narrativeRole", narrative_role),
-            ("mainPlotImpact", impact),
-            ("side", side),
-            ("characterScope", scope),
-            ("graphVisible", False if payload.get("graphVisible") is False else None),
-            ("facts", {clean_text(label, "档案字段名", 60, True): clean_text(value, "档案字段值", 300) for label, value in facts.items()}),
-        ]
-        updated = serialize_markdown(values, str(payload.get("intro", ""))[:20000])
+        gradient = str(fields.get("gradient", "")).strip("\"'")
+        if gradient:
+            gradient = re.sub(r"#[0-9A-Fa-f]{6}", color, gradient, count=1)
+        else:
+            gradient = f"linear-gradient(135deg, {color}, #6676c7)"
+        managed_values = {
+            "id": int(character_id) if character_id.isdigit() else character_id,
+            "name": name,
+            "aliases": clean_values(payload.get("aliases"), "人物别名", 24, 40),
+            "color": color,
+            "gradient": gradient,
+            "avatar": clean_text(payload.get("avatar"), "头像路径", 500),
+            "group": clean_text(payload.get("group"), "人物分组", 80),
+            "markers": clean_values(payload.get("markers"), "人物标识", 24, 40),
+            "narrativeRole": narrative_role,
+            "mainPlotImpact": impact,
+            "side": side,
+            "characterScope": scope,
+            "graphVisible": False if payload.get("graphVisible") is False else None,
+            "facts": {clean_text(label, "档案字段名", 60, True): clean_text(value, "档案字段值", 300) for label, value in facts.items()},
+        }
+        updated = original
+        for key, value in managed_values.items():
+            if value is None or value == "" or value == [] or value == {}:
+                updated = remove_frontmatter_field(updated, key)
+            else:
+                updated = update_frontmatter_field(updated, key, value)
+        updated = replace_markdown_body(updated, str(payload.get("intro", ""))[:20000])
         atomic_write(path, updated)
         write_content_index(project_root, build_content_index(project_root))
         self.send_json({"ok": True, "id": character_id, "name": name, "path": path.relative_to(project_root).as_posix()})

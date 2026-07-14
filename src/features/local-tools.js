@@ -259,6 +259,9 @@ async function refactorApi(path, body) {
     throw new Error("当前是公开只读部署；请使用项目自带的本地启动命令");
   }
   const result = await response.json();
+  if (response.status === 404 && result.error === "未知接口") {
+    throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
+  }
   if (!response.ok || !result.ok) throw new Error(result.error || "本地操作失败");
   return result;
 }

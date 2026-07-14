@@ -7,6 +7,15 @@ const CONTENT_KIND_LABELS = {
   fragment: "灵感碎片",
 };
 
+const CONTENT_MANAGER_FEATURE = "content-management-v1";
+
+function contentManagerWritable() {
+  return Boolean(
+    refactorCapability?.writable
+    && refactorCapability?.features?.includes(CONTENT_MANAGER_FEATURE)
+  );
+}
+
 function editorListValue(values) {
   return (values || []).join("，");
 }
@@ -204,7 +213,9 @@ async function openContentEditor(kind, record = null) {
   form.onsubmit = saveContentEditor;
   deleteButton.onclick = () => deleteContentRecord(kind, record);
   await initializeRefactorWorkspace();
-  if (!refactorCapability?.writable) throw new Error("当前页面是只读模式")
+  if (!contentManagerWritable()) {
+    throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
+  }
   dialog.showModal();
 }
 
@@ -448,7 +459,7 @@ function installContentManagerActions() {
 async function refreshContentManagerAccess() {
   try {
     await initializeRefactorWorkspace();
-    document.body.classList.toggle("is-content-writable", Boolean(refactorCapability?.writable));
+    document.body.classList.toggle("is-content-writable", contentManagerWritable());
   } catch {
     document.body.classList.remove("is-content-writable");
   }

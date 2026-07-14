@@ -272,6 +272,41 @@ label: 母子
         index = json.loads((project_root / "content-index.json").read_text(encoding="utf-8"))
         self.assertIn("./characters/10-顾遥.md", index["collections"]["characters"])
 
+    def test_update_character_preserves_unmanaged_metadata(self):
+        handler, project_root, responses = self.relationship_handler()
+        character_path = project_root / "characters" / "3-林越.md"
+        self.write_markdown_at(
+            character_path,
+            "---\nid: 3\nname: 林越\ncolor: \"#3867b7\"\ngradient: \"linear-gradient(135deg, #3867b7, #2aa79b)\"\nx: 25\ny: 46\nevents: [1, 4, 25]\nlegacyField: keep-me\nfacts:\n  身份: \"调查员\"\n---\n旧简介\n",
+        )
+
+        handler.update_character({
+            "project": "novel",
+            "id": "3",
+            "narrativeRole": "配角",
+            "characterScope": "常驻人物",
+            "side": "主角方",
+            "group": "调查组",
+            "mainPlotImpact": 64,
+            "color": "#3f7fc1",
+            "aliases": ["小林"],
+            "markers": ["记者"],
+            "facts": {"身份": "记者"},
+            "intro": "新简介",
+            "graphVisible": True,
+        })
+
+        updated = character_path.read_text(encoding="utf-8")
+        self.assertIn("x: 25", updated)
+        self.assertIn("y: 46", updated)
+        self.assertIn("events: [1, 4, 25]", updated)
+        self.assertIn("legacyField: keep-me", updated)
+        self.assertIn('gradient: "linear-gradient(135deg, #3f7fc1, #2aa79b)"', updated)
+        self.assertIn('facts:\n  身份: "记者"', updated)
+        self.assertNotIn("调查员", updated)
+        self.assertIn("新简介", updated)
+        self.assertEqual(responses[-1][0]["id"], "3")
+
     def test_create_plot_inserts_sequence_without_changing_stable_ids(self):
         handler, project_root, responses = self.relationship_handler()
         plot_seven = project_root / "plots" / "007-old.md"
