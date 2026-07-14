@@ -31,12 +31,37 @@ Do not ask the user about routine frontend implementation choices.
 
 ## Implementation style
 
-* Make the feature work first.
+* Implement user-facing features as complete vertical slices. A visible control is not complete until its interaction, API, persistence, reload, and error states all work together.
 * Keep changes focused.
 * Avoid large rewrites unless clearly needed.
 * Avoid introducing new libraries for small UI changes.
 * Do not change unrelated behavior.
 * Prefer practical, readable code over clever abstractions.
+
+## Definition of done for interactive features
+
+Do not treat rendered UI, an opening dialog, a successful preview, or a passing isolated function test as proof that a feature is complete.
+
+Before reporting an interactive feature as finished:
+
+* Trace every new visible action from the UI event through the actual API route, validation, persistence, response handling, reload, and readback.
+* Exercise the complete happy path by clicking the real control in a running page. For multi-step flows, continue through the final write; do not stop at a preview or confirmation screen.
+* Exercise important failure paths, including unavailable or outdated local services, expired authorization, invalid input, duplicate names, stale previews, and conflicting destinations when relevant.
+* Confirm that the frontend files and the running backend process come from compatible versions. Backend source changes require a service restart before browser verification.
+* Use an explicit capability/version contract for optional write features. Do not show enabled controls when the running service does not advertise the required capability.
+* Run destructive or persistence tests against an isolated temporary content root. Never skip the final write merely to avoid changing real novel data.
+* After a write, reload from disk and verify the result that the user will actually see. A successful HTTP response alone is insufficient.
+* Add a regression test for every defect found after delivery, at the lowest layer that reproduces the real failure and, where practical, an end-to-end browser check for the full user path.
+
+When reporting repository status, distinguish clearly between:
+
+* code committed locally;
+* a branch pushed to the remote;
+* an open or draft pull request;
+* code merged into the default branch;
+* code currently loaded by the running local service.
+
+Do not describe one of these states as another or use “updated” when the distinction affects whether the user can use the feature.
 
 ## UI direction for this project
 
@@ -46,7 +71,12 @@ Core style:
 
 * Use a light, soft, semi-transparent workspace style with subtle shadows and restrained glass-like panels.
 * Keep the interface calm and mature. It can feel alive, but avoid childish bounce, excessive glow, loud decoration, or over-animated effects.
-* Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states; use clearly recognizable rectangular controls for actions such as edit, delete, save, and cancel.
+* Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states.
+* Prefer recognizable icon controls for compact or repeated actions such as edit, rename, delete, settings, collapse, close, move, restore, and preview. Avoid a bordered rectangle containing only an ordinary action word.
+* Reuse one coherent icon language. Prefer the project's existing icon set or small inline SVG icons; do not mix unrelated emoji, text glyphs, and icon styles.
+* Every icon-only action must have an accurate accessible name, a `title` or tooltip, visible hover/focus/disabled states, and a sufficiently large click target. The icon may be visually minimal without making the hit area tiny.
+* Use text when an action is unfamiliar, consequential, or ambiguous without it. In those cases prefer an icon with a concise label, a menu item, or a clearly emphasized primary action instead of a generic outlined word box.
+* Destructive icon actions still require clear danger styling and confirmation. Do not rely on color alone to communicate meaning.
 * Prefer focus interactions: click a line, node, or person to emphasize related content; hide or de-emphasize unrelated content; click blank space to return to the default state.
 * Floating information panels should feel like lightweight side annotations, not heavy modal boxes.
 * Avoid visible grid backgrounds unless the user explicitly asks for one.
@@ -118,6 +148,8 @@ Treat novel content as user data rather than application source.
 
 * Markdown files are persistence only. Do not require the user to open or edit local source files for routine content or configuration changes; provide the corresponding interface and localhost write API instead.
 * When a persisted structure needs migration, perform it through the application's validated write path and keep the UI as the ongoing source of operations.
+* Treat edits as partial updates. Preserve fields that the current form does not own, including unknown extension fields, stable IDs, article order, graph coordinates, event references, and other relationships.
+* Add round-trip tests for write APIs: seed a record with managed and unmanaged metadata, save through the API, reload it, and assert that only intended fields changed.
 
 * Serve the frontend and local mutation APIs from the same loopback-only process and port.
 * Never expose content mutation endpoints beyond `127.0.0.1` or `localhost`.
