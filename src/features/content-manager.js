@@ -79,6 +79,42 @@ function contentEditorSelected(id) {
   return [...(document.querySelector(`#${id}`)?.selectedOptions || [])].map((item) => item.value);
 }
 
+function clearCharacterRenamePreview(form) {
+  delete form.dataset.renameOperationId;
+  delete form.dataset.renamePreviewName;
+  const preview = form.querySelector("#contentEditorRenamePreview");
+  if (preview) {
+    preview.innerHTML = "";
+    preview.classList.add("is-hidden");
+  }
+  if (form.dataset.kind === "character" && form.dataset.creating !== "true") {
+    form.querySelector("#contentEditorSubmit").textContent = "保存修改";
+  }
+}
+
+function renderCharacterRenamePreview(form, result) {
+  const preview = form.querySelector("#contentEditorRenamePreview");
+  if (!preview) return;
+  const moveItems = result.moves.map((move) => `
+    <li><span>文件改名</span><del>${escapeHtml(move.from)}</del><ins>${escapeHtml(move.to)}</ins></li>
+  `).join("");
+  const sampleItems = result.samples.slice(0, 8).map((sample) => `
+    <li><span>${escapeHtml(sample.file)} · 第 ${sample.line} 行</span><del>${escapeHtml(sample.before)}</del><ins>${escapeHtml(sample.after)}</ins></li>
+  `).join("");
+  preview.innerHTML = `
+    <div class="content-editor-rename-summary">
+      <strong>${escapeHtml(result.oldName)} → ${escapeHtml(result.newName)}</strong>
+      <span>将批量修改 ${result.fileCount} 个文件、${result.matchCount} 处引用${result.moves.length ? `，并重命名 ${result.moves.length} 个文件` : ""}。</span>
+    </div>
+    <ul>${moveItems}${sampleItems}</ul>
+    ${result.samples.length > 8 ? `<p>另有 ${result.samples.length - 8} 处预览未展开。</p>` : ""}
+    <p class="content-editor-rename-warning">请核对以上影响范围，再点击“确认改名并保存”。</p>
+  `;
+  preview.classList.remove("is-hidden");
+  form.querySelector("#contentEditorSubmit").textContent = "确认改名并保存";
+  preview.scrollIntoView({ block: "nearest" });
+}
+
 async function openContentEditor(kind, record = null) {
   const dialog = ensureContentEditorDialog();
   const form = dialog.querySelector("#contentEditorForm");
@@ -91,13 +127,15 @@ async function openContentEditor(kind, record = null) {
   form.dataset.creating = creating ? "true" : "false";
   form.dataset.recordId = kind === "relationship" && record ? `${record.from}__${record.to}` : (record?.id || "");
   form.dataset.sourcePath = record?.sourcePath || "";
+  form.dataset.originalCharacterName = kind === "character" ? (record?.name || "") : "";
+  clearCharacterRenamePreview(form);
   title.textContent = `${creating ? "新建" : "编辑"}${CONTENT_KIND_LABELS[kind] || "档案"}`;
   submit.textContent = creating ? "创建" : "保存修改";
   deleteButton.classList.toggle("is-hidden", creating);
 
   if (kind === "character") {
     fields.innerHTML = `
-      ${contentEditorField("ceName", "人物姓名", record?.name || "", { readonly: !creating, required: true })}
+      ${contentEditorField("ceName", "人物姓名", record?.name || "", { required: true })}
       ${contentEditorField("ceRole", "叙事定位", record?.narrativeRole || characterNarrativeRole(record), { type: "select", html: `<option>主角</option><option>配角</option>` })}
       ${contentEditorField("ceScope", "收纳状态", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
       ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
@@ -110,8 +148,13 @@ async function openContentEditor(kind, record = null) {
       ${contentEditorField("ceFacts", "档案字段（每行“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
       ${contentEditorField("ceIntro", "人物简介", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
-      ${!creating ? '<p class="content-editor-note is-wide">人物姓名通过详情页的改名按钮安全修改，系统会先预览所有引用。</p>' : ""}
+      ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}
     `;
+    dialog.querySelector("#ceName")?.addEventListener("input", () => {
+      if (form.dataset.renamePreviewName !== dialog.querySelector("#ceName")?.value.trim()) {
+        clearCharacterRenamePreview(form);
+      }
+    });
   } else if (kind === "relationship") {
     const from = record ? getCharacter(record.from) : null;
     const to = record ? getCharacter(record.to) : null;
@@ -178,8 +221,31 @@ async function saveContentEditor(event) {
     let path;
     let payload = { project: currentProjectId() };
     if (kind === "character") {
+      const currentName = value("ceName");
+      const originalName = form.dataset.originalCharacterName || "";
+      if (!creating && currentName !== originalName) {
+        if (!form.dataset.renameOperationId || form.dataset.renamePreviewName !== currentName) {
+          clearCharacterRenamePreview(form);
+          const preview = await refactorApi("/api/refactor/preview", {
+            project: currentProjectId(),
+            type: "character",
+            id: form.dataset.recordId,
+            newName: currentName,
+          });
+          form.dataset.renameOperationId = preview.operationId;
+          form.dataset.renamePreviewName = currentName;
+          renderCharacterRenamePreview(form, preview);
+          status.textContent = "尚未修改：请先核对批量重构预览。";
+          form.querySelectorAll("button, input, select, textarea").forEach((element) => { element.disabled = false; });
+          return;
+        }
+        status.textContent = "正在批量重构姓名与所有引用…";
+        await refactorApi("/api/refactor/apply", { operationId: form.dataset.renameOperationId });
+        form.dataset.originalCharacterName = currentName;
+        clearCharacterRenamePreview(form);
+      }
       path = creating ? "/api/characters/create" : "/api/characters/update";
-      payload = { ...payload, id: form.dataset.recordId, name: value("ceName"), narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked) };
+      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked) };
     } else if (kind === "relationship") {
       path = "/api/relationships/update";
       payload = { ...payload, id: form.dataset.recordId, firstRole: value("ceFirstRole"), secondRole: value("ceSecondRole"), label: value("ceLabel"), type: value("ceType"), color: value("ceColor") };

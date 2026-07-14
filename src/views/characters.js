@@ -639,31 +639,8 @@ function renderCharacterDetail() {
         <p class="label">${escapeHtml(characterNarrativeRole(person))} · ${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
         <div class="character-title-row">
           <h2>${escapeHtml(person.name)}</h2>
-          <button
-            class="character-rename-trigger"
-            type="button"
-            aria-label="修改${escapeHtml(person.name)}的名字"
-            title="修改角色名"
-          >
-            <span aria-hidden="true">✎</span>
-          </button>
           <button class="character-edit-record" type="button">编辑档案</button>
           <button class="character-delete-record" type="button">删除</button>
-        </div>
-        <div class="character-rename-editor is-hidden">
-          <div class="character-rename-input-row">
-            <input
-              class="character-rename-input"
-              type="text"
-              maxlength="80"
-              autocomplete="off"
-              placeholder="输入新的角色名"
-              aria-label="新的角色名"
-            />
-            <button class="character-rename-preview" type="button">预览修改</button>
-            <button class="character-rename-cancel" type="button">取消</button>
-          </div>
-          <div class="character-rename-result" aria-live="polite"></div>
         </div>
         <p>${escapeHtml(person.intro)}</p>
         ${person.facts.length ? `
@@ -740,7 +717,6 @@ function renderCharacterDetail() {
     });
   });
   bindCharacterDensityFloat();
-  bindCharacterRename(person);
   bindCharacterScopeTools(person);
   characterDetail.querySelector(".character-edit-record")?.addEventListener("click", () => openContentEditor("character", person));
   characterDetail.querySelector(".character-delete-record")?.addEventListener("click", () => deleteContentRecord("character", person));
@@ -946,101 +922,4 @@ function bindCharacterScopeTools(person) {
       updateCharacterScope(person, button.dataset.scope || "", status, buttons);
     });
   });
-}
-
-function bindCharacterRename(person) {
-  const trigger = characterDetail.querySelector(".character-rename-trigger");
-  const editor = characterDetail.querySelector(".character-rename-editor");
-  const input = characterDetail.querySelector(".character-rename-input");
-  const previewButton = characterDetail.querySelector(".character-rename-preview");
-  const cancelButton = characterDetail.querySelector(".character-rename-cancel");
-  const result = characterDetail.querySelector(".character-rename-result");
-  if (!trigger || !editor || !input || !previewButton || !cancelButton || !result) return;
-
-  const reset = () => {
-    refactorOperationId = "";
-    input.value = "";
-    result.innerHTML = "";
-    editor.classList.add("is-hidden");
-    trigger.setAttribute("aria-expanded", "false");
-  };
-
-  const setBusy = (busy) => {
-    input.disabled = busy;
-    previewButton.disabled = busy;
-    cancelButton.disabled = busy;
-    result.querySelector(".character-rename-apply")?.toggleAttribute("disabled", busy);
-  };
-
-  const showError = (message) => {
-    refactorOperationId = "";
-    result.innerHTML = `<p class="character-rename-error">${escapeHtml(message)}</p>`;
-  };
-
-  const preview = async () => {
-    const newName = input.value.trim();
-    if (!newName) {
-      showError("请先输入新的角色名");
-      input.focus();
-      return;
-    }
-    setBusy(true);
-    try {
-      await initializeRefactorWorkspace();
-      if (!refactorCapability?.writable) throw new Error("当前页面是只读模式，请用 run.sh 启动本地服务");
-      const previewResult = await refactorApi("/api/refactor/preview", {
-        project: currentProjectId(),
-        type: "character",
-        id: person.id,
-        newName,
-      });
-      refactorOperationId = previewResult.operationId;
-      result.innerHTML = `
-        <div class="character-rename-confirm">
-          <span>
-            <strong>${escapeHtml(previewResult.oldName)} → ${escapeHtml(previewResult.newName)}</strong>
-            将修改 ${previewResult.fileCount} 个文件、${previewResult.matchCount} 处引用${previewResult.moves.length ? `，并重命名 ${previewResult.moves.length} 个文件` : ""}
-          </span>
-          <button class="character-rename-apply" type="button">确认应用</button>
-        </div>
-      `;
-      result.querySelector(".character-rename-apply")?.addEventListener("click", async (event) => {
-        event.currentTarget.disabled = true;
-        setBusy(true);
-        try {
-          await refactorApi("/api/refactor/apply", { operationId: refactorOperationId });
-          window.location.reload();
-        } catch (error) {
-          showError(error.message);
-          setBusy(false);
-        }
-      });
-    } catch (error) {
-      showError(error.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  trigger.setAttribute("aria-expanded", "false");
-  trigger.addEventListener("click", () => {
-    const opening = editor.classList.contains("is-hidden");
-    if (!opening) {
-      reset();
-      return;
-    }
-    editor.classList.remove("is-hidden");
-    trigger.setAttribute("aria-expanded", "true");
-    input.focus();
-  });
-  input.addEventListener("input", () => {
-    refactorOperationId = "";
-    result.innerHTML = "";
-  });
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") preview();
-    if (event.key === "Escape") reset();
-  });
-  previewButton.addEventListener("click", preview);
-  cancelButton.addEventListener("click", reset);
 }
