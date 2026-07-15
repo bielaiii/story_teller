@@ -72,7 +72,8 @@ class FrontendNavigationTests(unittest.TestCase):
         editor = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
         suggestions = (ROOT / "src" / "features" / "smart-suggest.js").read_text(encoding="utf-8")
         styles = (ROOT / "styles.css").read_text(encoding="utf-8")
-        self.assertIn('src/features/smart-suggest.js?v=phonetic-capture', markup)
+        self.assertIn('src/features/smart-suggest.js?v=phonetic-capture-v2', markup)
+        self.assertIn('styles.css?v=phonetic-capture-v2', markup)
         self.assertIn('vendor/pinyin-pro/pinyin-pro.min.js', markup)
         for field_id in ("plotCreateName", "plotCreateSummary", "plotCreateBody", "characterCreateIntro", "characterCreateSupplements"):
             self.assertRegex(markup, rf'id="{field_id}"[^>]*data-smart-suggest')
@@ -87,7 +88,8 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn('addEventListener("compositionstart"', suggestions)
         self.assertIn("smartSuggestPinyinScore", suggestions)
         self.assertIn("smartSuggestPhysicalLetter", suggestions)
-        self.assertIn('document.execCommand?.("insertText"', suggestions)
+        self.assertIn('smartSuggestPopover.addEventListener("keydown", handleSmartSuggestCaptureKey)', suggestions)
+        self.assertIn('popover.focus({ preventScroll: true })', suggestions)
         self.assertTrue((ROOT / "vendor" / "pinyin-pro" / "LICENSE").is_file())
         self.assertIn("smart-suggest-popover", styles)
 

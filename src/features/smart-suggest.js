@@ -153,33 +153,19 @@ function smartSuggestContext(element) {
   return { trigger, query, start, end: caret };
 }
 
-function smartSuggestPhoneticContext(element) {
-  const context = smartSuggestContext(element);
-  return context && /^[a-zv]*$/i.test(context.query) ? context : null;
-}
-
 function smartSuggestPhysicalLetter(event) {
   if (event.metaKey || event.ctrlKey || event.altKey) return "";
+  if (/^[a-z]$/i.test(String(event.key || ""))) return event.key.toLocaleLowerCase("en-US");
   const match = /^Key([A-Z])$/.exec(String(event.code || ""));
   return match ? match[1].toLocaleLowerCase("en-US") : "";
 }
 
-function insertSmartSuggestPhoneticLetter(element, letter) {
-  const start = element.selectionStart;
-  const end = element.selectionEnd;
-  if (!Number.isInteger(start) || !Number.isInteger(end)) return;
-  const expectedValue = `${element.value.slice(0, start)}${letter}${element.value.slice(end)}`;
-  try {
-    document.execCommand?.("insertText", false, letter);
-  } catch (error) {
-    // Fall through to setRangeText when the browser does not expose insertText.
-  }
-  if (element.value === expectedValue) return;
-  element.setRangeText(letter, start, end, "end");
+function replaceSmartSuggestText(element, start, end, text, inputType = "insertText") {
+  element.setRangeText(text, start, end, "end");
   element.dispatchEvent(new InputEvent("input", {
     bubbles: true,
-    inputType: "insertText",
-    data: letter,
+    inputType,
+    data: text || null,
   }));
 }
 
@@ -233,6 +219,8 @@ function ensureSmartSuggestPopover(element) {
     smartSuggestPopover.className = "smart-suggest-popover";
     smartSuggestPopover.setAttribute("role", "listbox");
     smartSuggestPopover.setAttribute("aria-label", "智能提示");
+    smartSuggestPopover.setAttribute("tabindex", "-1");
+    smartSuggestPopover.addEventListener("keydown", handleSmartSuggestCaptureKey);
   }
   const host = smartSuggestHost(element);
   if (smartSuggestPopover.parentElement !== host) host.append(smartSuggestPopover);
@@ -262,9 +250,11 @@ function closeSmartSuggestions(element = smartSuggestActive?.element) {
     smartSuggestPopover.innerHTML = "";
   }
   if (element) {
+    element.classList.remove("is-smart-suggest-capturing");
     element.setAttribute("aria-expanded", "false");
     element.removeAttribute("aria-activedescendant");
   }
+  smartSuggestPopover?.removeAttribute("aria-activedescendant");
   smartSuggestActive = null;
 }
 
@@ -286,15 +276,16 @@ function smartSuggestMatchDetail(candidate, query) {
 
 function renderSmartSuggestions(element, context, results, activeIndex = 0) {
   const popover = ensureSmartSuggestPopover(element);
-  const safeIndex = Math.max(0, Math.min(activeIndex, results.length - 1));
+  const hasResults = results.length > 0;
+  const safeIndex = hasResults ? Math.max(0, Math.min(activeIndex, results.length - 1)) : -1;
   const label = context.trigger === "@" ? "人物" : "设定与名词";
   popover.innerHTML = `
     <header class="smart-suggest-head">
       <span><kbd>${smartSuggestEscape(context.trigger)}</kbd>${label}</span>
-      <small>直接输入拼音 · ↑↓ 选择 · Enter 插入</small>
+      <small>直接输入拼音 · 空格/Enter 插入</small>
     </header>
     <div class="smart-suggest-options">
-      ${results.map((candidate, index) => {
+      ${hasResults ? results.map((candidate, index) => {
         const detail = smartSuggestMatchDetail(candidate, context.query);
         return `
           <div class="smart-suggest-option ${index === safeIndex ? "is-active" : ""}" id="smart-suggest-option-${index}" role="option" aria-selected="${index === safeIndex}" data-smart-suggest-index="${index}">
@@ -303,13 +294,20 @@ function renderSmartSuggestions(element, context, results, activeIndex = 0) {
             <span class="smart-suggest-type">${smartSuggestEscape(candidate.type)}</span>
           </div>
         `;
-      }).join("")}
+      }).join("") : '<p class="smart-suggest-empty">没有匹配项，退格可继续修改</p>'}
     </div>
   `;
   popover.hidden = false;
+  element.classList.add("is-smart-suggest-capturing");
   element.setAttribute("aria-expanded", "true");
   element.setAttribute("aria-controls", popover.id);
-  element.setAttribute("aria-activedescendant", `smart-suggest-option-${safeIndex}`);
+  if (hasResults) {
+    element.setAttribute("aria-activedescendant", `smart-suggest-option-${safeIndex}`);
+    popover.setAttribute("aria-activedescendant", `smart-suggest-option-${safeIndex}`);
+  } else {
+    element.removeAttribute("aria-activedescendant");
+    popover.removeAttribute("aria-activedescendant");
+  }
   smartSuggestActive = { element, context, results, activeIndex: safeIndex };
   popover.querySelectorAll("[data-smart-suggest-index]").forEach((option) => {
     option.addEventListener("pointerdown", (event) => {
@@ -318,21 +316,19 @@ function renderSmartSuggestions(element, context, results, activeIndex = 0) {
     });
   });
   positionSmartSuggestPopover(element);
+  popover.focus({ preventScroll: true });
 }
 
 function updateSmartSuggestions(element) {
   const binding = smartSuggestBindings.get(element);
-  if (!binding || binding.composing || document.activeElement !== element) return;
+  const captureFocused = smartSuggestActive?.element === element && document.activeElement === smartSuggestPopover;
+  if (!binding || binding.composing || (document.activeElement !== element && !captureFocused)) return;
   const context = smartSuggestContext(element);
   if (!context) {
     if (smartSuggestActive?.element === element) closeSmartSuggestions(element);
     return;
   }
   const results = smartSuggestResults(context.trigger, context.query);
-  if (!results.length) {
-    if (smartSuggestActive?.element === element) closeSmartSuggestions(element);
-    return;
-  }
   renderSmartSuggestions(element, context, results, 0);
 }
 
@@ -351,7 +347,7 @@ function syncSmartSuggestionReference(element, candidate) {
   select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function selectSmartSuggestion(index = smartSuggestActive?.activeIndex || 0) {
+function selectSmartSuggestion(index = smartSuggestActive?.activeIndex ?? 0) {
   if (!smartSuggestActive) return;
   const { element, context, results } = smartSuggestActive;
   const candidate = results[index];
@@ -374,9 +370,54 @@ function selectSmartSuggestion(index = smartSuggestActive?.activeIndex || 0) {
 function moveSmartSuggestionSelection(offset) {
   if (!smartSuggestActive) return;
   const { element, context, results, activeIndex } = smartSuggestActive;
+  if (!results.length) return;
   const nextIndex = (activeIndex + offset + results.length) % results.length;
   renderSmartSuggestions(element, context, results, nextIndex);
   smartSuggestPopover?.querySelector(`#smart-suggest-option-${nextIndex}`)?.scrollIntoView({ block: "nearest" });
+}
+
+function restoreSmartSuggestEditorFocus(element) {
+  element.focus({ preventScroll: true });
+}
+
+function handleSmartSuggestCaptureKey(event) {
+  if (!smartSuggestActive || event.currentTarget !== smartSuggestPopover) return;
+  const { element, context, results } = smartSuggestActive;
+  const physicalLetter = smartSuggestPhysicalLetter(event);
+  if (physicalLetter) {
+    event.preventDefault();
+    replaceSmartSuggestText(element, context.end, context.end, physicalLetter);
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSmartSuggestionSelection(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+  if ((event.key === "Enter" || event.key === " " || event.key === "Tab") && results.length) {
+    event.preventDefault();
+    selectSmartSuggestion();
+    return;
+  }
+  if (event.key === "Backspace") {
+    event.preventDefault();
+    const removeStart = context.query ? context.end - 1 : context.start;
+    replaceSmartSuggestText(element, removeStart, context.end, "", "deleteContentBackward");
+    if (!context.query) restoreSmartSuggestEditorFocus(element);
+    return;
+  }
+  if (event.key === "Escape" || event.key === "Tab") {
+    event.preventDefault();
+    closeSmartSuggestions(element);
+    restoreSmartSuggestEditorFocus(element);
+    return;
+  }
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1) {
+    event.preventDefault();
+    closeSmartSuggestions(element);
+    replaceSmartSuggestText(element, context.end, context.end, event.key);
+    restoreSmartSuggestEditorFocus(element);
+  }
 }
 
 function attachSmartSuggestions(element) {
@@ -386,12 +427,7 @@ function attachSmartSuggestions(element) {
   element.setAttribute("autocomplete", "off");
   element.setAttribute("aria-autocomplete", "list");
   element.setAttribute("aria-expanded", "false");
-  element.addEventListener("compositionstart", (event) => {
-    if (smartSuggestPhoneticContext(element)) {
-      event.preventDefault();
-      binding.composing = false;
-      return;
-    }
+  element.addEventListener("compositionstart", () => {
     binding.composing = true;
     if (smartSuggestActive?.element === element) closeSmartSuggestions(element);
   });
@@ -405,13 +441,6 @@ function attachSmartSuggestions(element) {
     if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateSmartSuggestions(element);
   });
   element.addEventListener("keydown", (event) => {
-    const phoneticContext = smartSuggestPhoneticContext(element);
-    const physicalLetter = smartSuggestPhysicalLetter(event);
-    if (phoneticContext && physicalLetter) {
-      event.preventDefault();
-      insertSmartSuggestPhoneticLetter(element, physicalLetter);
-      return;
-    }
     if (smartSuggestActive?.element !== element) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -432,7 +461,8 @@ function attachSmartSuggestions(element) {
   }, { passive: true });
   element.addEventListener("blur", () => {
     window.setTimeout(() => {
-      if (document.activeElement !== element && smartSuggestActive?.element === element) closeSmartSuggestions(element);
+      const captureFocused = document.activeElement === smartSuggestPopover;
+      if (document.activeElement !== element && !captureFocused && smartSuggestActive?.element === element) closeSmartSuggestions(element);
     }, 0);
   });
 }

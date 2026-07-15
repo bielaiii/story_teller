@@ -33,13 +33,10 @@ test("所有正文编辑器共享人物和设定智能提示", async ({ page }) 
   await body.press("Escape");
 
   await body.fill("@");
-  const compositionWasCanceled = await body.evaluate((element) => !element.dispatchEvent(new CompositionEvent("compositionstart", {
-    bubbles: true,
-    cancelable: true,
-  })));
-  expect(compositionWasCanceled).toBe(true);
+  await expect(page.locator("#smartSuggestPopover")).toBeFocused();
+  await expect(body).toHaveClass(/is-smart-suggest-capturing/);
   for (const letter of ["L", "C", "Z"]) {
-    const keyWasCaptured = await body.evaluate((element, key) => !element.dispatchEvent(new KeyboardEvent("keydown", {
+    const keyWasCaptured = await page.locator("#smartSuggestPopover").evaluate((element, key) => !element.dispatchEvent(new KeyboardEvent("keydown", {
       key: "Process",
       code: `Key${key}`,
       keyCode: 229,
@@ -50,7 +47,9 @@ test("所有正文编辑器共享人物和设定智能提示", async ({ page }) 
   }
   await expect(body).toHaveValue("@lcz");
   await expect(page.locator("#smartSuggestPopover")).toContainText("陆沉舟");
-  await body.press("Escape");
+  await page.locator("#smartSuggestPopover").press("Escape");
+  await expect(body).toBeFocused();
+  await expect(body).not.toHaveClass(/is-smart-suggest-capturing/);
 
   await body.fill("/jiugang");
   await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
@@ -58,6 +57,17 @@ test("所有正文编辑器共享人物和设定智能提示", async ({ page }) 
   await body.fill("/jg");
   await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
   await body.press("Escape");
+
+  await body.fill("/jgzzz");
+  await expect(page.locator("#smartSuggestPopover")).toBeFocused();
+  await expect(page.locator("#smartSuggestPopover")).toContainText("没有匹配项");
+  await page.locator("#smartSuggestPopover").press("Backspace");
+  await page.locator("#smartSuggestPopover").press("Backspace");
+  await page.locator("#smartSuggestPopover").press("Backspace");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
+  await page.locator("#smartSuggestPopover").press(" ");
+  await expect(body).toHaveValue("旧港");
+  await expect(body).toBeFocused();
 
   await page.locator('#plotCreatePeople option[value="2"]').evaluate((option) => { option.selected = false; });
   await body.fill("@陆");

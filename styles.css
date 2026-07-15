@@ -1974,6 +1974,15 @@ button {
   display: none;
 }
 
+.smart-suggest-popover:focus {
+  outline: none;
+}
+
+[data-smart-suggest].is-smart-suggest-capturing {
+  border-color: rgba(42, 167, 155, 0.52);
+  box-shadow: 0 0 0 3px rgba(42, 167, 155, 0.1);
+}
+
 .smart-suggest-head {
   display: flex;
   align-items: center;
@@ -2015,6 +2024,14 @@ button {
   max-height: 322px;
   overflow: auto;
   padding: 4px 0 0;
+}
+
+.smart-suggest-empty {
+  margin: 0;
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .smart-suggest-option {
