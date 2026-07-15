@@ -46,6 +46,16 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("if (!dialogWasOpen) window.alert(error.message);", source)
         self.assertIn("if (dialogWasOpen && dialog.open) dialog.close();", source)
 
+    def test_fragment_page_has_no_redundant_english_label(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        fragment_page = re.search(
+            r'<section class="fragment-page[\s\S]*?</section>',
+            markup,
+        )
+        self.assertIsNotNone(fragment_page)
+        self.assertNotIn(">Fragments<", fragment_page.group(0))
+        self.assertIn("<h2>灵感碎片箱</h2>", fragment_page.group(0))
+
 
 if __name__ == "__main__":
     unittest.main()
