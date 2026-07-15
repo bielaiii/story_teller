@@ -118,6 +118,18 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertNotIn("window.confirm", plot_detail)
         self.assertNotIn("window.confirm", content_manager)
 
+    def test_checks_page_exposes_typed_trash_and_operation_history(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        story = (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8")
+        timeline = (ROOT / "src" / "views" / "timeline.js").read_text(encoding="utf-8")
+        self.assertIn('id="plotTrashKindFilter"', markup)
+        self.assertIn('id="operationHistoryDialog"', markup)
+        self.assertIn('id="operationHistoryWorkspace"', markup)
+        self.assertIn('"剧情线"', story)
+        self.assertIn('"篇章"', story)
+        self.assertIn("/api/history/undo", story)
+        self.assertIn("await showAppConfirm", timeline)
+
 
 if __name__ == "__main__":
     unittest.main()

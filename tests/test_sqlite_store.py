@@ -72,6 +72,63 @@ class SQLiteProjectStoreTests(unittest.TestCase):
         self.assertIn("数据库正文", self.store.snapshot()["documents"]["plots/001.md"])
         self.assertEqual("plot-update", self.store.info()["lastOperation"])
 
+    def test_operation_history_can_undo_and_redo_a_write(self):
+        plot_path = self.project_root / "plots" / "001.md"
+        original = plot_path.read_text(encoding="utf-8")
+        plot_path.write_text(
+            "---\nid: 1\nsequence: 1\ntitle: 修改后\n---\n新的正文\n",
+            encoding="utf-8",
+        )
+        self.store.capture_from_exports("/api/plots/update", {
+            "label": "编辑剧情：修改后", "entityType": "plot", "action": "update",
+        })
+
+        history = self.store.history()
+        self.assertEqual("编辑剧情：修改后", history[0]["label"])
+        self.assertTrue(history[0]["canUndo"])
+        undone = self.store.undo_transaction(history[0]["id"])
+        self.assertTrue(undone["ok"])
+        self.assertEqual(original, plot_path.read_text(encoding="utf-8"))
+
+        inverse = self.store.history()[0]
+        self.assertTrue(inverse["label"].startswith("撤销："))
+        self.store.undo_transaction(inverse["id"])
+        self.assertIn("新的正文", plot_path.read_text(encoding="utf-8"))
+
+    def test_older_overlapping_operation_requires_newer_change_to_be_undone_first(self):
+        plot_path = self.project_root / "plots" / "001.md"
+        plot_path.write_text("---\nid: 1\nsequence: 1\ntitle: 第一次\n---\n第一次\n", encoding="utf-8")
+        self.store.capture_from_exports("first", {"label": "第一次", "entityType": "plot"})
+        first_id = self.store.history()[0]["id"]
+        plot_path.write_text("---\nid: 1\nsequence: 1\ntitle: 第二次\n---\n第二次\n", encoding="utf-8")
+        self.store.capture_from_exports("second", {"label": "第二次", "entityType": "plot"})
+
+        with self.assertRaisesRegex(ValueError, "后来又被修改"):
+            self.store.undo_transaction(first_id)
+        second_id = self.store.history()[0]["id"]
+        self.store.undo_transaction(second_id)
+        self.store.undo_transaction(first_id)
+        self.assertIn("初始正文", plot_path.read_text(encoding="utf-8"))
+
+    def test_redone_structural_delete_returns_to_typed_trash_history(self):
+        timeline = self.project_root / "timeline.md"
+        timeline.write_text("---\nmainLine: 主线\n---\n\n- name: 主线\n- name: 支线\n", encoding="utf-8")
+        self.store.capture_from_exports("seed-timeline", {
+            "label": "建立时间线", "entityType": "timeline", "action": "system",
+        })
+        timeline.write_text("---\nmainLine: 主线\n---\n\n- name: 主线\n", encoding="utf-8")
+        self.store.capture_from_exports("delete-line", {
+            "label": "删除剧情线：支线", "entityType": "timeline", "action": "delete",
+            "details": {"deletedItems": [{"type": "timeline", "id": "支线", "title": "支线"}]},
+        })
+        deletion = self.store.history(deletion_only=True)[0]
+        self.store.undo_transaction(deletion["id"])
+        self.assertEqual([], [item for item in self.store.history(deletion_only=True) if not item["undone"]])
+        inverse = self.store.history()[0]
+        self.store.undo_transaction(inverse["id"])
+        redone = [item for item in self.store.history(deletion_only=True) if not item["undone"]]
+        self.assertEqual("支线", redone[0]["deletedItems"][0]["title"])
+
     def test_renaming_export_path_keeps_the_same_stable_id(self):
         old_path = self.project_root / "characters" / "1-沈清妙.md"
         new_path = self.project_root / "characters" / "1-沈清妍.md"
@@ -89,6 +146,37 @@ class SQLiteProjectStoreTests(unittest.TestCase):
             self.store.initialize()
         with sqlite3.connect(self.store.database_path) as connection:
             self.assertEqual(999, connection.execute("PRAGMA user_version").fetchone()[0])
+
+    def test_version_one_database_is_migrated_with_undo_snapshot_tables(self):
+        legacy_root = Path(self.temporary_directory.name) / "legacy"
+        legacy_root.mkdir()
+        database = legacy_root / "story.db"
+        with sqlite3.connect(database) as connection:
+            connection.executescript("""
+                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO metadata(key, value) VALUES('schema_version', '1');
+                CREATE TABLE documents (
+                    path TEXT PRIMARY KEY, collection TEXT NOT NULL,
+                    stable_id TEXT NOT NULL DEFAULT '', display_name TEXT NOT NULL DEFAULT '',
+                    sequence INTEGER, content BLOB NOT NULL, content_hash TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL,
+                    operation TEXT NOT NULL, changed_paths TEXT NOT NULL
+                );
+                PRAGMA user_version = 1;
+            """)
+        legacy_store = SQLiteProjectStore(legacy_root)
+        legacy_store.initialize()
+        with legacy_store.connect() as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(transactions)")}
+            self.assertIn("expires_at", columns)
+            self.assertIn("undone_by", columns)
+            self.assertIsNotNone(connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='transaction_changes'"
+            ).fetchone())
+            self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
 
 
 if __name__ == "__main__":

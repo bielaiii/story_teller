@@ -538,7 +538,20 @@ async function openProjectSettings() {
   `;
   const rows = dialog.querySelector("#projectChapterRows");
   const bindRemove = () => rows.querySelectorAll(".project-chapter-remove").forEach((button) => {
-    button.onclick = () => button.closest(".project-chapter-row")?.remove();
+    button.onclick = async () => {
+      const row = button.closest(".project-chapter-row");
+      if (!row) return;
+      const chapterId = row.querySelector(".project-chapter-id")?.value.trim() || "";
+      const chapterLabel = row.querySelector(".project-chapter-label")?.value.trim() || chapterId || "未命名篇章";
+      const confirmed = await showAppConfirm({
+        title: "删除这个篇章？",
+        message: `“${chapterLabel}”将从作品结构中移除。`,
+        detail: "保存作品设置后进入回收站，7 天内可以恢复；关闭当前编辑框则不会生效。",
+        confirmLabel: `确认删除篇章${chapterLabel}`,
+        cancelLabel: `取消删除篇章${chapterLabel}`,
+      });
+      if (confirmed) row.remove();
+    };
   });
   bindRemove();
   dialog.querySelector("#projectChapterAdd").onclick = () => {

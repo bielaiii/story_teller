@@ -400,6 +400,19 @@ def serialize_timeline_document(config):
     return "\n".join(fields).rstrip() + "\n"
 
 
+def timeline_line_names(text):
+    names = []
+    for raw_value in re.findall(r"(?m)^- name:\s*(.+?)\s*$", str(text or "")):
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value.strip().strip("\"'")
+        name = str(value or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def replace_name(text, old_name, new_name):
     if ASCII_NAME_PATTERN.fullmatch(old_name):
         pattern = re.compile(
@@ -841,7 +854,11 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             if purge_trash:
                 purged = purge_expired_plot_trash(project_root) + purge_expired_record_trash(project_root)
                 if purged:
-                    store.capture_from_exports("trash-retention-purge")
+                    store.capture_from_exports("trash-retention-purge", {
+                        "label": "清理过期回收站内容",
+                        "entityType": "trash",
+                        "action": "system",
+                    })
         return project_id, project_root
 
     def undo_metadata(self):
@@ -929,6 +946,10 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.plot_trash_preview(parsed)
         if parsed.path == "/api/plots/trash":
             return self.plot_trash(parsed)
+        if parsed.path == "/api/history":
+            return self.operation_history(parsed)
+        if parsed.path == "/api/history/trash":
+            return self.history_trash(parsed)
         if parsed.path != "/api/capabilities":
             return super().do_GET()
         if not self.local_host():
@@ -941,12 +962,16 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         except OSError as error:
             return self.send_api_error(f"回收站清理失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
         undo = self.valid_undo_metadata(project_root, project)
-        trash_count = len(plot_trash_records(project_root)) + len(record_trash_records(project_root))
+        history_trash = [
+            item for item in self.server.sqlite.store(project).history(deletion_only=True)
+            if item["entityType"] in {"timeline", "chapter"} and not item["undone"]
+        ]
+        trash_count = len(plot_trash_records(project_root)) + len(record_trash_records(project_root)) + len(history_trash)
         self.send_json(
             {
                 "ok": True,
                 "writable": True,
-                "features": ["content-management-v3", "sqlite-storage-v1"],
+                "features": ["content-management-v3", "sqlite-storage-v1", "sqlite-storage-v2", "operation-history-v1"],
                 "storage": "sqlite",
                 "token": self.server.api_token,
                 "trashCount": trash_count,
@@ -958,6 +983,34 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 ),
             }
         )
+
+    def operation_history(self, parsed):
+        if not self.local_host():
+            return self.send_api_error("只允许从本机读取操作记录", HTTPStatus.FORBIDDEN)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        project = query.get("project", [""])[0]
+        try:
+            project = self.project_id(project)
+            self.project_root(project)
+            items = self.server.sqlite.store(project).history(limit=200)
+        except ValueError as error:
+            return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
+        self.send_json({"ok": True, "items": items, "retentionDays": 7})
+
+    def history_trash(self, parsed):
+        if not self.local_host():
+            return self.send_api_error("只允许从本机读取回收站", HTTPStatus.FORBIDDEN)
+        project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
+        try:
+            project = self.project_id(project)
+            self.project_root(project)
+            items = [
+                item for item in self.server.sqlite.store(project).history(limit=200, deletion_only=True)
+                if item["entityType"] in {"timeline", "chapter"} and not item["undone"]
+            ]
+        except ValueError as error:
+            return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
+        self.send_json({"ok": True, "items": items, "retentionDays": 7})
 
     def plot_trash(self, parsed):
         if not self.local_host():
@@ -1136,6 +1189,119 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         }
         return routes[path](payload)
 
+    def mutation_history_metadata(self, path, payload, response, snapshot):
+        response = response if isinstance(response, dict) else {}
+        kind_labels = {
+            "character": "人物", "entry": "设定", "fragment": "碎片",
+            "relationship": "人物关系", "plot": "剧情",
+        }
+        entity_type = "content"
+        action = "update"
+        label = "保存内容修改"
+        details = {}
+
+        if path == "/api/characters/create":
+            entity_type, action = "character", "create"
+            label = f"新建人物：{payload.get('name', response.get('name', '未命名人物'))}"
+        elif path == "/api/characters/update":
+            entity_type = "character"
+            label = f"编辑人物：{payload.get('name', response.get('name', payload.get('id', '')))}"
+        elif path == "/api/characters/scope":
+            entity_type = "character"
+            label = f"调整人物收纳状态：{response.get('name', payload.get('id', ''))}"
+        elif path == "/api/entries/save":
+            entity_type = "entry"
+            action = "create" if payload.get("create") else "update"
+            label = f"{'新建' if action == 'create' else '编辑'}设定：{payload.get('name', response.get('name', ''))}"
+        elif path == "/api/fragments/save":
+            entity_type = "fragment"
+            action = "create" if payload.get("create") else "update"
+            label = f"{'新建' if action == 'create' else '编辑'}碎片：{payload.get('title', response.get('title', ''))}"
+        elif path == "/api/relationships/create":
+            entity_type, action = "relationship", "create"
+            label = f"新建人物关系：{payload.get('label', response.get('label', ''))}"
+        elif path == "/api/relationships/update":
+            entity_type = "relationship"
+            label = f"编辑人物关系：{payload.get('label', response.get('label', ''))}"
+        elif path == "/api/records/delete":
+            entity_type, action = str(payload.get("kind", "content")), "delete"
+            title = response.get("title", payload.get("id", ""))
+            label = f"删除{kind_labels.get(entity_type, '内容')}：{title}"
+        elif path == "/api/records/trash/restore":
+            entity_type, action = str(response.get("kind", "content")), "restore"
+            label = f"恢复{kind_labels.get(entity_type, '内容')}：{response.get('title', response.get('id', ''))}"
+        elif path == "/api/plots/create":
+            entity_type, action = "plot", "create"
+            label = f"新建剧情：{response.get('title', payload.get('title', ''))}"
+        elif path == "/api/plots/update":
+            entity_type = "plot"
+            label = f"编辑剧情：{response.get('title', payload.get('title', ''))}"
+        elif path == "/api/plots/delete":
+            entity_type, action = "plot", "delete"
+            label = f"删除剧情：{response.get('title', payload.get('id', ''))}"
+        elif path == "/api/plots/trash/restore":
+            entity_type, action = "plot", "restore"
+            label = f"恢复剧情：{response.get('title', response.get('id', ''))}"
+        elif path == "/api/timeline/update":
+            entity_type = "timeline"
+            before_names = timeline_line_names(snapshot.get("documents", {}).get("timeline.md", ""))
+            after_names = [
+                str(item.get("name", "")).strip()
+                for item in payload.get("config", {}).get("lines", [])
+                if isinstance(item, dict) and str(item.get("name", "")).strip()
+            ]
+            removed = [name for name in before_names if name not in after_names]
+            if removed:
+                action = "delete"
+                details["deletedItems"] = [
+                    {"type": "timeline", "id": name, "title": name} for name in removed
+                ]
+                label = f"删除剧情线：{'、'.join(removed)}"
+            else:
+                label = "编辑时间线结构"
+        elif path == "/api/project/update":
+            entity_type = "project"
+            manifest = snapshot.get("documents", {}).get("manifest.md", "")
+            before_chapters = frontmatter_list_values(manifest, "chapters")
+            after_chapters = [
+                str(item.get("id", "")).strip()
+                for item in payload.get("chapters", []) if isinstance(item, dict)
+            ]
+            removed = [chapter_id for chapter_id in before_chapters if chapter_id not in after_chapters]
+            if removed:
+                entity_type, action = "chapter", "delete"
+                fields = parse_frontmatter(manifest)
+                deleted_items = []
+                for chapter_id in removed:
+                    field = f"chapter{chapter_id[:1].upper()}{chapter_id[1:]}"
+                    deleted_items.append({
+                        "type": "chapter", "id": chapter_id,
+                        "title": str(fields.get(field, chapter_id)).strip("\"'"),
+                    })
+                details["deletedItems"] = deleted_items
+                label = f"删除篇章：{'、'.join(item['title'] for item in deleted_items)}"
+            else:
+                label = "编辑作品与篇章设置"
+        elif path == "/api/graph-layout/update":
+            entity_type = "graph"
+            label = "调整人物图谱布局"
+        elif path == "/api/diagnostics/repair":
+            entity_type = "diagnostics"
+            label = "执行配置安全修复"
+        elif path == "/api/refactor/apply":
+            entity_type = "refactor"
+            label = "批量重命名档案与引用"
+        elif path == "/api/refactor/undo":
+            entity_type, action = "refactor", "undo"
+            label = "撤销批量重命名"
+
+        return {
+            "label": label,
+            "entityType": entity_type,
+            "action": action,
+            "details": details,
+        }
+
     def mutation_project_id(self, path, payload):
         if path == "/api/projects/create":
             return clean_text(payload.get("id"), "项目 ID", 60, required=True)
@@ -1170,6 +1336,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "/api/projects/create",
             "/api/graph-layout/update",
             "/api/diagnostics/repair",
+            "/api/history/undo",
         }
         if parsed.path not in allowed_paths:
             return self.send_api_error("未知接口", HTTPStatus.NOT_FOUND)
@@ -1180,6 +1347,13 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         store = None
         try:
             payload = self.read_json()
+            if parsed.path == "/api/history/undo":
+                project = self.project_id(payload.get("project", ""))
+                with self.server.sqlite.write_lock:
+                    store = self.server.sqlite.store(project)
+                    store.materialize_exports(clean=True)
+                    result = store.undo_transaction(payload.get("transactionId"))
+                return self.send_json(result)
             if parsed.path == "/api/refactor/preview":
                 project = self.project_id(payload.get("project", ""))
                 self.project_root(project)
@@ -1191,13 +1365,20 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 if parsed.path != "/api/projects/create":
                     store = self.server.sqlite.store(project)
                     store.materialize_exports(clean=True)
+                    history_snapshot = store.snapshot()
+                else:
+                    history_snapshot = {"documents": {}}
                 self._defer_json_response = True
                 self._pending_json_response = None
                 self.dispatch_post(parsed.path, payload)
                 if parsed.path == "/api/projects/create":
                     store = self.server.sqlite.initialize_project(project)
                 else:
-                    store.capture_from_exports(parsed.path)
+                    pending_payload = self._pending_json_response[0] if self._pending_json_response else {}
+                    history_metadata = self.mutation_history_metadata(
+                        parsed.path, payload, pending_payload, history_snapshot
+                    )
+                    store.capture_from_exports(parsed.path, history_metadata)
                     store.materialize_exports(clean=True)
                 self.flush_deferred_json()
         except ValueError as error:

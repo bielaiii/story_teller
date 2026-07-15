@@ -121,8 +121,14 @@ plotCreateBody?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreate
 plotCreatePreview?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreatePreview, plotCreateBody));
 plotTrashTrigger?.addEventListener("click", openPlotTrashDialog);
 plotTrashClose?.addEventListener("click", closePlotTrashDialog);
+plotTrashKindFilter?.addEventListener("change", () => renderPlotTrashItems(plotTrashItemsCache));
 plotTrashDialog?.addEventListener("click", (event) => {
   if (event.target === plotTrashDialog) closePlotTrashDialog();
+});
+operationHistoryTrigger?.addEventListener("click", openOperationHistoryDialog);
+operationHistoryClose?.addEventListener("click", closeOperationHistoryDialog);
+operationHistoryDialog?.addEventListener("click", (event) => {
+  if (event.target === operationHistoryDialog) closeOperationHistoryDialog();
 });
 
 placeSearch?.addEventListener("input", () => {
@@ -351,6 +357,7 @@ async function init() {
     renderLinks();
     markRelatedNodes();
     refreshPlotTrashAccess();
+    refreshOperationHistoryAccess();
     refreshTimelineEditorAccess();
     refreshContentManagerAccess();
     switchView("graph");

@@ -152,6 +152,7 @@ async function refreshWorkspaceDataInPlace(options = {}) {
   } else if (activeView === "diagnostics") {
     requestDiagnosticsRender();
     refreshPlotTrashAccess();
+    refreshOperationHistoryAccess();
   }
 
   const restoreScrollPositions = () => {

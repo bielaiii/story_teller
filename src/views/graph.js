@@ -55,6 +55,7 @@ function switchView(view, { resetStory = false } = {}) {
   if (state.view === "diagnostics") {
     requestDiagnosticsRender();
     refreshPlotTrashAccess();
+    refreshOperationHistoryAccess();
   }
   if (state.view === "story" && (previousView !== "story" || resetStory)) {
     renderChapterSwitch();

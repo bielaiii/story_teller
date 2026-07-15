@@ -1461,7 +1461,7 @@ function moveTimelineEditorLine(lineName, direction) {
   renderTimelineEditor();
 }
 
-function deleteTimelineEditorLine(lineName) {
+async function deleteTimelineEditorLine(lineName) {
   if (lineName === timelineEditorDraft.mainLine) return;
   const lineIndex = timelineEditorDraft.lines.findIndex((line) => line.name === lineName);
   const removedLine = timelineEditorDraft.lines[lineIndex];
@@ -1472,6 +1472,16 @@ function deleteTimelineEditorLine(lineName) {
     setTimelineEditorStatus("请先选择接收这些剧情的目标线。", "error");
     return;
   }
+  const confirmed = await showAppConfirm({
+    title: "删除这条剧情线？",
+    message: assignedCount
+      ? `“${lineName}”的 ${assignedCount} 个节点将转入“${transfer}”。`
+      : `“${lineName}”将从时间线结构中移除。`,
+    detail: "保存时间线后进入回收站，7 天内可以恢复；当前未保存的草稿也可以直接取消。",
+    confirmLabel: `确认删除剧情线${lineName}`,
+    cancelLabel: `取消删除剧情线${lineName}`,
+  });
+  if (!confirmed) return;
   const transferredPlotIds = [];
   Object.keys(timelineEditorDraft.assignments).forEach((plotId) => {
     const lanes = timelineEditorDraft.assignments[plotId];

@@ -101,9 +101,55 @@ class LocalApiIntegrationTests(unittest.TestCase):
         self.assertTrue(preview["ok"])
         self.assertIn("保存后的完整档案", character_path.read_text(encoding="utf-8"))
         storage = self.get_json("/api/storage?project=novel")
-        self.assertEqual(1, storage["schemaVersion"])
+        self.assertEqual(2, storage["schemaVersion"])
         self.assertEqual("/api/characters/update", storage["lastOperation"])
         self.assertEqual(1, storage["counts"]["characters"])
+
+        history = self.get_json("/api/history?project=novel")
+        self.assertEqual("编辑人物：顾遥", history["items"][0]["label"])
+        self.assertTrue(history["items"][0]["canUndo"])
+        undone = self.post_json("/api/history/undo", {
+            "project": "novel", "transactionId": history["items"][0]["id"],
+        })
+        self.assertTrue(undone["ok"])
+        project_data = self.get_json("/api/project-data?project=novel")
+        self.assertIn("初始档案", project_data["documents"][created["path"]])
+        self.assertNotIn("保存后的完整档案", project_data["documents"][created["path"]])
+        create_operation = next(
+            item for item in self.get_json("/api/history?project=novel")["items"]
+            if item["action"] == "create" and item["entityType"] == "character"
+        )
+        self.assertTrue(create_operation["canUndo"])
+        self.post_json("/api/history/undo", {
+            "project": "novel", "transactionId": create_operation["id"],
+        })
+        self.assertNotIn(
+            created["path"],
+            self.get_json("/api/project-data?project=novel")["documents"],
+        )
+
+    def test_chapter_deletion_is_typed_in_trash_and_can_be_restored(self):
+        self.post_json("/api/project/update", {
+            "project": "novel", "title": "测试作品", "eyebrow": "Story Teller",
+            "chapters": [
+                {"id": "act1", "label": "第一篇"},
+                {"id": "act2", "label": "第二篇"},
+            ],
+        })
+        self.post_json("/api/project/update", {
+            "project": "novel", "title": "测试作品", "eyebrow": "Story Teller",
+            "chapters": [{"id": "act1", "label": "第一篇"}],
+        })
+
+        trash = self.get_json("/api/history/trash?project=novel")
+        self.assertEqual("chapter", trash["items"][0]["entityType"])
+        self.assertEqual("第二篇", trash["items"][0]["deletedItems"][0]["title"])
+        self.post_json("/api/history/undo", {
+            "project": "novel", "transactionId": trash["items"][0]["id"],
+        })
+        project_data = self.get_json("/api/project-data?project=novel")
+        self.assertIn('chapters: ["act1", "act2"]', project_data["documents"]["manifest.md"])
+        self.assertEqual([], self.get_json("/api/history/trash?project=novel")["items"])
 
 
 if __name__ == "__main__":
