@@ -1,0 +1,11 @@
+{
+  "name": "story-teller",
+  "private": true,
+  "scripts": {
+    "test:unit": "python3 -m unittest discover -s tests -q && node --test tests/content-libraries.test.cjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

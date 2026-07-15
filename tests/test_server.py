@@ -14,6 +14,8 @@ from server import (
     canonical_relationship_filename,
     plot_trash_records,
     purge_expired_plot_trash,
+    record_trash_records,
+    repair_graph_layout_references,
     relationship_character_ids,
     write_content_index,
 )
@@ -126,6 +128,41 @@ label: 旧案合谋
 
         self.assertEqual(relationship_character_ids(relationship), ["11", "10"])
 
+    def test_graph_layout_repair_removes_deleted_character_references(self):
+        source = """---
+nodeSpacing: 120
+---
+## Clusters
+
+- id: branch
+  members: [3, 9, 99]
+
+## Distances
+
+- from: 3
+  to: 9
+  distance: 200
+
+- from: 3
+  to: 99
+  distance: 300
+
+## Nodes
+
+- id: 99
+  orbitOf: 3
+
+- id: 9
+  orbitOf: 3
+"""
+        repaired = repair_graph_layout_references(source, {"3", "9"})
+        self.assertIn("members: [3, 9]", repaired)
+        self.assertIn("members: [3, 9]\n\n## Distances", repaired)
+        self.assertIn("- from: 3\n  to: 9", repaired)
+        self.assertNotIn("to: 99", repaired)
+        self.assertNotIn("- id: 99", repaired)
+        self.assertIn("- id: 9", repaired)
+
     def test_character_refactor_moves_files_and_undoes_safely(self):
         content_root = self.project_root / "content"
         project_root = content_root / "novel"
@@ -211,6 +248,71 @@ label: 母子
             self.assertTrue(relationship_path.is_file())
             self.assertFalse(renamed_character.exists())
             self.assertIn("林越回到家", plot_path.read_text(encoding="utf-8"))
+
+    def test_character_refactor_with_duplicate_name_only_updates_target_id(self):
+        content_root = self.project_root / "content"
+        project_root = content_root / "novel"
+        target_path = project_root / "characters" / "3-林越.md"
+        duplicate_path = project_root / "characters" / "4-林越.md"
+        plot_path = project_root / "plots" / "001.md"
+        self.write_markdown_at(target_path, "---\nid: 3\nname: 林越\n---\n目标人物")
+        self.write_markdown_at(duplicate_path, "---\nid: 4\nname: 林越\n---\n同名人物")
+        self.write_markdown_at(plot_path, "---\nid: 1\ntitle: 测试\n---\n林越回到家。")
+        write_content_index(project_root, build_content_index(project_root))
+
+        handler = object.__new__(StoryTellerHandler)
+        handler.server = SimpleNamespace(
+            content_root=content_root,
+            default_project="",
+            previews={},
+            prune_previews=lambda: None,
+        )
+        responses = []
+        handler.send_json = lambda payload, status=None: responses.append(payload)
+        state_root = self.project_root / "state"
+
+        with (
+            patch("server.STATE_ROOT", state_root),
+            patch("server.UNDO_PATH", state_root / "last-refactor.json"),
+        ):
+            handler.preview_refactor(
+                {"project": "novel", "type": "character", "id": "3", "newName": "林澈"}
+            )
+            preview = responses[-1]
+            self.assertTrue(preview["ambiguousName"])
+            self.assertEqual(["4"], preview["duplicateCharacterIds"])
+            handler.apply_refactor({"operationId": preview["operationId"]})
+
+        renamed_target = project_root / "characters" / "3-林澈.md"
+        self.assertTrue(renamed_target.is_file())
+        self.assertIn('name: "林澈"', renamed_target.read_text(encoding="utf-8"))
+        self.assertIn("name: 林越", duplicate_path.read_text(encoding="utf-8"))
+        self.assertIn("林越回到家", plot_path.read_text(encoding="utf-8"))
+
+    def test_duplicate_name_refactor_migrates_only_selected_reference(self):
+        content_root = self.project_root / "content"
+        project_root = content_root / "novel"
+        target_path = project_root / "characters" / "3-林越.md"
+        duplicate_path = project_root / "characters" / "4-林越.md"
+        selected_plot = project_root / "plots" / "001.md"
+        untouched_plot = project_root / "plots" / "002.md"
+        self.write_markdown_at(target_path, "---\nid: 3\nname: 林越\n---\n林越的目标档案")
+        self.write_markdown_at(duplicate_path, "---\nid: 4\nname: 林越\n---\n同名人物")
+        self.write_markdown_at(selected_plot, "---\nid: 1\ntitle: 一\n---\n林越回到家。")
+        self.write_markdown_at(untouched_plot, "---\nid: 2\ntitle: 二\n---\n林越留在学校。")
+        handler = object.__new__(StoryTellerHandler)
+        handler.server = SimpleNamespace(content_root=content_root, default_project="", previews={}, prune_previews=lambda: None)
+        responses = []
+        handler.send_json = lambda payload, status=None: responses.append(payload)
+        state_root = self.project_root / "state"
+        with (patch("server.STATE_ROOT", state_root), patch("server.UNDO_PATH", state_root / "last-refactor.json")):
+            handler.preview_refactor({"project": "novel", "type": "character", "id": "3", "newName": "林澈"})
+            preview = responses[-1]
+            selected_id = next(item["id"] for item in preview["referenceCandidates"] if item["file"] == "plots/001.md")
+            handler.apply_refactor({"operationId": preview["operationId"], "referenceIds": [selected_id]})
+        self.assertIn("林澈回到家", selected_plot.read_text(encoding="utf-8"))
+        self.assertIn("林越留在学校", untouched_plot.read_text(encoding="utf-8"))
+        self.assertIn("name: 林越", duplicate_path.read_text(encoding="utf-8"))
 
     def test_create_relationship_writes_one_shared_file_and_refreshes_index(self):
         handler, project_root, responses = self.relationship_handler()
@@ -306,6 +408,50 @@ label: 母子
         self.assertNotIn("调查员", updated)
         self.assertIn("新简介", updated)
         self.assertEqual(responses[-1][0]["id"], "3")
+
+    def test_character_profile_and_rename_commit_as_one_operation(self):
+        handler, project_root, responses = self.relationship_handler()
+        handler.server.previews = {}
+        handler.server.prune_previews = lambda: None
+        plot_path = project_root / "plots" / "001.md"
+        self.write_markdown_at(plot_path, "---\nid: 1\ntitle: 测试\n---\n林越回到家。")
+        state_root = self.project_root / "state"
+        with (patch("server.STATE_ROOT", state_root), patch("server.UNDO_PATH", state_root / "last-refactor.json")):
+            handler.preview_refactor({"project": "novel", "type": "character", "id": "3", "newName": "林澈"})
+            preview = responses[-1][0]
+            handler.update_character({
+                "project": "novel", "id": "3", "name": "林澈",
+                "renameOperationId": preview["operationId"],
+                "narrativeRole": "配角", "characterScope": "主线人物", "side": "主角方",
+                "group": "调查组", "mainPlotImpact": 88, "color": "#3f7fc1",
+                "aliases": ["小林"], "markers": ["记者"], "facts": {"身份": "记者"},
+                "intro": "新的完整档案", "graphVisible": True,
+            })
+        renamed = project_root / "characters" / "3-林澈.md"
+        self.assertTrue(renamed.is_file())
+        self.assertFalse((project_root / "characters" / "3-林越.md").exists())
+        text = renamed.read_text(encoding="utf-8")
+        self.assertIn('name: "林澈"', text)
+        self.assertIn("mainPlotImpact: 88", text)
+        self.assertIn("新的完整档案", text)
+        self.assertIn("林澈回到家", plot_path.read_text(encoding="utf-8"))
+        self.assertTrue(responses[-1][0]["renamed"])
+
+    def test_invalid_profile_does_not_partially_apply_prepared_rename(self):
+        handler, project_root, responses = self.relationship_handler()
+        handler.server.previews = {}
+        handler.server.prune_previews = lambda: None
+        handler.preview_refactor({"project": "novel", "type": "character", "id": "3", "newName": "林澈"})
+        preview = responses[-1][0]
+        with self.assertRaisesRegex(ValueError, "有效的人物颜色"):
+            handler.update_character({
+                "project": "novel", "id": "3", "name": "林澈",
+                "renameOperationId": preview["operationId"],
+                "narrativeRole": "配角", "characterScope": "常驻人物", "side": "主角方",
+                "mainPlotImpact": 50, "color": "invalid", "facts": {}, "intro": "不会保存",
+            })
+        self.assertTrue((project_root / "characters" / "3-林越.md").is_file())
+        self.assertFalse((project_root / "characters" / "3-林澈.md").exists())
 
     def test_create_plot_inserts_sequence_without_changing_stable_ids(self):
         handler, project_root, responses = self.relationship_handler()
@@ -722,6 +868,47 @@ label: 母子
         self.assertTrue(relationship.is_file())
         self.assertIn("people: [3, 9]", plot.read_text(encoding="utf-8"))
         self.assertFalse((project_root / ".trash" / "records" / trash_id).exists())
+
+    def test_restore_character_rejects_duplicate_name_before_writing(self):
+        handler, project_root, responses = self.relationship_handler()
+        handler.delete_record({"project": "novel", "kind": "character", "id": "3"})
+        trash_id = responses[-1][0]["trashId"]
+        self.write_markdown_at(project_root / "characters" / "4-林越.md", "---\nid: 4\nname: 林越\n---\n另一个同名人物")
+        record = next(item for item in record_trash_records(project_root) if item["trashId"] == trash_id)
+        reason = handler.record_restore_conflict(project_root, record["_payload"])
+        self.assertIn("已存在同名人物", reason)
+        with self.assertRaisesRegex(ValueError, "已存在同名人物"):
+            handler.restore_record({"project": "novel", "trashId": trash_id})
+        self.assertFalse((project_root / "characters" / "3-林越.md").exists())
+        self.assertTrue(record["_path"].is_file())
+
+    def test_stale_undo_metadata_is_not_advertised_as_valid(self):
+        handler, project_root, _ = self.relationship_handler()
+        state_root = self.project_root / "state"
+        undo_path = state_root / "last-refactor.json"
+        undo_path.parent.mkdir(parents=True)
+        current = (project_root / "characters" / "3-林越.md").read_text(encoding="utf-8")
+        undo_path.write_text(json.dumps({
+            "project": "novel", "oldName": "旧名", "newName": "林越",
+            "files": {"characters/3-林越.md": {"before": "旧内容", "after": current}},
+            "moves": [],
+        }, ensure_ascii=False), encoding="utf-8")
+        with patch("server.UNDO_PATH", undo_path):
+            self.assertIsNotNone(handler.valid_undo_metadata(project_root, "novel"))
+            (project_root / "characters" / "3-林越.md").write_text(current + "\n后续修改", encoding="utf-8")
+            self.assertIsNone(handler.valid_undo_metadata(project_root, "novel"))
+
+    def test_safe_repair_cleans_graph_layout_deleted_ids(self):
+        handler, project_root, responses = self.relationship_handler()
+        self.write_markdown_at(
+            project_root / "graph-layout.md",
+            "---\nnodeSpacing: 120\n---\n## Clusters\n\n- id: branch\n  members: [3, 9, 99]\n\n## Nodes\n\n- id: 99\n  orbitOf: 3\n",
+        )
+        handler.repair_diagnostics({"project": "novel"})
+        repaired = (project_root / "graph-layout.md").read_text(encoding="utf-8")
+        self.assertIn("members: [3, 9]", repaired)
+        self.assertNotIn("- id: 99", repaired)
+        self.assertGreaterEqual(responses[-1][0]["changeCount"], 1)
 
     def test_entry_and_fragment_can_be_created_and_updated(self):
         handler, project_root, _ = self.relationship_handler()

@@ -40,6 +40,12 @@ class FrontendNavigationTests(unittest.TestCase):
                     violations.append(f"{path.relative_to(ROOT)}: {label}")
         self.assertEqual([], violations, "编辑功能不得依赖整页刷新或页面替换：\n" + "\n".join(violations))
 
+    def test_delete_failure_is_visible_outside_the_editor_dialog(self):
+        source = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        self.assertIn("const dialogWasOpen = dialog.open;", source)
+        self.assertIn("if (!dialogWasOpen) window.alert(error.message);", source)
+        self.assertIn("if (dialogWasOpen && dialog.open) dialog.close();", source)
+
 
 if __name__ == "__main__":
     unittest.main()

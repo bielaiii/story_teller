@@ -165,10 +165,11 @@ function renderPlotTrashItems(items = []) {
             <span>${item.kind === "plot" ? `原第 ${escapeHtml(item.sequence)} 章` : escapeHtml(CONTENT_KIND_LABELS[item.kind] || "档案")}</span>
             <strong>${escapeHtml(item.title)}</strong>
             <small>${escapeHtml(item.daysRemaining)} 天后永久删除</small>
+            ${item.restoreBlockedReason ? `<small class="plot-trash-restore-warning">${escapeHtml(item.restoreBlockedReason)}</small>` : ""}
           </div>
           <div class="plot-trash-item-actions">
             <button class="plot-trash-preview-btn icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="预览${escapeHtml(item.title)}" title="预览">${uiIcon("eye")}</button>
-            <button class="plot-trash-restore icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="恢复${escapeHtml(item.title)}" title="恢复">${uiIcon("restore")}</button>
+            <button class="plot-trash-restore icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="恢复${escapeHtml(item.title)}" title="${escapeHtml(item.restoreBlockedReason || "恢复")}" ${item.canRestore === false ? "disabled" : ""}>${uiIcon("restore")}</button>
           </div>
         </article>
       `).join("")
@@ -216,6 +217,7 @@ async function previewPlotFromTrash(button) {
         <h3>${escapeHtml(result.title)}</h3>
       </header>
       <div class="plot-detail-body plot-trash-preview-body">${renderMarkdownBody(result.body)}</div>
+      ${result.restoreBlockedReason ? `<p class="plot-trash-restore-warning">${escapeHtml(result.restoreBlockedReason)}</p>` : ""}
     `;
     setPlotTrashStatus("预览内容来自回收站，不会修改原文件。");
   } catch (error) {

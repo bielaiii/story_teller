@@ -331,6 +331,34 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   font-weight: 700;
 }
 
+.content-editor-reference-list {
+  display: grid;
+  gap: 8px;
+}
+
+.content-editor-reference-choice label,
+.refactor-reference-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.content-editor-reference-choice input,
+.refactor-reference-choice input {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+}
+
+.content-editor-reference-choice label > span,
+.refactor-reference-choice label > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
 .content-editor-form > footer {
   border-top: 1px solid rgba(72, 91, 112, 0.12);
 }
@@ -909,6 +937,12 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plot-trash-item .plot-trash-restore-warning,
+.plot-trash-restore-warning {
+  color: #a24d3f;
+  line-height: 1.45;
 }
 
 .plot-trash-item-actions {
@@ -4447,6 +4481,10 @@ button.plot-place-item:focus-visible {
   padding: 5px 7px;
   text-decoration: none;
   overflow-wrap: anywhere;
+}
+
+.refactor-change.refactor-reference-choice {
+  grid-template-columns: 1fr;
 }
 
 .refactor-change del {

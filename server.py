@@ -143,6 +143,57 @@ def frontmatter_list_values(text, key):
     return [item.strip().strip("\"'") for item in field.group(1).split(",") if item.strip()]
 
 
+def repair_graph_layout_references(text, valid_character_ids):
+    """Remove graph-layout references to characters that are no longer active."""
+    valid_ids = {str(value) for value in valid_character_ids}
+
+    def clean_members(match):
+        values = [item.strip().strip("\"'") for item in match.group("items").split(",") if item.strip()]
+        kept = [value for value in values if value in valid_ids]
+        return f"{match.group('prefix')}[{', '.join(kept)}]"
+
+    updated = re.sub(
+        r"(?m)^(?P<prefix>[ \t]*members[ \t]*:[ \t]*)\[(?P<items>[^\]]*)\][ \t]*$",
+        clean_members,
+        text,
+    )
+
+    section_rules = {
+        "Distances": ("from", "to"),
+        "Nodes": ("id", "orbitOf"),
+        "Saved Positions": ("id",),
+    }
+    for heading, required_fields in section_rules.items():
+        section_pattern = re.compile(
+            rf"(?ms)(^## {re.escape(heading)}\s*\n)(?P<body>.*?)(?=^## |\Z)"
+        )
+
+        def clean_section(match, fields=required_fields):
+            body = match.group("body")
+            item_start = re.search(r"(?m)^-\s+", body)
+            if not item_start:
+                return match.group(0)
+            prefix = body[: item_start.start()]
+            chunks = re.split(r"(?m)(?=^-\s+)", body[item_start.start() :])
+            kept = []
+            for chunk in chunks:
+                if not chunk.strip():
+                    continue
+                ids = []
+                for field in fields:
+                    field_match = re.search(rf"(?m)^\s*(?:-\s+)?{re.escape(field)}\s*:\s*([^\n#]+)", chunk)
+                    if field_match:
+                        ids.append(field_match.group(1).strip().strip("\"'"))
+                if ids and all(value in valid_ids for value in ids):
+                    kept.append(chunk.rstrip())
+            body_text = "\n\n".join(kept)
+            suffix = "\n" if body.endswith("\n") else ""
+            return match.group(1) + prefix + body_text + suffix
+
+        updated = section_pattern.sub(clean_section, updated)
+    return updated
+
+
 def validate_plot_payload(payload):
     title = str(payload.get("title", "")).strip()
     summary = str(payload.get("summary", "")).strip()
@@ -768,6 +819,65 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         except (OSError, json.JSONDecodeError):
             return None
 
+    def valid_undo_metadata(self, project_root, project):
+        backup = self.undo_metadata()
+        if not backup or backup.get("project") != project:
+            return None
+        try:
+            moves = backup.get("moves", [])
+            moved_paths = {move["from"]: move["to"] for move in moves}
+            for relative_path, contents in backup.get("files", {}).items():
+                current_path = self.resolve_operation_path(
+                    project_root,
+                    moved_paths.get(relative_path, relative_path),
+                )
+                if not current_path.is_file() or current_path.read_text(encoding="utf-8") != contents.get("after"):
+                    return None
+            for move in moves:
+                source = self.resolve_operation_path(project_root, move["from"])
+                target = self.resolve_operation_path(project_root, move["to"])
+                if not target.is_file():
+                    return None
+                if source.exists():
+                    try:
+                        if not os.path.samefile(source, target):
+                            return None
+                    except OSError:
+                        return None
+        except (KeyError, OSError, TypeError, ValueError):
+            return None
+        return backup
+
+    def record_restore_conflict(self, project_root, bundle):
+        for file in bundle.get("files", []):
+            relative_path = str(file.get("path", ""))
+            if not relative_path:
+                return "回收站档案缺少原始路径"
+            if (project_root / relative_path).exists():
+                return f"恢复位置已被占用：{relative_path}"
+        for patch in bundle.get("patches", []):
+            target = project_root / str(patch.get("path", ""))
+            if target.is_file() and target.read_text(encoding="utf-8") != patch.get("after"):
+                return f"{patch.get('path')} 在删除后已被修改，无法安全恢复引用"
+
+        if bundle.get("kind") == "character":
+            active_names = self.character_names(project_root)
+            names_to_ids = {}
+            for active_id, active_name in active_names.items():
+                names_to_ids.setdefault(active_name, []).append(active_id)
+            for file in bundle.get("files", []):
+                if not str(file.get("path", "")).startswith("characters/"):
+                    continue
+                fields = parse_frontmatter(str(file.get("content", "")))
+                restored_id = str(fields.get("id", "")).strip()
+                restored_name = str(fields.get("name", "")).strip("\"'")
+                if restored_id in active_names:
+                    return f"人物 ID {restored_id} 已被占用"
+                if restored_name and restored_name in names_to_ids:
+                    ids = "、".join(sorted(names_to_ids[restored_name]))
+                    return f"已存在同名人物“{restored_name}”（ID {ids}），请先处理重名后再恢复"
+        return ""
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/content-index":
@@ -795,19 +905,20 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
         except OSError as error:
             return self.send_api_error(f"回收站清理失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
-        undo = self.undo_metadata()
+        project = self.project_id(project)
+        undo = self.valid_undo_metadata(project_root, project)
         trash_count = len(plot_trash_records(project_root)) + len(record_trash_records(project_root))
         self.send_json(
             {
                 "ok": True,
                 "writable": True,
-                "features": ["content-management-v1"],
+                "features": ["content-management-v2"],
                 "token": self.server.api_token,
                 "trashCount": trash_count,
-                "canUndo": bool(undo and undo.get("project") == project),
+                "canUndo": bool(undo),
                 "undoLabel": (
                     f"{undo.get('oldName')} → {undo.get('newName')}"
-                    if undo and undo.get("project") == project
+                    if undo
                     else ""
                 ),
             }
@@ -888,10 +999,12 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         try:
             project_root = self.project_root(project)
             purge_expired_record_trash(project_root)
-            items = [
-                {key: value for key, value in record.items() if not key.startswith("_")}
-                for record in sorted(record_trash_records(project_root), key=lambda item: item["deletedAt"], reverse=True)
-            ]
+            items = []
+            for record in sorted(record_trash_records(project_root), key=lambda item: item["deletedAt"], reverse=True):
+                item = {key: value for key, value in record.items() if not key.startswith("_")}
+                conflict = self.record_restore_conflict(project_root, record["_payload"])
+                item.update({"canRestore": not conflict, "restoreBlockedReason": conflict})
+                items.append(item)
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
         self.send_json({"ok": True, "items": items, "retentionDays": 7})
@@ -924,6 +1037,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "daysRemaining": record["daysRemaining"],
             "body": body,
             "fileCount": record["fileCount"],
+            "canRestore": not self.record_restore_conflict(project_root, record["_payload"]),
+            "restoreBlockedReason": self.record_restore_conflict(project_root, record["_payload"]),
         })
 
     def content_index(self, parsed):
@@ -1195,19 +1310,16 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             HTTPStatus.CREATED,
         )
 
-    def update_character(self, payload):
-        project_root = self.project_root(str(payload.get("project", "")))
-        character_id = clean_text(payload.get("id"), "人物 ID", 40, required=True)
-        path, fields, original = self.locate_record(project_root, "character", character_id)
-        name = str(fields.get("name", "")).strip("\"'")
-        if not name:
-            raise ValueError("人物档案缺少姓名")
+    def character_update_text(self, original, payload, character_id, name):
         narrative_role = clean_text(payload.get("narrativeRole", "配角"), "人物定位", 20, required=True)
         scope = clean_text(payload.get("characterScope", "常驻人物"), "收纳状态", 20, required=True)
         side = clean_text(payload.get("side", "中立"), "人物阵营", 20, required=True)
         if narrative_role not in {"主角", "配角"} or scope not in CHARACTER_SCOPES or side not in {"主角方", "中立", "反派方"}:
             raise ValueError("人物分类设置不合法")
-        impact = int(payload.get("mainPlotImpact", 50))
+        try:
+            impact = int(payload.get("mainPlotImpact", 50))
+        except (TypeError, ValueError) as error:
+            raise ValueError("主线影响必须是 0 到 100 的整数") from error
         if not 0 <= impact <= 100:
             raise ValueError("主线影响必须是 0 到 100 的整数")
         color = clean_text(payload.get("color"), "人物颜色", 20, required=True).lower()
@@ -1216,6 +1328,10 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         facts = payload.get("facts", {})
         if not isinstance(facts, dict) or len(facts) > 30:
             raise ValueError("人物档案字段格式不合法")
+        intro = str(payload.get("intro", ""))
+        if len(intro) > 20000:
+            raise ValueError("人物简介不能超过 20000 个字符")
+        fields = parse_frontmatter(original)
         gradient = str(fields.get("gradient", "")).strip("\"'")
         if gradient:
             gradient = re.sub(r"#[0-9A-Fa-f]{6}", color, gradient, count=1)
@@ -1243,10 +1359,51 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 updated = remove_frontmatter_field(updated, key)
             else:
                 updated = update_frontmatter_field(updated, key, value)
-        updated = replace_markdown_body(updated, str(payload.get("intro", ""))[:20000])
+        return replace_markdown_body(updated, intro)
+
+    def update_character(self, payload):
+        project = self.project_id(payload.get("project", ""))
+        project_root = self.project_root(project)
+        character_id = clean_text(payload.get("id"), "人物 ID", 40, required=True)
+        path, fields, original = self.locate_record(project_root, "character", character_id)
+        old_name = str(fields.get("name", "")).strip("\"'")
+        name = clean_text(payload.get("name", old_name), "人物姓名", 80, required=True)
+        if not old_name:
+            raise ValueError("人物档案缺少姓名")
+
+        operation_id = str(payload.get("renameOperationId", "")).strip()
+        if name != old_name:
+            operation = self.server.previews.get(operation_id)
+            if not operation:
+                raise ValueError("人物姓名修改需要先生成并确认影响预览")
+            if (
+                operation.get("project") != project
+                or operation.get("type") != "character"
+                or operation.get("id") != character_id
+                or operation.get("oldName") != old_name
+                or operation.get("newName") != name
+            ):
+                raise ValueError("人物姓名与重命名预览不一致，请重新预览")
+            files = self.materialize_refactor_files(operation, payload.get("referenceIds", []))
+            relative_path = path.relative_to(project_root).as_posix()
+            if relative_path not in files:
+                raise ValueError("重命名预览缺少人物档案，请重新预览")
+            files[relative_path]["after"] = self.character_update_text(
+                files[relative_path]["after"], payload, character_id, name
+            )
+            self.commit_refactor_operation(operation, files)
+            self.server.previews.pop(operation_id, None)
+            destination = next(
+                (move["to"] for move in operation.get("moves", []) if move["from"] == relative_path),
+                relative_path,
+            )
+            self.send_json({"ok": True, "id": character_id, "name": name, "path": destination, "renamed": True})
+            return
+
+        updated = self.character_update_text(original, payload, character_id, name)
         atomic_write(path, updated)
         write_content_index(project_root, build_content_index(project_root))
-        self.send_json({"ok": True, "id": character_id, "name": name, "path": path.relative_to(project_root).as_posix()})
+        self.send_json({"ok": True, "id": character_id, "name": name, "path": path.relative_to(project_root).as_posix(), "renamed": False})
 
     def create_relationship(self, payload):
         project = str(payload.get("project", ""))
@@ -1498,13 +1655,9 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if not record:
             raise ValueError("这份档案已不在回收站中")
         bundle = record["_payload"]
-        for file in bundle.get("files", []):
-            if (project_root / file["path"]).exists():
-                raise ValueError(f"恢复位置已被占用：{file['path']}")
-        for patch in bundle.get("patches", []):
-            target = project_root / patch["path"]
-            if target.is_file() and target.read_text(encoding="utf-8") != patch["after"]:
-                raise ValueError(f"{patch['path']} 在删除后已被修改，无法安全恢复引用")
+        conflict = self.record_restore_conflict(project_root, bundle)
+        if conflict:
+            raise ValueError(conflict)
         written = []
         try:
             for file in bundle.get("files", []):
@@ -2152,6 +2305,13 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 if after != before:
                     atomic_write(path, after)
                     changes += 1
+        graph_layout_path = project_root / "graph-layout.md"
+        if graph_layout_path.is_file():
+            before = graph_layout_path.read_text(encoding="utf-8")
+            after = repair_graph_layout_references(before, active_character_ids)
+            if after != before:
+                atomic_write(graph_layout_path, after)
+                changes += 1
         write_content_index(project_root, build_content_index(project_root))
         self.send_json({"ok": True, "changeCount": changes})
 
@@ -2219,48 +2379,122 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             raise ValueError("新名称长度需要在 1 到 80 个字符之间")
 
         project_root = self.project_root(project)
-        target_path, fields, _ = self.locate_target(project_root, target_type, target_id)
+        target_path, fields, target_text = self.locate_target(project_root, target_type, target_id)
         old_name = str(fields.get("name", "")).strip()
         if not old_name:
             raise ValueError("目标档案没有 name 字段")
         if old_name == new_name:
             raise ValueError("新名称与当前名称相同")
+        duplicate_character_ids = []
         if target_type == "character":
             canonical_character_filename(target_id, new_name)
+            name_conflicts = sorted(
+                character_id
+                for character_id, character_name in self.character_names(project_root).items()
+                if character_id != target_id and character_name == new_name
+            )
+            if name_conflicts:
+                raise ValueError(f"已经存在同名人物（ID {'、'.join(name_conflicts)}）")
+            duplicate_character_ids = sorted(
+                character_id
+                for character_id, character_name in self.character_names(project_root).items()
+                if character_id != target_id and character_name == old_name
+            )
 
         replacements = {}
         samples = []
+        reference_candidates = []
+        reference_files = {}
         total_matches = 0
-        for path in sorted(project_root.rglob("*.md")):
-            resolved_path = path.resolve()
-            if project_root not in resolved_path.parents:
-                continue
-            original = path.read_text(encoding="utf-8")
-            updated = replace_name(original, old_name, new_name)
-            if updated == original:
-                continue
-            match_count = original.count(old_name)
-            if ASCII_NAME_PATTERN.fullmatch(old_name):
-                match_count = len(
-                    re.findall(
-                        rf"(?<![A-Za-z0-9_-]){re.escape(old_name)}(?![A-Za-z0-9_-])",
-                        original,
-                    )
-                )
-            total_matches += match_count
-            relative_path = path.relative_to(project_root).as_posix()
-            replacements[relative_path] = {"before": original, "after": updated}
-            for line_number, line in enumerate(original.splitlines(), start=1):
-                if old_name not in line or len(samples) >= 60:
+        if duplicate_character_ids:
+            updated = update_frontmatter_field(
+                replace_name(target_text, old_name, new_name),
+                "name",
+                new_name,
+            )
+            relative_path = target_path.relative_to(project_root).as_posix()
+            replacements[relative_path] = {"before": target_text, "after": updated}
+            total_matches = target_text.count(old_name)
+            for line_number, (before, after) in enumerate(
+                zip(target_text.splitlines(), updated.splitlines()),
+                start=1,
+            ):
+                if before == after:
                     continue
                 samples.append(
                     {
                         "file": relative_path,
                         "line": line_number,
-                        "before": line.strip(),
-                        "after": replace_name(line, old_name, new_name).strip(),
+                        "before": before.strip(),
+                        "after": after.strip(),
                     }
                 )
+                break
+            for directory_name in ("plots", "entries", "fragments"):
+                directory = project_root / directory_name
+                if not directory.is_dir():
+                    continue
+                for path in sorted(directory.rglob("*.md")):
+                    original = path.read_text(encoding="utf-8")
+                    matches = list(re.finditer(re.escape(old_name), original))
+                    if not matches:
+                        continue
+                    candidate_path = path.relative_to(project_root).as_posix()
+                    reference_files[candidate_path] = original
+                    for match in matches:
+                        line_number = original.count("\n", 0, match.start()) + 1
+                        line_start = original.rfind("\n", 0, match.start()) + 1
+                        line_end = original.find("\n", match.end())
+                        if line_end < 0:
+                            line_end = len(original)
+                        raw_line = original[line_start:line_end]
+                        before_line = raw_line.strip()
+                        local_start = match.start() - line_start
+                        local_end = match.end() - line_start
+                        after_line = (raw_line[:local_start] + new_name + raw_line[local_end:]).strip()
+                        candidate_id = f"ref-{len(reference_candidates) + 1}"
+                        reference_candidates.append({
+                            "id": candidate_id,
+                            "file": candidate_path,
+                            "line": line_number,
+                            "before": before_line,
+                            "after": after_line,
+                            "start": match.start(),
+                            "end": match.end(),
+                        })
+                        if len(reference_candidates) > 500:
+                            raise ValueError("同名人物的待确认引用超过 500 处，请先缩小整理范围")
+        else:
+            for path in sorted(project_root.rglob("*.md")):
+                resolved_path = path.resolve()
+                if project_root not in resolved_path.parents:
+                    continue
+                original = path.read_text(encoding="utf-8")
+                updated = replace_name(original, old_name, new_name)
+                if updated == original:
+                    continue
+                match_count = original.count(old_name)
+                if ASCII_NAME_PATTERN.fullmatch(old_name):
+                    match_count = len(
+                        re.findall(
+                            rf"(?<![A-Za-z0-9_-]){re.escape(old_name)}(?![A-Za-z0-9_-])",
+                            original,
+                        )
+                    )
+                total_matches += match_count
+                relative_path = path.relative_to(project_root).as_posix()
+                replacements[relative_path] = {"before": original, "after": updated}
+                for line_number, line in enumerate(original.splitlines(), start=1):
+                    if old_name not in line or len(samples) >= 60:
+                        continue
+                    samples.append(
+                        {
+                            "file": relative_path,
+                            "line": line_number,
+                            "before": line.strip(),
+                            "after": replace_name(line, old_name, new_name).strip(),
+                        }
+                    )
 
         if target_path.relative_to(project_root).as_posix() not in replacements:
             raise ValueError("目标档案中没有找到当前名称")
@@ -2288,6 +2522,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "newName": new_name,
             "files": replacements,
             "moves": moves,
+            "referenceCandidates": reference_candidates,
+            "referenceFiles": reference_files,
         }
         affected_files = set(replacements)
         affected_files.update(move["from"] for move in moves)
@@ -2301,30 +2537,58 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
                 "matchCount": total_matches,
                 "samples": samples,
                 "moves": moves,
+                "ambiguousName": bool(duplicate_character_ids),
+                "duplicateCharacterIds": duplicate_character_ids,
+                "referenceCandidates": [
+                    {key: value for key, value in candidate.items() if key not in {"start", "end"}}
+                    for candidate in reference_candidates
+                ],
             }
         )
 
-    def apply_refactor(self, payload):
-        operation_id = str(payload.get("operationId", ""))
-        operation = self.server.previews.get(operation_id)
-        if not operation:
-            raise ValueError("预览已失效，请重新生成")
+    def materialize_refactor_files(self, operation, selected_reference_ids=None):
+        selected = selected_reference_ids or []
+        if not isinstance(selected, list) or len(selected) > 500:
+            raise ValueError("待迁移引用格式不合法")
+        candidates = {item["id"]: item for item in operation.get("referenceCandidates", [])}
+        unknown = [str(value) for value in selected if str(value) not in candidates]
+        if unknown:
+            raise ValueError("待迁移引用与预览不一致，请重新预览")
+        files = {
+            relative_path: dict(contents)
+            for relative_path, contents in operation.get("files", {}).items()
+        }
+        grouped = {}
+        for candidate_id in selected:
+            candidate = candidates[str(candidate_id)]
+            grouped.setdefault(candidate["file"], []).append(candidate)
+        for relative_path, selections in grouped.items():
+            original = operation.get("referenceFiles", {}).get(relative_path)
+            if original is None:
+                raise ValueError("待迁移引用的源文件已失效，请重新预览")
+            updated = original
+            for candidate in sorted(selections, key=lambda item: item["start"], reverse=True):
+                if updated[candidate["start"] : candidate["end"]] != operation["oldName"]:
+                    raise ValueError("待迁移引用的位置已失效，请重新预览")
+                updated = updated[: candidate["start"]] + operation["newName"] + updated[candidate["end"] :]
+            files[relative_path] = {"before": original, "after": updated}
+        return files
+
+    def commit_refactor_operation(self, operation, files):
         project_root = self.project_root(operation["project"])
         moves = operation.get("moves", [])
-
-        for relative_path, contents in operation["files"].items():
+        for relative_path, contents in files.items():
             path = self.resolve_operation_path(project_root, relative_path)
-            if project_root not in path.parents or path.read_text(encoding="utf-8") != contents["before"]:
+            if not path.is_file() or path.read_text(encoding="utf-8") != contents["before"]:
                 raise ValueError(f"{relative_path} 已发生变化，请重新预览")
         self.validate_moves(project_root, moves)
-
         STATE_ROOT.mkdir(parents=True, exist_ok=True)
         backup = {
             "project": operation["project"],
             "oldName": operation["oldName"],
             "newName": operation["newName"],
             "createdAt": time.time(),
-            "files": operation["files"],
+            "files": files,
             "moves": moves,
         }
         backup_text = json.dumps(backup, ensure_ascii=False)
@@ -2341,7 +2605,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         written = []
         completed_moves = []
         try:
-            for relative_path, contents in operation["files"].items():
+            for relative_path, contents in files.items():
                 path = project_root / relative_path
                 atomic_write(path, contents["after"])
                 written.append((path, contents["before"]))
@@ -2362,24 +2626,34 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             UNDO_PATH.unlink(missing_ok=True)
             raise
 
-        self.server.previews.pop(operation_id, None)
-        affected_files = set(operation["files"])
+        affected_files = set(files)
         affected_files.update(move["from"] for move in moves)
+        return len(affected_files)
+
+    def apply_refactor(self, payload):
+        operation_id = str(payload.get("operationId", ""))
+        operation = self.server.previews.get(operation_id)
+        if not operation:
+            raise ValueError("预览已失效，请重新生成")
+        files = self.materialize_refactor_files(operation, payload.get("referenceIds", []))
+        affected_count = self.commit_refactor_operation(operation, files)
+
+        self.server.previews.pop(operation_id, None)
         self.send_json(
             {
                 "ok": True,
-                "fileCount": len(affected_files),
+                "fileCount": affected_count,
                 "oldName": operation["oldName"],
                 "newName": operation["newName"],
             }
         )
 
     def undo_refactor(self, payload):
-        project = str(payload.get("project", ""))
+        project = self.project_id(payload.get("project", ""))
         project_root = self.project_root(project)
-        backup = self.undo_metadata()
-        if not backup or backup.get("project") != project:
-            raise ValueError("当前项目没有可以撤销的重命名")
+        backup = self.valid_undo_metadata(project_root, project)
+        if not backup:
+            raise ValueError("上次重命名之后相关档案已经变化，不能再安全撤销")
         moves = backup.get("moves", [])
         moved_paths = {move["from"]: move["to"] for move in moves}
 

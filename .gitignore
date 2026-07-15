@@ -10,3 +10,6 @@ build/
 content/*
 !content/demo/
 !content/demo/**
+test-results/
+playwright-report/
+tests/e2e/.runtime-content/

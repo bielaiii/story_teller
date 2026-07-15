@@ -329,9 +329,12 @@ async function previewRefactor() {
       newName,
     });
     refactorOperationId = result.operationId;
+    const duplicateScope = result.ambiguousName
+      ? `；检测到同名人物（ID ${result.duplicateCharacterIds.map(escapeHtml).join("、")}），请逐条选择属于当前 ID 的正文引用`
+      : "";
     refactorPreviewSummary.innerHTML = `
       <strong>${escapeHtml(result.oldName)} → ${escapeHtml(result.newName)}</strong>
-      <span>${result.fileCount} 个文件，${result.matchCount} 处修改${result.moves.length ? `，${result.moves.length} 个文件改名` : ""}</span>
+      <span>${result.fileCount} 个文件，${result.matchCount} 处修改${result.moves.length ? `，${result.moves.length} 个文件改名` : ""}${duplicateScope}</span>
     `;
     const moveItems = result.moves.map((move) => `
       <article class="refactor-change is-file-move">
@@ -347,8 +350,16 @@ async function previewRefactor() {
             <ins>${escapeHtml(sample.after)}</ins>
           </article>
         `).join("");
-    refactorChangeList.innerHTML = moveItems || contentItems
-      ? moveItems + contentItems
+    const referenceItems = (result.referenceCandidates || []).map((candidate) => `
+      <article class="refactor-change refactor-reference-choice">
+        <label>
+          <input type="checkbox" data-reference-id="${escapeHtml(candidate.id)}" />
+          <span><small>${escapeHtml(candidate.file)} · 第 ${escapeHtml(candidate.line)} 行</small><del>${escapeHtml(candidate.before)}</del><ins>${escapeHtml(candidate.after)}</ins></span>
+        </label>
+      </article>
+    `).join("");
+    refactorChangeList.innerHTML = moveItems || contentItems || referenceItems
+      ? moveItems + contentItems + referenceItems
       : '<p class="refactor-no-change">没有找到需要修改的引用。</p>';
     refactorPreview.classList.remove("is-hidden");
   } catch (error) {
@@ -367,7 +378,9 @@ async function applyRefactor() {
   const scrollY = window.scrollY;
   setRefactorBusy(true);
   try {
-    await refactorApi("/api/refactor/apply", { operationId: refactorOperationId });
+    const referenceIds = [...(refactorChangeList?.querySelectorAll("[data-reference-id]:checked") || [])]
+      .map((input) => input.dataset.referenceId);
+    await refactorApi("/api/refactor/apply", { operationId: refactorOperationId, referenceIds });
     await refreshWorkspaceDataInPlace();
     await initializeRefactorWorkspace(true);
     refactorOperationId = "";

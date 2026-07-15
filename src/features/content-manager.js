@@ -7,7 +7,7 @@ const CONTENT_KIND_LABELS = {
   fragment: "灵感碎片",
 };
 
-const CONTENT_MANAGER_FEATURE = "content-management-v1";
+const CONTENT_MANAGER_FEATURE = "content-management-v2";
 
 function contentManagerWritable() {
   return Boolean(
@@ -111,6 +111,17 @@ function renderCharacterRenamePreview(form, result) {
   const sampleItems = result.samples.slice(0, 8).map((sample) => `
     <li><span>${escapeHtml(sample.file)} · 第 ${sample.line} 行</span><del>${escapeHtml(sample.before)}</del><ins>${escapeHtml(sample.after)}</ins></li>
   `).join("");
+  const duplicateWarning = result.ambiguousName
+    ? `<p class="content-editor-rename-warning">检测到同名人物（ID ${result.duplicateCharacterIds.map(escapeHtml).join("、")}）。下面按文件和行列出歧义引用；只勾选明确属于当前 ID 的内容。</p>`
+    : "";
+  const referenceItems = (result.referenceCandidates || []).map((candidate) => `
+    <li class="content-editor-reference-choice">
+      <label>
+        <input type="checkbox" data-reference-id="${escapeHtml(candidate.id)}" />
+        <span><small>${escapeHtml(candidate.file)} · 第 ${escapeHtml(candidate.line)} 行</small><del>${escapeHtml(candidate.before)}</del><ins>${escapeHtml(candidate.after)}</ins></span>
+      </label>
+    </li>
+  `).join("");
   preview.innerHTML = `
     <div class="content-editor-rename-summary">
       <strong>${escapeHtml(result.oldName)} → ${escapeHtml(result.newName)}</strong>
@@ -118,6 +129,8 @@ function renderCharacterRenamePreview(form, result) {
     </div>
     <ul>${moveItems}${sampleItems}</ul>
     ${result.samples.length > 8 ? `<p>另有 ${result.samples.length - 8} 处预览未展开。</p>` : ""}
+    ${duplicateWarning}
+    ${referenceItems ? `<div class="content-editor-reference-list"><strong>按 ID 迁移正文引用</strong><ul>${referenceItems}</ul></div>` : ""}
     <p class="content-editor-rename-warning">请核对以上影响范围，再点击“确认改名并保存”。</p>
   `;
   preview.classList.remove("is-hidden");
@@ -255,13 +268,10 @@ async function saveContentEditor(event) {
           form.querySelectorAll("button, input, select, textarea").forEach((element) => { element.disabled = false; });
           return;
         }
-        status.textContent = "正在批量重构姓名与所有引用…";
-        await refactorApi("/api/refactor/apply", { operationId: form.dataset.renameOperationId });
-        form.dataset.originalCharacterName = currentName;
-        clearCharacterRenamePreview(form);
+        status.textContent = "正在原子保存档案、姓名和已确认引用…";
       }
       path = creating ? "/api/characters/create" : "/api/characters/update";
-      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked) };
+      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
     } else if (kind === "relationship") {
       path = "/api/relationships/update";
       payload = { ...payload, id: form.dataset.recordId, firstRole: value("ceFirstRole"), secondRole: value("ceSecondRole"), label: value("ceLabel"), type: value("ceType"), color: value("ceColor") };
@@ -290,16 +300,19 @@ async function deleteContentRecord(kind, record) {
   const label = record.name || record.title || record.label || record.id;
   if (!window.confirm(`删除“${label}”？它会进入回收站，7 天后才永久删除。`)) return;
   const id = kind === "relationship" ? `${record.from}__${record.to}` : record.id;
-  const status = document.querySelector("#contentEditorStatus");
+  const dialog = ensureContentEditorDialog();
+  const dialogWasOpen = dialog.open;
+  const status = dialog.querySelector("#contentEditorStatus");
   status.textContent = "正在移入回收站…";
   try {
     await refactorApi("/api/records/delete", { project: currentProjectId(), kind, id });
     status.textContent = "已移入回收站";
     await refreshWorkspaceDataInPlace();
-    ensureContentEditorDialog().close();
+    if (dialogWasOpen && dialog.open) dialog.close();
     refreshPlotTrashAccess();
   } catch (error) {
     status.textContent = error.message;
+    if (!dialogWasOpen) window.alert(error.message);
   }
 }
 
