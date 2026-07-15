@@ -153,6 +153,36 @@ function smartSuggestContext(element) {
   return { trigger, query, start, end: caret };
 }
 
+function smartSuggestPhoneticContext(element) {
+  const context = smartSuggestContext(element);
+  return context && /^[a-zv]*$/i.test(context.query) ? context : null;
+}
+
+function smartSuggestPhysicalLetter(event) {
+  if (event.metaKey || event.ctrlKey || event.altKey) return "";
+  const match = /^Key([A-Z])$/.exec(String(event.code || ""));
+  return match ? match[1].toLocaleLowerCase("en-US") : "";
+}
+
+function insertSmartSuggestPhoneticLetter(element, letter) {
+  const start = element.selectionStart;
+  const end = element.selectionEnd;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+  const expectedValue = `${element.value.slice(0, start)}${letter}${element.value.slice(end)}`;
+  try {
+    document.execCommand?.("insertText", false, letter);
+  } catch (error) {
+    // Fall through to setRangeText when the browser does not expose insertText.
+  }
+  if (element.value === expectedValue) return;
+  element.setRangeText(letter, start, end, "end");
+  element.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    inputType: "insertText",
+    data: letter,
+  }));
+}
+
 function smartSuggestCaretRect(element) {
   const rect = element.getBoundingClientRect();
   const computed = getComputedStyle(element);
@@ -261,7 +291,7 @@ function renderSmartSuggestions(element, context, results, activeIndex = 0) {
   popover.innerHTML = `
     <header class="smart-suggest-head">
       <span><kbd>${smartSuggestEscape(context.trigger)}</kbd>${label}</span>
-      <small>↑↓ 选择 · Enter 插入</small>
+      <small>直接输入拼音 · ↑↓ 选择 · Enter 插入</small>
     </header>
     <div class="smart-suggest-options">
       ${results.map((candidate, index) => {
@@ -356,7 +386,12 @@ function attachSmartSuggestions(element) {
   element.setAttribute("autocomplete", "off");
   element.setAttribute("aria-autocomplete", "list");
   element.setAttribute("aria-expanded", "false");
-  element.addEventListener("compositionstart", () => {
+  element.addEventListener("compositionstart", (event) => {
+    if (smartSuggestPhoneticContext(element)) {
+      event.preventDefault();
+      binding.composing = false;
+      return;
+    }
     binding.composing = true;
     if (smartSuggestActive?.element === element) closeSmartSuggestions(element);
   });
@@ -370,6 +405,13 @@ function attachSmartSuggestions(element) {
     if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateSmartSuggestions(element);
   });
   element.addEventListener("keydown", (event) => {
+    const phoneticContext = smartSuggestPhoneticContext(element);
+    const physicalLetter = smartSuggestPhysicalLetter(event);
+    if (phoneticContext && physicalLetter) {
+      event.preventDefault();
+      insertSmartSuggestPhoneticLetter(element, physicalLetter);
+      return;
+    }
     if (smartSuggestActive?.element !== element) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();

@@ -31,6 +31,27 @@ test("所有正文编辑器共享人物和设定智能提示", async ({ page }) 
   await body.fill("@lcz");
   await expect(page.locator("#smartSuggestPopover")).toContainText("陆沉舟");
   await body.press("Escape");
+
+  await body.fill("@");
+  const compositionWasCanceled = await body.evaluate((element) => !element.dispatchEvent(new CompositionEvent("compositionstart", {
+    bubbles: true,
+    cancelable: true,
+  })));
+  expect(compositionWasCanceled).toBe(true);
+  for (const letter of ["L", "C", "Z"]) {
+    const keyWasCaptured = await body.evaluate((element, key) => !element.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Process",
+      code: `Key${key}`,
+      keyCode: 229,
+      bubbles: true,
+      cancelable: true,
+    })), letter);
+    expect(keyWasCaptured).toBe(true);
+  }
+  await expect(body).toHaveValue("@lcz");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("陆沉舟");
+  await body.press("Escape");
+
   await body.fill("/jiugang");
   await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
   await body.press("Escape");
