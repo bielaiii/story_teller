@@ -3285,6 +3285,12 @@ body.is-timeline-view .timeline-floating-legend {
   background: rgba(25, 33, 42, 0.07);
 }
 
+.plot-card .tag-badge {
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  color: color-mix(in srgb, var(--accent) 76%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 13%, rgba(255, 255, 255, 0.9));
+}
+
 .status-badge {
   color: color-mix(in srgb, var(--accent) 72%, var(--ink));
   background: color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.76));

@@ -99,6 +99,13 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn(".fragment-editor-preview", styles)
         self.assertIn(".content-editor-dialog.is-fragment-writer.is-immersive", styles)
 
+    def test_story_card_tags_use_plot_accent_instead_of_gray(self):
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        rule = re.search(r"\.plot-card \.tag-badge\s*\{(.*?)\}", styles, re.S)
+        self.assertIsNotNone(rule)
+        self.assertIn("var(--accent)", rule.group(1))
+        self.assertIn("color-mix", rule.group(1))
+
 
 if __name__ == "__main__":
     unittest.main()
