@@ -6877,6 +6877,11 @@ h3 {
   transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
+.plot-card.is-filter-result,
+.fragment-card.is-filter-result {
+  animation: none;
+}
+
 .plot-card::before {
   content: "";
   position: absolute;

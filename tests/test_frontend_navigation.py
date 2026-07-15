@@ -140,6 +140,18 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("includeAll: false", status_filter.group(0))
         self.assertIn("allowClear: true", status_filter.group(0))
 
+    def test_tag_filters_update_selection_without_rebuilding_the_filter_bar(self):
+        shared = (ROOT / "src" / "shared" / "ui.js").read_text(encoding="utf-8")
+        story = (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8")
+        entries = (ROOT / "src" / "views" / "entries.js").read_text(encoding="utf-8")
+        self.assertIn("function syncChipFilterSelection", shared)
+        self.assertIn("currentSelected = nextSelected", shared)
+        self.assertIn("return state.plotTags", story)
+        self.assertIn("return state.fragmentTags", story)
+        self.assertIn("renderPlots({ animate: false })", story)
+        self.assertIn("renderFragments({ animate: false })", story)
+        self.assertIn("renderPlaceList({ renderFilters: false })", entries)
+
 
 if __name__ == "__main__":
     unittest.main()

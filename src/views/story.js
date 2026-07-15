@@ -43,8 +43,8 @@ function renderStoryFilters() {
     onChange: (value) => {
       state.plotStatus = value;
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
+      return state.plotStatus;
     },
   });
 
@@ -58,8 +58,8 @@ function renderStoryFilters() {
     onChange: (value) => {
       state.plotTags = nextSelectedTags(state.plotTags, tags, value);
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
+      return state.plotTags;
     },
   });
 }
@@ -76,7 +76,7 @@ function renderSideTaskToggle() {
   if (sideTaskCount) sideTaskCount.textContent = String(active ? plots.length : sideCount);
 }
 
-function renderPlots() {
+function renderPlots({ animate = true } = {}) {
   const visible = plots.filter((plot) => {
     const chapterMatch = state.chapter === "all"
       || (state.chapter === "key" && plot.key)
@@ -91,7 +91,7 @@ function renderPlots() {
   state.plotPage = page.currentPage;
   plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => `
-      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
+      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""} ${animate ? "" : "is-filter-result"}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
         <div class="plot-index">${escapeHtml(plotSequence(plot))}</div>
         <div>${renderStoryCardContent(plot)}</div>
       </button>
@@ -740,8 +740,8 @@ function renderFragmentFilters() {
     onChange: (value) => {
       state.fragmentTags = nextSelectedTags(state.fragmentTags, tags, value);
       state.fragmentPage = 1;
-      renderFragmentFilters();
-      renderFragments();
+      renderFragments({ animate: false });
+      return state.fragmentTags;
     },
   });
 }
@@ -753,7 +753,7 @@ function fragmentPreviewText(text, limit = 220) {
   return normalized.length > limit ? `${normalized.slice(0, limit).trimEnd()}…` : normalized;
 }
 
-function renderFragments() {
+function renderFragments({ animate = true } = {}) {
   if (!fragmentBoard) return;
   const visible = fragments.filter((fragment) => (
     matchesSelectedTags(fragment.tags || [], state.fragmentTags, allFragmentTags())
@@ -761,7 +761,7 @@ function renderFragments() {
   const page = pagedItems(visible, state.fragmentPage, FRAGMENT_PAGE_SIZE);
   state.fragmentPage = page.currentPage;
   fragmentBoard.innerHTML = page.items.length ? page.items.map((fragment, index) => `
-    <article class="fragment-card" id="fragment-${escapeHtml(fragment.id)}" style="--accent:${escapeHtml(fragment.accent)}; animation-delay:${index * 55}ms">
+    <article class="fragment-card ${animate ? "" : "is-filter-result"}" id="fragment-${escapeHtml(fragment.id)}" style="--accent:${escapeHtml(fragment.accent)}; animation-delay:${index * 55}ms">
       <div class="fragment-head">
         <span class="status-badge">${escapeHtml(fragment.status || "灵感")}</span>
         ${tagBadges(fragment.tags)}

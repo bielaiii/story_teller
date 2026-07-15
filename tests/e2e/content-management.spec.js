@@ -18,6 +18,19 @@ test("剧情状态筛选只显示真实状态且默认全部选中", async ({ pa
   await statusButtons.first().click();
   await expect(statusButtons.first()).toHaveAttribute("aria-pressed", "true");
   await expect(statusButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
+
+  const tagButtons = page.locator("#tagFilter .filter-chip");
+  await expect(tagButtons).toHaveCount(3);
+  await tagButtons.first().evaluate((element) => { element.dataset.identityProbe = "preserved"; });
+  await tagButtons.first().click();
+  await expect(tagButtons.first()).toHaveAttribute("data-identity-probe", "preserved");
+  await expect(tagButtons.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(tagButtons.nth(1)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#plotStrip .plot-card").first()).toHaveClass(/is-filter-result/);
+  await expect(tagButtons.first()).toBeFocused();
+  await tagButtons.first().click();
+  await expect(tagButtons.first()).toHaveAttribute("data-identity-probe", "preserved");
+  await expect(tagButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
 });
 
 test("人物编辑重命名、删除、预览和恢复保持页面状态", async ({ page }) => {

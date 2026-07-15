@@ -44,7 +44,7 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     encoding="utf-8",
 )
 (project_root / "plots" / "001-初见.md").write_text(
-    "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 初见\nsummary: 沈清妙与陆沉舟见面。\npeople: [1, 2]\nlanes: [主线]\nstatus: 草稿\naccent: \"#d65f8f\"\n---\n沈清妙与陆沉舟在旧港见面。\n",
+    "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 初见\nsummary: 沈清妙与陆沉舟见面。\npeople: [1, 2]\nlanes: [主线]\ntags: [开场]\nstatus: 草稿\naccent: \"#d65f8f\"\n---\n沈清妙与陆沉舟在旧港见面。\n",
     encoding="utf-8",
 )
 (project_root / "fragments" / "scene-draft.md").write_text(
@@ -56,9 +56,10 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
 for sequence in range(2, 13):
     lane = "支线" if sequence % 2 == 0 else "主线"
     status = "已完成" if sequence % 3 == 0 else "草稿"
+    tag = "偶数节点" if sequence % 2 == 0 else "奇数节点"
     (project_root / "plots" / f"{sequence:03d}-节点{sequence}.md").write_text(
         f"---\nid: {sequence}\nsequence: {sequence}\nchapter: act1\ntitle: 节点{sequence}\n"
-        f"summary: 第 {sequence} 个浏览器测试节点。\nlanes: [{lane}]\nstatus: {status}\naccent: \"#3f7fc1\"\n---\n"
+        f"summary: 第 {sequence} 个浏览器测试节点。\nlanes: [{lane}]\ntags: [{tag}]\nstatus: {status}\naccent: \"#3f7fc1\"\n---\n"
         f"这是第 {sequence} 个时间线节点。\n",
         encoding="utf-8",
     )

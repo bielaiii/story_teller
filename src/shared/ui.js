@@ -429,6 +429,19 @@ function nextSelectedTags(selected, allTags, tag) {
     : [...activeTags, tag];
 }
 
+function syncChipFilterSelection(container, selected, items, mode = "single", includeAll = true) {
+  if (!container) return;
+  const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
+  container.querySelectorAll("[data-value]").forEach((button) => {
+    const value = button.dataset.value;
+    const active = mode === "multi"
+      ? activeItems.includes(value)
+      : (value === "all" ? selected === "all" : selected === value || (!includeAll && selected === "all"));
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
 function renderChipFilter({
   container,
   label,
@@ -445,6 +458,7 @@ function renderChipFilter({
     return;
   }
   const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
+  let currentSelected = selected;
   container.innerHTML = `
     ${label ? `<span class="filter-label">${escapeHtml(label)}</span>` : ""}
     ${mode === "single" && includeAll ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
@@ -459,10 +473,19 @@ function renderChipFilter({
   `;
   container.querySelectorAll("[data-value]").forEach((button) => {
     button.addEventListener("click", () => {
-      const value = allowClear && mode === "single" && button.dataset.value === selected
+      const currentActiveItems = mode === "multi" ? visibleSelectedTags(currentSelected, items) : [];
+      const value = allowClear && mode === "single" && button.dataset.value === currentSelected
         ? "all"
         : button.dataset.value;
-      onChange(value, activeItems);
+      const nextSelected = onChange(value, currentActiveItems);
+      currentSelected = nextSelected === undefined ? value : nextSelected;
+      syncChipFilterSelection(
+        container,
+        currentSelected,
+        items,
+        mode,
+        includeAll,
+      );
     });
   });
 }
