@@ -151,6 +151,137 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   backdrop-filter: blur(5px);
 }
 
+.app-confirm-dialog {
+  width: min(430px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid rgba(181, 77, 69, 0.2);
+  border-radius: 16px;
+  color: #263b4f;
+  background: rgba(255, 253, 252, 0.98);
+  box-shadow: 0 30px 90px rgba(48, 39, 43, 0.28);
+}
+
+.app-confirm-dialog::backdrop {
+  background: rgba(28, 35, 43, 0.38);
+  backdrop-filter: blur(6px);
+}
+
+.app-confirm-card {
+  display: grid;
+  gap: 0;
+}
+
+.app-confirm-card > header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 20px 20px 14px;
+}
+
+.app-confirm-symbol {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: #b4534d;
+  background: rgba(190, 78, 69, 0.1);
+  box-shadow: 0 0 0 7px rgba(190, 78, 69, 0.04);
+}
+
+.app-confirm-symbol .ui-icon {
+  width: 21px;
+  height: 21px;
+}
+
+.app-confirm-card header p,
+.app-confirm-card header h3,
+.app-confirm-copy p,
+.app-confirm-copy small {
+  margin: 0;
+}
+
+.app-confirm-card header p {
+  color: #a0605b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.app-confirm-card header h3 {
+  margin-top: 3px;
+  font-size: 20px;
+}
+
+.app-confirm-copy {
+  display: grid;
+  gap: 7px;
+  padding: 4px 20px 20px 77px;
+}
+
+.app-confirm-copy p {
+  color: #43566a;
+  line-height: 1.55;
+}
+
+.app-confirm-copy small {
+  color: #7c8997;
+  line-height: 1.55;
+}
+
+.app-confirm-copy small.is-hidden {
+  display: none;
+}
+
+.app-confirm-card > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  border-top: 1px solid rgba(72, 91, 112, 0.1);
+  padding: 13px 18px;
+  background: rgba(247, 249, 251, 0.72);
+}
+
+.app-confirm-card > footer button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(72, 91, 112, 0.14);
+  border-radius: 8px;
+  color: #607387;
+  background: #fff;
+  cursor: pointer;
+}
+
+.app-confirm-dialog .app-confirm-card > footer button.app-confirm-submit.is-danger,
+.app-confirm-dialog .app-confirm-card > footer button.app-confirm-submit.is-danger:hover,
+.app-confirm-dialog .app-confirm-card > footer button.app-confirm-submit.is-danger:focus-visible {
+  border-color: rgba(190, 78, 69, 0.2);
+  color: #fff !important;
+  background: linear-gradient(135deg, #c45d55, #a6423b) !important;
+  box-shadow: 0 7px 18px rgba(166, 66, 59, 0.2) !important;
+}
+
+.app-confirm-dialog.is-warning {
+  border-color: rgba(216, 182, 74, 0.26);
+}
+
+.app-confirm-dialog.is-warning .app-confirm-symbol {
+  color: #946d16;
+  background: rgba(216, 182, 74, 0.14);
+  box-shadow: 0 0 0 7px rgba(216, 182, 74, 0.05);
+}
+
+.app-confirm-dialog.is-warning .app-confirm-card header p {
+  color: #8a681f;
+}
+
+.app-confirm-dialog.is-warning .app-confirm-submit {
+  border-color: rgba(216, 182, 74, 0.28);
+  color: #6f5315;
+  background: rgba(255, 247, 222, 0.9);
+}
+
 .content-editor-dialog.is-fragment-writer {
   width: min(1180px, calc(100vw - 32px));
   height: min(840px, calc(100vh - 32px));

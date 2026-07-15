@@ -106,6 +106,18 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("var(--accent)", rule.group(1))
         self.assertIn("color-mix", rule.group(1))
 
+    def test_destructive_confirmations_use_the_app_dialog(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        shared = (ROOT / "src" / "shared" / "ui.js").read_text(encoding="utf-8")
+        plot_detail = (ROOT / "src" / "views" / "plot-detail.js").read_text(encoding="utf-8")
+        content_manager = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        self.assertIn('id="appConfirmDialog"', markup)
+        self.assertIn("function showAppConfirm", shared)
+        self.assertIn("await showAppConfirm", plot_detail)
+        self.assertIn("await showAppConfirm", content_manager)
+        self.assertNotIn("window.confirm", plot_detail)
+        self.assertNotIn("window.confirm", content_manager)
+
 
 if __name__ == "__main__":
     unittest.main()

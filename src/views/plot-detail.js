@@ -85,9 +85,13 @@ async function deletePlotFromDetail(plot, button) {
     window.alert(error.message);
     return;
   }
-  const confirmed = window.confirm(
-    `确定将《${plot.title}》移入回收站吗？\n\n它会保留 7 天，期间可以从剧情页的回收站恢复。`,
-  );
+  const confirmed = await showAppConfirm({
+    title: "移入回收站？",
+    message: `《${plot.title}》将从剧情和时间线中移除。`,
+    detail: "它会保留 7 天，期间可以从检查页的回收站恢复。",
+    confirmLabel: `确认删除${plot.title}`,
+    cancelLabel: `取消删除${plot.title}`,
+  });
   if (!confirmed) return;
   if (button) {
     button.disabled = true;

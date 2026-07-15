@@ -31,6 +31,58 @@ function setIconButton(button, icon, label) {
   button.dataset.icon = icon;
 }
 
+let appConfirmResolver = null;
+
+function settleAppConfirm(result) {
+  const resolver = appConfirmResolver;
+  appConfirmResolver = null;
+  if (appConfirmDialog?.open) appConfirmDialog.close();
+  if (resolver) resolver(Boolean(result));
+}
+
+function showAppConfirm({
+  eyebrow = "需要确认",
+  title = "确认操作？",
+  message = "",
+  detail = "",
+  variant = "danger",
+  icon = variant === "danger" ? "trash" : "repair",
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+} = {}) {
+  if (!appConfirmDialog) return Promise.resolve(false);
+  if (appConfirmResolver) settleAppConfirm(false);
+  appConfirmEyebrow.textContent = eyebrow;
+  appConfirmTitle.textContent = title;
+  appConfirmMessage.textContent = message;
+  appConfirmDetail.textContent = detail;
+  appConfirmDetail.classList.toggle("is-hidden", !detail);
+  appConfirmDialog.classList.toggle("is-warning", variant === "warning");
+  appConfirmSymbol.innerHTML = uiIcon(icon);
+  setIconButton(appConfirmCancel, "close", cancelLabel);
+  setIconButton(appConfirmSubmit, icon, confirmLabel);
+  appConfirmSubmit.classList.toggle("is-danger", variant === "danger");
+  appConfirmDialog.showModal();
+  requestAnimationFrame(() => appConfirmCancel?.focus());
+  return new Promise((resolve) => { appConfirmResolver = resolve; });
+}
+
+appConfirmCancel?.addEventListener("click", () => settleAppConfirm(false));
+appConfirmSubmit?.addEventListener("click", () => settleAppConfirm(true));
+appConfirmDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  settleAppConfirm(false);
+});
+appConfirmDialog?.addEventListener("click", (event) => {
+  if (event.target === appConfirmDialog) settleAppConfirm(false);
+});
+appConfirmDialog?.addEventListener("close", () => {
+  if (!appConfirmResolver) return;
+  const resolver = appConfirmResolver;
+  appConfirmResolver = null;
+  resolver(false);
+});
+
 async function refreshWorkspaceDataInPlace(options = {}) {
   const activeView = state.view;
   const scrollX = window.scrollX;

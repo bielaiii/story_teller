@@ -395,7 +395,14 @@ async function saveContentEditor(event) {
 async function deleteContentRecord(kind, record) {
   if (!record) return;
   const label = record.name || record.title || record.label || record.id;
-  if (!window.confirm(`删除“${label}”？它会进入回收站，7 天后才永久删除。`)) return;
+  const confirmed = await showAppConfirm({
+    title: "移入回收站？",
+    message: `“${label}”将从当前页面移除。`,
+    detail: "内容会保留 7 天，期间可以从检查页的回收站恢复。",
+    confirmLabel: `确认删除${label}`,
+    cancelLabel: `取消删除${label}`,
+  });
+  if (!confirmed) return;
   const id = kind === "relationship" ? `${record.from}__${record.to}` : record.id;
   const dialog = ensureContentEditorDialog();
   const dialogWasOpen = dialog.open;
@@ -621,7 +628,17 @@ async function openGraphSettings() {
 }
 
 async function repairProjectDiagnostics() {
-  if (!window.confirm("安全修复会整理文章顺序并修正人物、关系文件名。稳定 ID 和正文不会改变，是否继续？")) return;
+  const confirmed = await showAppConfirm({
+    eyebrow: "安全修复",
+    title: "执行自动修复？",
+    message: "系统会整理文章顺序，并修正人物和关系文件名。",
+    detail: "稳定 ID 和正文内容不会改变。",
+    variant: "warning",
+    icon: "repair",
+    confirmLabel: "确认安全修复",
+    cancelLabel: "取消安全修复",
+  });
+  if (!confirmed) return;
   const button = document.querySelector("#diagnosticRepairTrigger");
   button.disabled = true;
   setIconButton(button, "restore", "正在安全修复…");

@@ -595,6 +595,26 @@
       <p class="plot-trash-status" id="plotTrashStatus" aria-live="polite"></p>
     </dialog>
 
+    <dialog class="app-confirm-dialog" id="appConfirmDialog" aria-labelledby="appConfirmTitle" aria-describedby="appConfirmMessage appConfirmDetail">
+      <div class="app-confirm-card">
+        <header>
+          <span class="app-confirm-symbol" id="appConfirmSymbol" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></svg></span>
+          <div>
+            <p id="appConfirmEyebrow">需要确认</p>
+            <h3 id="appConfirmTitle">移入回收站？</h3>
+          </div>
+        </header>
+        <div class="app-confirm-copy">
+          <p id="appConfirmMessage"></p>
+          <small id="appConfirmDetail"></small>
+        </div>
+        <footer>
+          <button class="app-confirm-cancel icon-action" id="appConfirmCancel" type="button" aria-label="取消" title="取消"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+          <button class="app-confirm-submit icon-action is-danger" id="appConfirmSubmit" type="button" aria-label="确认" title="确认"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></svg></button>
+        </footer>
+      </div>
+    </dialog>
+
     <script src="./vendor/js-yaml/js-yaml.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./graph-renderer.js?v=fluid-appearance-panel"></script>

@@ -27,8 +27,15 @@ test("人物编辑重命名、删除、预览和恢复保持页面状态", async
   expect(fs.readFileSync(path.join(runtimeProject, "plots", "001-初见.md"), "utf8")).toContain("沈清妍与陆沉舟");
 
   await page.locator('.character-list-item[data-id="2"]').click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "删除陆沉舟" }).click();
+  const confirmDialog = page.locator("#appConfirmDialog");
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog).toContainText("内容会保留 7 天");
+  await page.getByRole("button", { name: "取消删除陆沉舟" }).click();
+  await expect(confirmDialog).not.toBeVisible();
+  await expect(page.locator('.character-list-item[data-id="2"]')).toBeVisible();
+  await page.getByRole("button", { name: "删除陆沉舟" }).click();
+  await page.getByRole("button", { name: "确认删除陆沉舟" }).click();
   await expect(page.locator('.character-list-item[data-id="2"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__storyTellerE2ESentinel)).toBe("alive");
 
