@@ -4,6 +4,21 @@ const path = require("node:path");
 
 const runtimeProject = path.join(__dirname, ".runtime-content", "novel");
 
+test("人物档案信息按内容自动排成最多两列", async ({ page }) => {
+  await page.goto("/?project=novel");
+  await page.locator('[data-view="characters"]').click();
+  await page.locator('.character-list-item[data-id="1"]').click();
+
+  const facts = page.locator(".character-facts");
+  await expect(page.locator(".character-facts-section")).toBeVisible();
+  await expect(page.locator(".character-fact")).toHaveCount(3);
+  await expect(page.locator(".character-fact").nth(2)).toContainText("阵营");
+  expect(await facts.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+
+  await page.setViewportSize({ width: 600, height: 900 });
+  expect(await facts.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+});
+
 test("剧情状态筛选只显示真实状态且默认全部选中", async ({ page }) => {
   await page.goto("/?project=novel");
   await page.locator('[data-view="story"]').click();

@@ -25,6 +25,19 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn('class="profile-detail-btn icon-action"', markup)
         self.assertIn("openCharacterDetail(state.selected)", bootstrap_source)
 
+    def test_character_facts_use_a_responsive_two_column_grid(self):
+        characters = (ROOT / "src" / "views" / "characters.js").read_text(encoding="utf-8")
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        facts_rule = re.search(r"\.character-facts\s*\{(.*?)\}", styles, re.S)
+        mobile_rules = re.findall(r"@media \(max-width: 620px\)\s*\{([\s\S]*)\}\s*$", styles)
+        self.assertIn('class="character-section character-facts-section"', characters)
+        self.assertLess(characters.index('character-facts-section'), characters.index('人物关系'))
+        self.assertIsNotNone(facts_rule)
+        self.assertIn("repeat(2, minmax(0, 1fr))", facts_rule.group(1))
+        self.assertIn("grid-auto-rows: auto", facts_rule.group(1))
+        self.assertTrue(mobile_rules)
+        self.assertRegex(mobile_rules[0], re.compile(r"\.character-facts\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)", re.S))
+
     def test_editing_ui_does_not_reload_or_replace_the_page(self):
         forbidden = {
             "location.reload": re.compile(r"\blocation\.reload\s*\("),

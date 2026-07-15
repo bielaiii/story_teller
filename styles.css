@@ -5583,15 +5583,6 @@ button.plot-place-item:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.character-hero.has-facts {
-  align-items: start;
-}
-
-.character-hero.has-facts .character-avatar,
-.character-hero.has-facts .character-marker-panel {
-  margin-top: 18px;
-}
-
 .character-copy {
   min-width: 0;
 }
@@ -5880,9 +5871,11 @@ button.plot-place-item:focus-visible {
 
 .character-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 4px 22px;
-  margin: 15px 0 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  column-gap: 28px;
+  margin: 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
 }
 
 .profile-note-list {
@@ -5928,7 +5921,7 @@ button.plot-place-item:focus-visible {
   align-items: baseline;
   min-width: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
-  padding: 8px 4px 8px 13px;
+  padding: 10px 4px 10px 13px;
 }
 
 .character-fact::before {
@@ -7996,6 +7989,10 @@ body.is-graph-view .avatar-text {
   .character-appearance-facts,
   .character-appearance-highlights {
     grid-template-columns: 1fr;
+  }
+
+  .character-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .character-density-row {

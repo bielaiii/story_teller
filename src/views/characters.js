@@ -689,7 +689,7 @@ function renderCharacterDetail() {
 
   characterDetail.innerHTML = `
     ${detailReturnButton()}
-    <div class="character-hero ${person.facts.length ? "has-facts" : ""}" style="--accent:${escapeHtml(person.color)}">
+    <div class="character-hero" style="--accent:${escapeHtml(person.color)}">
       <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
         <p class="label">${escapeHtml(characterNarrativeRole(person))} · ${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
@@ -699,22 +699,29 @@ function renderCharacterDetail() {
           <button class="character-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(person.name)}" title="删除人物">${uiIcon("trash")}</button>
         </div>
         ${renderBulletNotes(person.intro, "character-intro-list")}
-        ${person.facts.length ? `
-          <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
-            ${person.facts.map((fact) => `
-              <div class="character-fact">
-                <dt>${escapeHtml(fact.label)}</dt>
-                <dd>${escapeHtml(fact.value)}</dd>
-              </div>
-            `).join("")}
-          </dl>
-        ` : ""}
       </div>
       <aside class="character-marker-panel">
         ${markerBadges(person)}
         ${renderCharacterScopeTools(person)}
       </aside>
     </div>
+
+    ${person.facts.length ? `
+      <section class="character-section character-facts-section" style="--accent:${escapeHtml(person.color)}">
+        <div class="section-title">
+          <p class="label">档案信息</p>
+          <h3>${person.facts.length} 项</h3>
+        </div>
+        <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
+          ${person.facts.map((fact) => `
+            <div class="character-fact">
+              <dt>${escapeHtml(fact.label)}</dt>
+              <dd>${escapeHtml(fact.value)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      </section>
+    ` : ""}
 
     <section class="character-section">
       <div class="section-title">

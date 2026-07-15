@@ -237,7 +237,7 @@ async function openContentEditor(kind, record = null, options = {}) {
       ${contentEditorField("ceAvatar", "头像路径", record?.avatar?.replace(`${contentBasePath()}/`, "") || "")}
       ${contentEditorField("ceAliases", "别名", editorListValue(record?.aliases))}
       ${contentEditorField("ceMarkers", "人物标识", editorListValue(record?.markers))}
-      ${contentEditorField("ceFacts", "档案字段（每行“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
+      ${contentEditorField("ceFacts", "档案信息（每行一个“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
       ${contentEditorField("ceIntro", "人物设定（每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
       ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}

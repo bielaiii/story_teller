@@ -32,7 +32,7 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     encoding="utf-8",
 )
 (project_root / "characters" / "1-沈清妙.md").write_text(
-    "---\nid: 1\nname: 沈清妙\nnarrativeRole: 主角\ncharacterScope: 主线人物\nside: 主角方\nmainPlotImpact: 100\ncolor: \"#d65f8f\"\n---\n旧人物设定\n",
+    "---\nid: 1\nname: 沈清妙\nnarrativeRole: 主角\ncharacterScope: 主线人物\nside: 主角方\nmainPlotImpact: 100\ncolor: \"#d65f8f\"\nfacts:\n  身份: 失踪案调查者\n  年龄: 28\n  阵营: 主角方\n---\n旧人物设定\n",
     encoding="utf-8",
 )
 (project_root / "characters" / "2-陆沉舟.md").write_text(
