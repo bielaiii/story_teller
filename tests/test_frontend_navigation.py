@@ -93,6 +93,8 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("syncFragmentEditorScroll", source)
         self.assertIn("setFragmentWriterImmersive", source)
         self.assertIn('id="contentEditorFullscreen"', source)
+        self.assertIn("fragment-immersive-record", (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8"))
+        self.assertIn("{ immersive: true }", (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8"))
         self.assertIn(".fragment-editor-workspace", styles)
         self.assertIn(".fragment-editor-preview", styles)
         self.assertIn(".content-editor-dialog.is-fragment-writer.is-immersive", styles)

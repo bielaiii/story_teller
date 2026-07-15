@@ -585,12 +585,16 @@ function renderFragments() {
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
       <div class="fragment-body" aria-label="${escapeHtml(fragment.title)}摘要"><p>${escapeHtml(fragmentPreviewText(fragment.text) || "暂无正文")}</p></div>
-      <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
+      <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-immersive-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="沉浸式编写${escapeHtml(fragment.title)}" title="沉浸式编写">${uiIcon("maximize")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
     </article>
   `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';
   fragmentBoard.querySelectorAll(".fragment-edit-record").forEach((button) => button.addEventListener("click", () => {
     const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
     if (fragment) openContentEditor("fragment", fragment);
+  }));
+  fragmentBoard.querySelectorAll(".fragment-immersive-record").forEach((button) => button.addEventListener("click", () => {
+    const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
+    if (fragment) openContentEditor("fragment", fragment, { immersive: true });
   }));
   fragmentBoard.querySelectorAll(".fragment-convert-record").forEach((button) => button.addEventListener("click", () => {
     const fragment = fragments.find((item) => String(item.id) === button.dataset.id);

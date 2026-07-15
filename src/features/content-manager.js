@@ -201,7 +201,7 @@ function renderCharacterRenamePreview(form, result) {
   preview.scrollIntoView({ block: "nearest" });
 }
 
-async function openContentEditor(kind, record = null) {
+async function openContentEditor(kind, record = null, options = {}) {
   const dialog = ensureContentEditorDialog();
   const form = dialog.querySelector("#contentEditorForm");
   const fields = dialog.querySelector("#contentEditorFields");
@@ -331,6 +331,7 @@ async function openContentEditor(kind, record = null) {
     element.disabled = false;
   });
   dialog.showModal();
+  if (kind === "fragment" && options.immersive) setFragmentWriterImmersive(dialog, true);
 }
 
 async function saveContentEditor(event) {

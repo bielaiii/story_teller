@@ -9,11 +9,19 @@ test("碎片可以编写长剧本且不会自动进入剧情", async ({ page }) 
   await page.locator('[data-view="fragments"]').click();
   const fragmentCard = page.locator("#fragment-scene-draft");
   await expect(fragmentCard).not.toContainText("CARD_TAIL_HIDDEN");
-  await expect(fragmentCard.locator(".fragment-body")).toHaveCSS("overflow", "hidden");
-  await page.getByRole("button", { name: "编辑雨夜草稿" }).click();
+  const cardLineMetrics = await fragmentCard.locator(".fragment-body p").evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return { clamp: styles.webkitLineClamp, overflow: styles.overflow };
+  });
+  expect(cardLineMetrics.clamp).toBe("4");
+  expect(cardLineMetrics.overflow).toBe("hidden");
+  await page.getByRole("button", { name: "沉浸式编写雨夜草稿" }).click();
 
   const dialog = page.locator("#contentEditorDialog");
   await expect(dialog).toHaveClass(/is-fragment-writer/);
+  await expect(dialog).toHaveClass(/is-immersive/);
+  await page.getByRole("button", { name: "退出沉浸写作" }).click();
+  await expect(dialog).not.toHaveClass(/is-immersive/);
   await expect(dialog).toContainText("保存后仍只在碎片箱中");
   await expect(page.locator(".fragment-editor-meta")).not.toHaveAttribute("open", "");
 
