@@ -151,6 +151,15 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   backdrop-filter: blur(5px);
 }
 
+.content-editor-dialog.is-fragment-writer {
+  width: min(1180px, calc(100vw - 32px));
+  height: min(840px, calc(100vh - 32px));
+}
+
+.is-fragment-writer .content-editor-form {
+  height: 100%;
+}
+
 .content-editor-form {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -244,6 +253,169 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
 .content-editor-fields textarea {
   resize: vertical;
   line-height: 1.65;
+}
+
+.is-fragment-writer .content-editor-fields {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 18px;
+}
+
+.fragment-editor-retention {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 3px solid #7d6bd6;
+  border-radius: 7px;
+  padding: 9px 12px;
+  color: #65758a;
+  background: rgba(125, 107, 214, 0.07);
+  font-size: 12px;
+}
+
+.fragment-editor-retention strong {
+  flex: 0 0 auto;
+  color: #6555b6;
+}
+
+.fragment-editor-meta {
+  overflow: hidden;
+  border: 1px solid rgba(72, 91, 112, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.fragment-editor-meta > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 13px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fragment-editor-meta > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fragment-editor-meta > summary > span {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.fragment-editor-meta > summary strong {
+  color: #344b60;
+  font-size: 13px;
+}
+
+.fragment-editor-meta > summary small {
+  overflow: hidden;
+  color: #8795a3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fragment-editor-meta > summary i {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid #687b8e;
+  border-bottom: 1.5px solid #687b8e;
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.fragment-editor-meta[open] > summary {
+  border-bottom: 1px solid rgba(72, 91, 112, 0.1);
+}
+
+.fragment-editor-meta[open] > summary i {
+  transform: rotate(225deg);
+}
+
+.fragment-editor-meta-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 11px;
+  padding: 12px 13px;
+}
+
+.fragment-editor-workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fragment-editor-source {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.content-editor-fields .fragment-editor-source textarea {
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  padding: 14px;
+  outline: none;
+  font: 14px/1.72 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.content-editor-fields .fragment-editor-source textarea:focus {
+  border-color: rgba(125, 107, 214, 0.5);
+  box-shadow: 0 0 0 4px rgba(125, 107, 214, 0.08);
+}
+
+.fragment-editor-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(72, 91, 112, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fragment-editor-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(72, 91, 112, 0.1);
+  padding: 9px 13px;
+  color: #65788b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fragment-editor-preview-head small {
+  color: #7d6bd6;
+  font-size: 10px;
+}
+
+.fragment-editor-preview-body {
+  max-width: none;
+  overflow: auto;
+  padding: 14px 18px;
+}
+
+.fragment-editor-preview-empty {
+  color: #8a98a6;
+}
+
+.fragment-editor-convert-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #7b8b9b;
+  font-size: 11px;
 }
 
 .content-editor-check {
@@ -425,6 +597,24 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
 
   .content-editor-fields .is-wide {
     grid-column: auto;
+  }
+
+  .is-fragment-writer .content-editor-fields {
+    overflow: auto;
+  }
+
+  .fragment-editor-meta-fields,
+  .fragment-editor-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .fragment-editor-workspace {
+    overflow: visible;
+  }
+
+  .content-editor-fields .fragment-editor-source textarea,
+  .fragment-editor-preview {
+    min-height: 320px;
   }
 
   .project-create-panel > div,

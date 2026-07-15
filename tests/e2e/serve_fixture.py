@@ -47,6 +47,10 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 初见\nsummary: 沈清妙与陆沉舟见面。\npeople: [1, 2]\nlanes: [主线]\nstatus: 草稿\naccent: \"#d65f8f\"\n---\n沈清妙与陆沉舟在旧港见面。\n",
     encoding="utf-8",
 )
+(project_root / "fragments" / "scene-draft.md").write_text(
+    "---\nid: scene-draft\ntitle: 雨夜草稿\nstatus: 草稿\ntags: [雨夜]\naccent: \"#7d6bd6\"\n---\n旧的场景草稿。\n",
+    encoding="utf-8",
+)
 for sequence in range(2, 13):
     lane = "支线" if sequence % 2 == 0 else "主线"
     (project_root / "plots" / f"{sequence:03d}-节点{sequence}.md").write_text(

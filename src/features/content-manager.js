@@ -89,6 +89,15 @@ function contentEditorSelected(id) {
   return [...(document.querySelector(`#${id}`)?.selectedOptions || [])].map((item) => item.value);
 }
 
+function renderFragmentEditorPreview() {
+  const preview = document.querySelector("#fragmentEditorPreview");
+  if (!preview) return;
+  const body = document.querySelector("#ceBody")?.value || "";
+  preview.innerHTML = body.trim()
+    ? renderMarkdownBody(body)
+    : '<p class="fragment-editor-preview-empty">从左侧开始写，预览会同步显示在这里。</p>';
+}
+
 function clearCharacterRenamePreview(form) {
   delete form.dataset.renameOperationId;
   delete form.dataset.renamePreviewName;
@@ -151,6 +160,7 @@ async function openContentEditor(kind, record = null) {
   form.dataset.recordId = kind === "relationship" && record ? `${record.from}__${record.to}` : (record?.id || "");
   form.dataset.sourcePath = record?.sourcePath || "";
   form.dataset.originalCharacterName = kind === "character" ? (record?.name || "") : "";
+  dialog.classList.toggle("is-fragment-writer", kind === "fragment");
   clearCharacterRenamePreview(form);
   title.textContent = `${creating ? "新建" : "编辑"}${CONTENT_KIND_LABELS[kind] || "档案"}`;
   setIconButton(submit, creating ? "add" : "save", creating ? `创建${CONTENT_KIND_LABELS[kind] || "档案"}` : "保存修改");
@@ -208,15 +218,38 @@ async function openContentEditor(kind, record = null) {
     `;
   } else if (kind === "fragment") {
     fields.innerHTML = `
-      ${contentEditorField("ceId", "稳定 ID", record?.id || "", { readonly: !creating, required: true })}
-      ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true })}
-      ${contentEditorField("ceStatus", "整理状态", record?.status || "灵感", { required: true })}
-      ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
-      ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
-      ${contentEditorField("ceBody", "碎片内容", record?.text || "", { type: "textarea", wide: true, rows: 12, required: true })}
-      ${!creating ? `<button class="content-editor-convert icon-action is-wide" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button>` : ""}
+      <div class="fragment-editor-retention is-wide">
+        <strong>独立剧本草稿</strong>
+        <span>保存后仍只在碎片箱中；只有主动转为剧情，才会进入剧情 Tab。</span>
+      </div>
+      <details class="fragment-editor-meta is-wide" ${creating ? "open" : ""}>
+        <summary>
+          <span><strong>碎片信息</strong><small>${escapeHtml(record?.title || "补充标题、状态和标签")}</small></span>
+          <i aria-hidden="true"></i>
+        </summary>
+        <div class="fragment-editor-meta-fields">
+          ${contentEditorField("ceId", "稳定 ID", record?.id || "", { readonly: !creating, required: true })}
+          ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true })}
+          ${contentEditorField("ceStatus", "整理状态", record?.status || "灵感", { required: true })}
+          ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
+          ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
+        </div>
+      </details>
+      <div class="fragment-editor-workspace is-wide">
+        <label class="fragment-editor-source">
+          <span>剧本草稿<small>支持 Markdown</small></span>
+          <textarea id="ceBody" required spellcheck="true">${escapeHtml(record?.text || "")}</textarea>
+        </label>
+        <section class="fragment-editor-preview" aria-label="碎片剧本预览">
+          <div class="fragment-editor-preview-head"><span>实时预览</span><small>仅预览，不会生成剧情</small></div>
+          <div class="plot-detail-body fragment-editor-preview-body" id="fragmentEditorPreview"></div>
+        </section>
+      </div>
+      ${!creating ? `<div class="fragment-editor-convert-row is-wide"><span>准备好进入正式编排时再转换。</span><button class="content-editor-convert icon-action" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button></div>` : ""}
     `;
     dialog.querySelector("#contentEditorConvert")?.addEventListener("click", () => convertFragmentToPlot(record));
+    dialog.querySelector("#ceBody")?.addEventListener("input", renderFragmentEditorPreview);
+    renderFragmentEditorPreview();
   }
 
   for (const id of ["ceRole", "ceScope", "ceSide"]) {

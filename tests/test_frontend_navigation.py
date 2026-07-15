@@ -83,6 +83,16 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn(".timeline-editor-preview-lane.is-removing", styles)
         self.assertIn(".timeline-editor-preview-lane.is-receiving", styles)
 
+    def test_fragment_editor_stays_in_fragments_until_explicit_conversion(self):
+        source = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("is-fragment-writer", source)
+        self.assertIn("保存后仍只在碎片箱中", source)
+        self.assertIn('id="fragmentEditorPreview"', source)
+        self.assertIn("renderFragmentEditorPreview", source)
+        self.assertIn(".fragment-editor-workspace", styles)
+        self.assertIn(".fragment-editor-preview", styles)
+
 
 if __name__ == "__main__":
     unittest.main()
