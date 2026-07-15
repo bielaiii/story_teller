@@ -73,6 +73,7 @@ class FrontendNavigationTests(unittest.TestCase):
         suggestions = (ROOT / "src" / "features" / "smart-suggest.js").read_text(encoding="utf-8")
         styles = (ROOT / "styles.css").read_text(encoding="utf-8")
         self.assertIn('src/features/smart-suggest.js', markup)
+        self.assertIn('vendor/pinyin-pro/pinyin-pro.min.js', markup)
         for field_id in ("plotCreateName", "plotCreateSummary", "plotCreateBody", "characterCreateIntro", "characterCreateSupplements"):
             self.assertRegex(markup, rf'id="{field_id}"[^>]*data-smart-suggest')
         self.assertGreaterEqual(editor.count("suggest: true"), 5)
@@ -84,6 +85,8 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn('form.id === "plotCreateForm"', suggestions)
         self.assertIn('candidate.kind === "character" ? "#plotCreatePeople" : "#plotCreateEntries"', suggestions)
         self.assertIn('addEventListener("compositionstart"', suggestions)
+        self.assertIn("smartSuggestPinyinScore", suggestions)
+        self.assertTrue((ROOT / "vendor" / "pinyin-pro" / "LICENSE").is_file())
         self.assertIn("smart-suggest-popover", styles)
 
     def test_editing_ui_does_not_reload_or_replace_the_page(self):

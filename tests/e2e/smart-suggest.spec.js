@@ -24,6 +24,20 @@ test("所有正文编辑器共享人物和设定智能提示", async ({ page }) 
   await expect(page.locator("#smartSuggestPopover")).toBeVisible();
   await body.press("Escape");
 
+  await body.fill("@luchenzhou");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("陆沉舟");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("拼音：lu chen zhou");
+  await body.press("Escape");
+  await body.fill("@lcz");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("陆沉舟");
+  await body.press("Escape");
+  await body.fill("/jiugang");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
+  await body.press("Escape");
+  await body.fill("/jg");
+  await expect(page.locator("#smartSuggestPopover")).toContainText("旧港");
+  await body.press("Escape");
+
   await page.locator('#plotCreatePeople option[value="2"]').evaluate((option) => { option.selected = false; });
   await body.fill("@陆");
   await expect(page.locator("#smartSuggestPopover")).toBeVisible();

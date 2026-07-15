@@ -1,6 +1,7 @@
 const SMART_SUGGEST_LIMIT = 8;
 const SMART_SUGGEST_QUERY_LIMIT = 40;
 const smartSuggestBindings = new WeakMap();
+const smartSuggestPinyinCache = new Map();
 let smartSuggestActive = null;
 let smartSuggestPopover = null;
 
@@ -32,6 +33,8 @@ function smartSuggestCandidates(trigger) {
       id: person.id,
       name: String(person.name || "").trim(),
       aliases: (person.aliases || []).map(String).filter(Boolean),
+      pinyinTerms: [person.name, ...(person.aliases || [])].map(String).filter(Boolean),
+      pinyinMode: "surname",
       searchTerms: [person.name, ...(person.aliases || []), person.group, person.narrativeRole],
       type: "人物",
       detail: [person.group, person.narrativeRole, `ID ${person.id}`].filter(Boolean).join(" · "),
@@ -45,11 +48,56 @@ function smartSuggestCandidates(trigger) {
     id: place.id,
     name: String(place.name || "").trim(),
     aliases: (place.aliases || []).map(String).filter(Boolean),
+    pinyinTerms: [place.name, ...(place.aliases || [])].map(String).filter(Boolean),
+    pinyinMode: "normal",
     searchTerms: [place.name, ...(place.aliases || []), place.type, place.subtype, ...(place.tags || [])],
     type: String(place.type || "设定"),
     detail: [place.type || "设定", place.subtype].filter(Boolean).join(" · "),
     order: index,
   })).filter((item) => item.name);
+}
+
+function smartSuggestPinyinValue(value, mode = "normal") {
+  const cacheKey = `${mode}:${value}`;
+  if (smartSuggestPinyinCache.has(cacheKey)) return smartSuggestPinyinCache.get(cacheKey);
+  let result = "";
+  try {
+    result = window.pinyinPro?.pinyin?.(String(value || ""), {
+      toneType: "none",
+      mode,
+      v: true,
+    }) || "";
+  } catch (error) {
+    result = "";
+  }
+  result = smartSuggestNormalize(result);
+  smartSuggestPinyinCache.set(cacheKey, result);
+  return result;
+}
+
+function smartSuggestPinyinScore(candidate, query) {
+  if (!query || !/^[a-zv]+$/i.test(query) || !window.pinyinPro?.match) return -1;
+  let best = -1;
+  candidate.pinyinTerms.forEach((term) => {
+    try {
+      const positions = window.pinyinPro.match(term, query, {
+        precision: "first",
+        lastPrecision: "start",
+      });
+      if (!positions?.length) return;
+      const startsAtBeginning = positions[0] === 0;
+      const isContinuous = positions.every((position, index) => index === 0 || position === positions[index - 1] + 1);
+      const score = 620
+        + (startsAtBeginning ? 70 : 0)
+        + (isContinuous ? 25 : 0)
+        - positions[0] * 4
+        - positions.length;
+      best = Math.max(best, score);
+    } catch (error) {
+      // A malformed custom term should not disable ordinary Chinese matching.
+    }
+  });
+  return best;
 }
 
 function smartSuggestScore(candidate, query) {
@@ -66,6 +114,8 @@ function smartSuggestScore(candidate, query) {
   if (name.includes(query)) return 700 - name.indexOf(query);
   const aliasMatch = aliases.find((term) => term.includes(query));
   if (aliasMatch) return 600 - aliasMatch.indexOf(query);
+  const pinyinScore = smartSuggestPinyinScore(candidate, query);
+  if (pinyinScore >= 0) return pinyinScore;
   const termPrefix = terms.find((term) => term.startsWith(query));
   if (termPrefix) return 500 - termPrefix.length;
   const termMatch = terms.find((term) => term.includes(query));
@@ -194,6 +244,16 @@ function smartSuggestMatchedAlias(candidate, query) {
   return candidate.aliases.find((alias) => smartSuggestNormalize(alias).includes(normalized)) || "";
 }
 
+function smartSuggestMatchDetail(candidate, query) {
+  const alias = smartSuggestMatchedAlias(candidate, query);
+  if (alias) return `别名：${alias}`;
+  if (/^[a-zv]+$/i.test(String(query || "")) && smartSuggestPinyinScore(candidate, smartSuggestNormalize(query)) >= 0) {
+    const pinyin = smartSuggestPinyinValue(candidate.name, candidate.pinyinMode);
+    if (pinyin) return `拼音：${pinyin}`;
+  }
+  return candidate.detail;
+}
+
 function renderSmartSuggestions(element, context, results, activeIndex = 0) {
   const popover = ensureSmartSuggestPopover(element);
   const safeIndex = Math.max(0, Math.min(activeIndex, results.length - 1));
@@ -205,11 +265,11 @@ function renderSmartSuggestions(element, context, results, activeIndex = 0) {
     </header>
     <div class="smart-suggest-options">
       ${results.map((candidate, index) => {
-        const alias = smartSuggestMatchedAlias(candidate, context.query);
+        const detail = smartSuggestMatchDetail(candidate, context.query);
         return `
           <div class="smart-suggest-option ${index === safeIndex ? "is-active" : ""}" id="smart-suggest-option-${index}" role="option" aria-selected="${index === safeIndex}" data-smart-suggest-index="${index}">
             <span class="smart-suggest-icon">${smartSuggestIcon(candidate.kind === "character" ? "person" : "entry")}</span>
-            <span class="smart-suggest-copy"><strong>${smartSuggestEscape(candidate.name)}</strong><small>${smartSuggestEscape(alias ? `别名：${alias}` : candidate.detail)}</small></span>
+            <span class="smart-suggest-copy"><strong>${smartSuggestEscape(candidate.name)}</strong><small>${smartSuggestEscape(detail)}</small></span>
             <span class="smart-suggest-type">${smartSuggestEscape(candidate.type)}</span>
           </div>
         `;
