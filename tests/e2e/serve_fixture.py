@@ -24,7 +24,7 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     encoding="utf-8",
 )
 (project_root / "timeline.md").write_text(
-    "---\nversion: 2\nmainLine: 主线\nlineSpacing: 72\ntopPadding: 54\nsidePadding: 34\npixelsPerStoryUnit: 760\n---\n\n## Lines\n\n- name: 主线\n  color: \"#d65f8f\"\n  side: center\n  order: 1\n",
+    "---\nversion: 2\nmainLine: 主线\nlineSpacing: 72\ntopPadding: 54\nsidePadding: 34\npixelsPerStoryUnit: 760\n---\n\n## Lines\n\n- name: 主线\n  color: \"#d65f8f\"\n  side: center\n  order: 1\n- name: 支线\n  color: \"#3f7fc1\"\n  side: right\n  order: 2\n  startPlotId: 2\n  endPlotId: 12\n",
     encoding="utf-8",
 )
 (project_root / "graph-layout.md").write_text(
@@ -47,6 +47,14 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     "---\nid: 1\nsequence: 1\nchapter: act1\ntitle: 初见\nsummary: 沈清妙与陆沉舟见面。\npeople: [1, 2]\nlanes: [主线]\nstatus: 草稿\naccent: \"#d65f8f\"\n---\n沈清妙与陆沉舟在旧港见面。\n",
     encoding="utf-8",
 )
+for sequence in range(2, 13):
+    lane = "支线" if sequence % 2 == 0 else "主线"
+    (project_root / "plots" / f"{sequence:03d}-节点{sequence}.md").write_text(
+        f"---\nid: {sequence}\nsequence: {sequence}\nchapter: act1\ntitle: 节点{sequence}\n"
+        f"summary: 第 {sequence} 个浏览器测试节点。\nlanes: [{lane}]\nstatus: 草稿\naccent: \"#3f7fc1\"\n---\n"
+        f"这是第 {sequence} 个时间线节点。\n",
+        encoding="utf-8",
+    )
 
 from server import build_content_index, write_content_index  # noqa: E402
 

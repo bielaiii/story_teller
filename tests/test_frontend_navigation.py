@@ -63,6 +63,19 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("<h2>灵感碎片箱</h2>", fragment_page.group(0))
         self.assertNotIn('label: "标签"', fragment_filters.group(0))
 
+    def test_timeline_editor_keeps_a_virtualized_focus_preview(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        source = (ROOT / "src" / "views" / "timeline.js").read_text(encoding="utf-8")
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('id="timelineEditorPreviewViewport"', markup)
+        self.assertIn('id="timelineEditorPreview"', markup)
+        self.assertIn("function focusTimelineEditorPreview", source)
+        self.assertIn("visibleStart", source)
+        self.assertIn('type: "delete"', source)
+        self.assertIn("receivingLine", source)
+        self.assertIn(".timeline-editor-preview-lane.is-removing", styles)
+        self.assertIn(".timeline-editor-preview-lane.is-receiving", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

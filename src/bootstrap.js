@@ -253,12 +253,19 @@ timelineEditorCancel?.addEventListener("click", closeTimelineEditor);
 timelineEditorSave?.addEventListener("click", saveTimelineEditor);
 timelineEditorAddLine?.addEventListener("click", addTimelineEditorLine);
 timelineEditorSearch?.addEventListener("input", renderTimelineEditorEvents);
+timelineEditorPreviewViewport?.addEventListener("scroll", scheduleTimelineEditorPreviewViewportRender, { passive: true });
 timelineEditorDialog?.addEventListener("click", (event) => {
   if (event.target === timelineEditorDialog) closeTimelineEditor();
 });
 timelineEditorDialog?.addEventListener("close", () => {
   timelineEditorDraft = null;
   timelineEditorDraggedPlotId = null;
+  timelineEditorPreviewTransition = null;
+  timelineEditorLastPreviewFocus = "";
+  if (timelineEditorPreviewTransitionTimer) clearTimeout(timelineEditorPreviewTransitionTimer);
+  timelineEditorPreviewTransitionTimer = null;
+  if (timelineEditorPreviewScrollFrame) cancelAnimationFrame(timelineEditorPreviewScrollFrame);
+  timelineEditorPreviewScrollFrame = null;
 });
 timelineEditorUnassigned?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -277,6 +284,7 @@ timelineEditorUnassigned?.addEventListener("click", () => {
   timelineEditorSelectedPlotId = timelineEditorUnassignedOnly ? null : (plots[0]?.id || null);
   timelineEditorEditingLine = "";
   renderTimelineEditorLines();
+  renderTimelineEditorPreview();
   renderTimelineEditorEvents();
   renderTimelineEditorInspector();
 });

@@ -956,6 +956,15 @@ let timelineEditorSelectedLine = "";
 let timelineEditorDraggedPlotId = null;
 let timelineEditorUnassignedOnly = false;
 let timelineEditorEditingLine = "";
+let timelineEditorPreviewTransition = null;
+let timelineEditorPreviewTransitionTimer = null;
+let timelineEditorLastPreviewFocus = "";
+let timelineEditorPreviewScrollFrame = null;
+
+const TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT = 42;
+const TIMELINE_EDITOR_PREVIEW_LANE_GAP = 72;
+const TIMELINE_EDITOR_PREVIEW_PADDING = 54;
+const TIMELINE_EDITOR_PREVIEW_HEADER = 58;
 
 function timelineEditorColor(index) {
   const colors = ["#d65f8f", "#d8b64a", "#3f7fc1", "#d99a2e", "#2aa79b", "#7d6bd6", "#d95b6b", "#6676c7"];
@@ -971,6 +980,247 @@ function setTimelineEditorStatus(message = "", type = "") {
 function timelineEditorAssignment(plotId) {
   if (!timelineEditorDraft) return [];
   return timelineEditorDraft.assignments[String(plotId)] || [];
+}
+
+function timelineEditorSortedPlots() {
+  return [...plots].sort((first, second) => (
+    Number(plotSequence(first)) - Number(plotSequence(second))
+    || Number(first.id) - Number(second.id)
+  ));
+}
+
+function timelineEditorPreviewLines() {
+  if (!timelineEditorDraft) return [];
+  const lines = timelineEditorDraft.lines.map((line) => ({ ...line }));
+  const ghost = timelineEditorPreviewTransition?.type === "delete"
+    ? timelineEditorPreviewTransition.ghost
+    : null;
+  if (ghost && !lines.some((line) => line.name === ghost.name)) {
+    lines.splice(Math.min(ghost.index, lines.length), 0, { ...ghost, isGhost: true });
+  }
+  return lines;
+}
+
+function timelineEditorPreviewLayout(lines) {
+  const mainLine = lines.find((line) => line.name === timelineEditorDraft.mainLine) || lines[0];
+  const branches = lines.filter((line) => line !== mainLine);
+  const left = branches.filter((line) => line.side === "left");
+  const right = branches.filter((line) => line.side !== "left");
+  const positions = new Map();
+  left.forEach((line, index) => {
+    positions.set(line.name, TIMELINE_EDITOR_PREVIEW_PADDING + (left.length - index - 1) * TIMELINE_EDITOR_PREVIEW_LANE_GAP);
+  });
+  const mainX = TIMELINE_EDITOR_PREVIEW_PADDING + left.length * TIMELINE_EDITOR_PREVIEW_LANE_GAP;
+  if (mainLine) positions.set(mainLine.name, mainX);
+  right.forEach((line, index) => {
+    positions.set(line.name, mainX + (index + 1) * TIMELINE_EDITOR_PREVIEW_LANE_GAP);
+  });
+  return {
+    mainX,
+    positions,
+    width: Math.max(260, TIMELINE_EDITOR_PREVIEW_PADDING * 2 + (left.length + right.length) * TIMELINE_EDITOR_PREVIEW_LANE_GAP),
+  };
+}
+
+function timelineEditorPreviewPlotIds(lineName) {
+  if (timelineEditorPreviewTransition?.type === "delete" && timelineEditorPreviewTransition.ghost?.name === lineName) {
+    return timelineEditorPreviewTransition.plotIds;
+  }
+  return timelineEditorSortedPlots()
+    .filter((plot) => timelineEditorAssignment(plot.id).includes(lineName))
+    .map((plot) => Number(plot.id));
+}
+
+function setTimelineEditorPreviewTransition(transition, duration = 680) {
+  if (timelineEditorPreviewTransitionTimer) clearTimeout(timelineEditorPreviewTransitionTimer);
+  timelineEditorPreviewTransition = transition;
+  timelineEditorLastPreviewFocus = "";
+  timelineEditorPreviewTransitionTimer = setTimeout(() => {
+    timelineEditorPreviewTransition = null;
+    timelineEditorPreviewTransitionTimer = null;
+    renderTimelineEditorPreview();
+  }, duration);
+}
+
+function timelineEditorPreviewFocusKey() {
+  if (timelineEditorSelectedPlotId != null) {
+    const lanes = timelineEditorAssignment(timelineEditorSelectedPlotId);
+    return `plot:${timelineEditorSelectedPlotId}:${timelineEditorSelectedLine || lanes[0] || ""}`;
+  }
+  if (timelineEditorSelectedLine) return `line:${timelineEditorSelectedLine}`;
+  return "";
+}
+
+function focusTimelineEditorPreview(force = false) {
+  if (!timelineEditorPreview || !timelineEditorPreviewViewport) return;
+  const focusKey = timelineEditorPreviewFocusKey();
+  if (!force && (!focusKey || focusKey === timelineEditorLastPreviewFocus)) return;
+  timelineEditorLastPreviewFocus = focusKey;
+  requestAnimationFrame(() => {
+    if (!timelineEditorPreviewViewport || !timelineEditorPreview) return;
+    let target = null;
+    if (timelineEditorSelectedPlotId != null) {
+      const nodes = [...timelineEditorPreview.querySelectorAll("[data-preview-plot-id]")]
+        .filter((node) => Number(node.dataset.previewPlotId) === Number(timelineEditorSelectedPlotId));
+      target = nodes.find((node) => node.dataset.line === timelineEditorSelectedLine) || nodes[0] || null;
+    } else if (timelineEditorSelectedLine) {
+      const nodes = [...timelineEditorPreview.querySelectorAll("[data-preview-plot-id]")]
+        .filter((node) => node.dataset.line === timelineEditorSelectedLine);
+      target = nodes[0] || [...timelineEditorPreview.querySelectorAll("[data-preview-line]")]
+        .find((node) => node.dataset.previewLine === timelineEditorSelectedLine) || null;
+    }
+    if (!target) return;
+    const targetX = target.offsetLeft + target.offsetWidth / 2;
+    const targetY = target.offsetTop + target.offsetHeight / 2;
+    const maxLeft = Math.max(0, timelineEditorPreview.scrollWidth - timelineEditorPreviewViewport.clientWidth);
+    const maxTop = Math.max(0, timelineEditorPreview.scrollHeight - timelineEditorPreviewViewport.clientHeight);
+    const left = Math.max(0, Math.min(maxLeft, targetX - timelineEditorPreviewViewport.clientWidth / 2));
+    const top = Math.max(0, Math.min(maxTop, targetY - timelineEditorPreviewViewport.clientHeight / 2));
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    timelineEditorPreviewViewport.scrollTo({ left, top, behavior });
+  });
+}
+
+function scheduleTimelineEditorPreviewViewportRender() {
+  if (timelineEditorPreviewScrollFrame) return;
+  timelineEditorPreviewScrollFrame = requestAnimationFrame(() => {
+    timelineEditorPreviewScrollFrame = null;
+    if (timelineEditorDialog?.open) renderTimelineEditorPreview();
+  });
+}
+
+function renderTimelineEditorPreview() {
+  if (!timelineEditorDraft || !timelineEditorPreview) return;
+  const sortedPlots = timelineEditorSortedPlots();
+  const lines = timelineEditorPreviewLines();
+  if (!lines.length || !sortedPlots.length) {
+    timelineEditorPreview.innerHTML = '<div class="timeline-editor-preview-empty">时间线还没有可显示的节点。</div>';
+    return;
+  }
+  const { mainX, positions, width } = timelineEditorPreviewLayout(lines);
+  const rowByPlotId = new Map(sortedPlots.map((plot, index) => [Number(plot.id), index]));
+  const plotById = new Map(sortedPlots.map((plot) => [Number(plot.id), plot]));
+  const viewportTop = Number(timelineEditorPreviewViewport?.scrollTop || 0);
+  const viewportHeight = Number(timelineEditorPreviewViewport?.clientHeight || 320);
+  const visibleStart = Math.max(0, Math.floor((viewportTop - TIMELINE_EDITOR_PREVIEW_HEADER) / TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT) - 5);
+  const visibleEnd = Math.min(
+    sortedPlots.length - 1,
+    Math.ceil((viewportTop + viewportHeight - TIMELINE_EDITOR_PREVIEW_HEADER) / TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT) + 5,
+  );
+  const stageHeight = TIMELINE_EDITOR_PREVIEW_HEADER + (sortedPlots.length - 1) * TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT + 58;
+  const focusLanes = timelineEditorSelectedPlotId != null
+    ? timelineEditorAssignment(timelineEditorSelectedPlotId)
+    : (timelineEditorSelectedLine ? [timelineEditorSelectedLine] : []);
+  const selectedPlotId = Number(timelineEditorSelectedPlotId);
+  const receivingLine = timelineEditorPreviewTransition?.receivingLine || "";
+  const laneMarkup = lines.map((line) => {
+    const x = positions.get(line.name) ?? mainX;
+    const plotIds = timelineEditorPreviewPlotIds(line.name).filter((plotId) => rowByPlotId.has(Number(plotId)));
+    const rowIndexes = plotIds.map((plotId) => rowByPlotId.get(Number(plotId)));
+    const anchorStart = rowByPlotId.get(Number(line.startPlotId));
+    const anchorEnd = rowByPlotId.get(Number(line.endPlotId));
+    const firstRow = Number.isInteger(anchorStart) ? anchorStart : Math.min(...rowIndexes);
+    const lastRow = Number.isInteger(anchorEnd) ? anchorEnd : Math.max(...rowIndexes);
+    const hasSpan = Number.isFinite(firstRow) && Number.isFinite(lastRow);
+    const spanStart = line.name === timelineEditorDraft.mainLine
+      ? TIMELINE_EDITOR_PREVIEW_HEADER - 14
+      : (hasSpan ? TIMELINE_EDITOR_PREVIEW_HEADER + Math.min(firstRow, lastRow) * TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT : TIMELINE_EDITOR_PREVIEW_HEADER - 4);
+    const spanEnd = line.name === timelineEditorDraft.mainLine
+      ? stageHeight - 24
+      : (hasSpan ? TIMELINE_EDITOR_PREVIEW_HEADER + Math.max(firstRow, lastRow) * TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT : stageHeight - 28);
+    const focused = focusLanes.includes(line.name);
+    const muted = focusLanes.length && !focused;
+    const transitionClass = line.isGhost
+      ? "is-removing"
+      : (timelineEditorPreviewTransition?.type === "insert" && timelineEditorPreviewTransition.lineName === line.name ? "is-inserting" : "");
+    const receivingClass = receivingLine === line.name ? "is-receiving" : "";
+    const connectors = line.name !== timelineEditorDraft.mainLine && hasSpan
+      ? [spanStart, spanEnd].map((top) => `
+          <span class="timeline-editor-preview-connector ${transitionClass}" aria-hidden="true" style="left:${Math.min(x, mainX)}px;top:${top}px;width:${Math.abs(x - mainX)}px;--line-color:${escapeHtml(line.color)}"></span>
+        `).join("")
+      : "";
+    return `
+      ${connectors}
+      <div
+        class="timeline-editor-preview-lane ${focused ? "is-focused" : ""} ${muted ? "is-muted" : ""} ${transitionClass} ${receivingClass}"
+        data-preview-line="${escapeHtml(line.name)}"
+        style="left:${x}px;--line-color:${escapeHtml(line.color)}"
+      >
+        <button class="timeline-editor-preview-line-label" data-preview-line-button="${escapeHtml(line.name)}" type="button" aria-label="聚焦剧情线${escapeHtml(line.name)}" title="${escapeHtml(line.name)}">
+          <i aria-hidden="true"></i><span>${escapeHtml(line.name)}</span>
+        </button>
+        <span class="timeline-editor-preview-track ${hasSpan || line.name === timelineEditorDraft.mainLine ? "" : "is-empty"}" aria-hidden="true" style="top:${spanStart}px;height:${Math.max(26, spanEnd - spanStart)}px"></span>
+      </div>
+    `;
+  }).join("");
+  const nodeMarkup = lines.flatMap((line) => {
+    const x = positions.get(line.name) ?? mainX;
+    const linePlotIds = timelineEditorPreviewPlotIds(line.name);
+    const lineFocusPlotId = timelineEditorSelectedLine === line.name ? linePlotIds[0] : null;
+    return linePlotIds.map((plotId) => {
+      const plot = plotById.get(Number(plotId));
+      const row = rowByPlotId.get(Number(plotId));
+      if (!plot || !Number.isInteger(row)) return "";
+      const mustRender = row >= visibleStart && row <= visibleEnd
+        || Number(plotId) === selectedPlotId
+        || Number(plotId) === Number(lineFocusPlotId);
+      if (!mustRender) return "";
+      const top = TIMELINE_EDITOR_PREVIEW_HEADER + row * TIMELINE_EDITOR_PREVIEW_ROW_HEIGHT;
+      const selected = Number(plotId) === selectedPlotId;
+      const muted = timelineEditorSelectedPlotId != null
+        ? !selected
+        : (timelineEditorSelectedLine ? line.name !== timelineEditorSelectedLine : false);
+      return `
+        <button
+          class="timeline-editor-preview-node ${selected ? "is-active" : ""} ${muted ? "is-muted" : ""}"
+          data-preview-plot-id="${escapeHtml(plot.id)}"
+          data-line="${escapeHtml(line.name)}"
+          type="button"
+          style="left:${x}px;top:${top}px;--line-color:${escapeHtml(line.color)}"
+          aria-label="第 ${escapeHtml(plotSequence(plot))} 章 ${escapeHtml(plot.title)}，${escapeHtml(line.name)}"
+          title="第 ${escapeHtml(plotSequence(plot))} 章 · ${escapeHtml(plot.title)}"
+        ><span>${escapeHtml(plotSequence(plot))}</span></button>
+      `;
+    });
+  }).join("");
+  timelineEditorPreview.innerHTML = `
+    <div class="timeline-editor-preview-stage" style="width:${width}px;height:${stageHeight}px">
+      ${laneMarkup}
+      ${nodeMarkup}
+    </div>
+  `;
+  timelineEditorPreview.querySelectorAll("[data-preview-line-button]").forEach((button) => {
+    button.addEventListener("click", () => {
+      timelineEditorSelectedLine = button.dataset.previewLineButton;
+      timelineEditorSelectedPlotId = null;
+      timelineEditorUnassignedOnly = false;
+      timelineEditorEditingLine = "";
+      renderTimelineEditor();
+    });
+  });
+  timelineEditorPreview.querySelectorAll("[data-preview-line]").forEach((lane) => {
+    lane.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      lane.classList.add("is-drop-target");
+    });
+    lane.addEventListener("dragleave", () => lane.classList.remove("is-drop-target"));
+    lane.addEventListener("drop", (event) => {
+      event.preventDefault();
+      lane.classList.remove("is-drop-target");
+      const plotId = timelineEditorDraggedPlotId || Number(event.dataTransfer?.getData("text/plain"));
+      assignTimelineEditorPlot(plotId, lane.dataset.previewLine);
+    });
+  });
+  timelineEditorPreview.querySelectorAll("[data-preview-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      timelineEditorSelectedPlotId = Number(button.dataset.previewPlotId);
+      timelineEditorSelectedLine = button.dataset.line;
+      timelineEditorUnassignedOnly = false;
+      timelineEditorEditingLine = "";
+      renderTimelineEditor();
+    });
+  });
+  focusTimelineEditorPreview();
 }
 
 function buildTimelineEditorDraft() {
@@ -1206,30 +1456,49 @@ function moveTimelineEditorLine(lineName, direction) {
   if (index < 0 || target < 1 || target >= timelineEditorDraft.lines.length) return;
   const [line] = timelineEditorDraft.lines.splice(index, 1);
   timelineEditorDraft.lines.splice(target, 0, line);
+  setTimelineEditorPreviewTransition({ type: "move", lineName }, 520);
   setTimelineEditorStatus("剧情线显示顺序已调整，尚未保存。", "dirty");
   renderTimelineEditor();
 }
 
 function deleteTimelineEditorLine(lineName) {
   if (lineName === timelineEditorDraft.mainLine) return;
+  const lineIndex = timelineEditorDraft.lines.findIndex((line) => line.name === lineName);
+  const removedLine = timelineEditorDraft.lines[lineIndex];
+  if (!removedLine) return;
   const assignedCount = Object.values(timelineEditorDraft.assignments).filter((lanes) => lanes.includes(lineName)).length;
   const transfer = document.querySelector("#timelineEditorTransferLine")?.value || "";
   if (assignedCount && !transfer) {
     setTimelineEditorStatus("请先选择接收这些剧情的目标线。", "error");
     return;
   }
+  const transferredPlotIds = [];
   Object.keys(timelineEditorDraft.assignments).forEach((plotId) => {
     const lanes = timelineEditorDraft.assignments[plotId];
     if (!lanes.includes(lineName)) return;
+    transferredPlotIds.push(Number(plotId));
     timelineEditorDraft.assignments[plotId] = [
       ...(transfer ? [transfer] : []),
       ...lanes.filter((lane) => lane !== lineName && lane !== transfer),
     ];
   });
   timelineEditorDraft.lines = timelineEditorDraft.lines.filter((line) => line.name !== lineName);
-  timelineEditorSelectedLine = timelineEditorDraft.mainLine;
+  const receivingLine = transfer || timelineEditorDraft.mainLine;
+  timelineEditorSelectedLine = receivingLine;
+  timelineEditorSelectedPlotId = transferredPlotIds[0] || null;
   timelineEditorEditingLine = "";
-  setTimelineEditorStatus(`“${lineName}”已从草稿删除，保存后生效。`, "dirty");
+  setTimelineEditorPreviewTransition({
+    type: "delete",
+    ghost: { ...removedLine, index: lineIndex },
+    plotIds: transferredPlotIds,
+    receivingLine,
+  }, 820);
+  setTimelineEditorStatus(
+    transferredPlotIds.length
+      ? `“${lineName}”已移除，${transferredPlotIds.length} 个节点转入“${receivingLine}”；保存后生效。`
+      : `“${lineName}”空轨道已从草稿移除；保存后生效。`,
+    "dirty",
+  );
   renderTimelineEditor();
 }
 
@@ -1296,19 +1565,23 @@ function renderTimelineEditorLineSettings(line) {
     setTimelineEditorStatus("剧情线颜色已修改，尚未保存。", "dirty");
     renderTimelineEditorLines();
     renderTimelineEditorEvents();
+    renderTimelineEditorPreview();
   });
   document.querySelector("#timelineEditorLineSide")?.addEventListener("change", (event) => {
     line.side = event.target.value;
     setTimelineEditorStatus("剧情线方向已修改，尚未保存。", "dirty");
     renderTimelineEditorLines();
+    renderTimelineEditorPreview();
   });
   document.querySelector("#timelineEditorStartPlot")?.addEventListener("change", (event) => {
     line.startPlotId = event.target.value ? Number(event.target.value) : "";
     setTimelineEditorStatus("分支锚点已修改，尚未保存。", "dirty");
+    renderTimelineEditorPreview();
   });
   document.querySelector("#timelineEditorEndPlot")?.addEventListener("change", (event) => {
     line.endPlotId = event.target.value ? Number(event.target.value) : "";
     setTimelineEditorStatus("汇合锚点已修改，尚未保存。", "dirty");
+    renderTimelineEditorPreview();
   });
   document.querySelector("#timelineEditorMoveLineUp")?.addEventListener("click", () => moveTimelineEditorLine(line.name, -1));
   document.querySelector("#timelineEditorMoveLineDown")?.addEventListener("click", () => moveTimelineEditorLine(line.name, 1));
@@ -1362,6 +1635,7 @@ function renderTimelineEditorInspector() {
 
 function renderTimelineEditor() {
   renderTimelineEditorLines();
+  renderTimelineEditorPreview();
   renderTimelineEditorEvents();
   renderTimelineEditorInspector();
 }
@@ -1388,6 +1662,8 @@ async function openTimelineEditor() {
     timelineEditorSelectedLine = "";
     timelineEditorUnassignedOnly = false;
     timelineEditorEditingLine = "";
+    timelineEditorPreviewTransition = null;
+    timelineEditorLastPreviewFocus = "";
     if (timelineEditorSearch) timelineEditorSearch.value = "";
     renderTimelineEditor();
     setTimelineEditorStatus("拖动文章可以切换主要剧情线；所有修改会在保存时一次写入。", "ready");
@@ -1401,6 +1677,12 @@ function closeTimelineEditor() {
   if (timelineEditorDialog?.open) timelineEditorDialog.close();
   timelineEditorDraft = null;
   timelineEditorDraggedPlotId = null;
+  timelineEditorPreviewTransition = null;
+  timelineEditorLastPreviewFocus = "";
+  if (timelineEditorPreviewTransitionTimer) clearTimeout(timelineEditorPreviewTransitionTimer);
+  timelineEditorPreviewTransitionTimer = null;
+  if (timelineEditorPreviewScrollFrame) cancelAnimationFrame(timelineEditorPreviewScrollFrame);
+  timelineEditorPreviewScrollFrame = null;
 }
 
 function addTimelineEditorLine() {
@@ -1411,17 +1693,30 @@ function addTimelineEditorLine() {
     number += 1;
     name = `新剧情线 ${number}`;
   }
-  timelineEditorDraft.lines.push({
+  const anchorLineName = timelineEditorSelectedLine
+    || timelineEditorAssignment(timelineEditorSelectedPlotId)[0]
+    || timelineEditorDraft.mainLine;
+  const anchorIndex = timelineEditorDraft.lines.findIndex((line) => line.name === anchorLineName);
+  const anchorLine = timelineEditorDraft.lines[anchorIndex];
+  const leftCount = timelineEditorDraft.lines.filter((line) => line.side === "left").length;
+  const rightCount = timelineEditorDraft.lines.filter((line) => line.side === "right").length;
+  const side = anchorLine?.side && anchorLine.side !== "center"
+    ? anchorLine.side
+    : (leftCount < rightCount ? "left" : "right");
+  const line = {
     name,
     color: timelineEditorColor(timelineEditorDraft.lines.length),
-    side: timelineEditorDraft.lines.length % 2 ? "right" : "left",
+    side,
     startPlotId: "",
     endPlotId: "",
-  });
+  };
+  const insertAt = anchorIndex >= 0 ? anchorIndex + 1 : timelineEditorDraft.lines.length;
+  timelineEditorDraft.lines.splice(insertAt, 0, line);
   timelineEditorSelectedLine = name;
   timelineEditorSelectedPlotId = null;
   timelineEditorEditingLine = name;
-  setTimelineEditorStatus("新剧情线已加入草稿，请设置名称和分支锚点。", "dirty");
+  setTimelineEditorPreviewTransition({ type: "insert", lineName: name }, 820);
+  setTimelineEditorStatus(`新剧情线已插入“${anchorLineName}”旁，请设置名称和分支锚点。`, "dirty");
   renderTimelineEditor();
 }
 
