@@ -448,30 +448,35 @@
                 <span>人物姓名</span>
                 <input id="characterCreateName" type="text" maxlength="80" autocomplete="off" placeholder="例如：顾遥" required />
               </label>
-              <label>
-                <span>叙事定位</span>
-                <select id="characterCreateRole">
-                  <option value="主角">主角</option>
-                  <option value="配角" selected>配角</option>
-                </select>
-              </label>
-              <label>
-                <span>收纳状态</span>
-                <select id="characterCreateScope">
-                  <option value="主线人物">主线人物</option>
-                  <option value="常驻人物" selected>常驻人物</option>
-                  <option value="一次性角色">一次性角色</option>
-                  <option value="待定角色">待定角色</option>
-                </select>
-              </label>
-              <label>
-                <span>人物阵营</span>
-                <select id="characterCreateSide">
-                  <option value="主角方">主角方</option>
-                  <option value="中立" selected>中立</option>
-                  <option value="反派方">反派方</option>
-                </select>
-              </label>
+              <fieldset class="character-create-classification">
+                <legend>角色定位</legend>
+                <div>
+                  <label>
+                    <span>戏份定位</span>
+                    <select id="characterCreateRole">
+                      <option value="主角">主角</option>
+                      <option value="配角" selected>配角</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>出场类型</span>
+                    <select id="characterCreateScope">
+                      <option value="主线人物">主线人物</option>
+                      <option value="常驻人物" selected>常驻人物</option>
+                      <option value="一次性角色">一次性角色</option>
+                      <option value="待定角色">待定角色</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>人物阵营</span>
+                    <select id="characterCreateSide">
+                      <option value="主角方">主角方</option>
+                      <option value="中立" selected>中立</option>
+                      <option value="反派方">反派方</option>
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
               <label>
                 <span>人物分组</span>
                 <input id="characterCreateGroup" type="text" maxlength="80" list="characterGroupSuggestions" placeholder="例如：旧案调查组" />

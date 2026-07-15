@@ -109,6 +109,13 @@ function normalizeMainPlotImpact(value) {
   return Number.isFinite(impact) ? Math.max(0, Math.min(100, impact)) : 0;
 }
 
+function normalizeNarrativeRole(value, markers = []) {
+  const role = String(value || "").trim();
+  if (["主角", "配角"].includes(role)) return role;
+  const markerSet = new Set(Array.isArray(markers) ? markers : []);
+  return ["主角", "男主", "女主"].some((marker) => markerSet.has(marker)) ? "主角" : "配角";
+}
+
 function normalizeCharacterScope(value, graphVisible = true) {
   const scope = String(value || "").trim();
   if (scope) return scope;
@@ -427,6 +434,17 @@ function validateProjectConfiguration() {
     if (person.id && !/^\d+$/.test(person.id)) {
       add("error", `人物 id 应为数字：${person.id}`, `${person.name || "未命名人物"}需要使用创建时分配的自增编号。`, "人物");
     }
+    if (person.classificationMissing?.length) {
+      add(
+        "warning",
+        `人物定位未完整保存：${person.name}`,
+        `缺少${person.classificationMissing.join("、")}，当前显示的是兼容默认值；请打开人物档案确认。`,
+        `人物 ${person.id}`,
+      );
+    }
+    characterClassificationIssues(person).forEach((detail) => {
+      add("error", `人物定位冲突：${person.name}`, detail, `人物 ${person.id}`);
+    });
   });
   checkAmbiguousTerms(characters, "人物");
   checkAmbiguousTerms(places, "设定");
@@ -845,8 +863,17 @@ async function loadMarkdownData() {
           ? meta.supplements.map((item) => String(item || "").trim()).filter(Boolean)
           : [],
         mainPlotImpact: normalizeMainPlotImpact(meta.mainPlotImpact),
+        narrativeRole: normalizeNarrativeRole(
+          meta.narrativeRole,
+          Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
+        ),
         side: String(meta.side || "中立").trim(),
         characterScope: normalizeCharacterScope(meta.characterScope, meta.graphVisible),
+        classificationMissing: [
+          !String(meta.narrativeRole || "").trim() ? "戏份定位" : "",
+          !String(meta.characterScope || "").trim() ? "出场类型" : "",
+          !String(meta.side || "").trim() ? "人物阵营" : "",
+        ].filter(Boolean),
         graphVisible: meta.graphVisible !== false,
       };
     })),

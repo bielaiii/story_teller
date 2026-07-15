@@ -472,6 +472,24 @@ label: 母子
 
         self.assertEqual(original, character_path.read_text(encoding="utf-8"))
 
+    def test_character_classification_conflicts_are_rejected_before_writing(self):
+        handler, project_root, _responses = self.relationship_handler()
+        characters_root = project_root / "characters"
+        with self.assertRaisesRegex(ValueError, "人物标识“反派”与人物阵营“主角方”冲突"):
+            handler.create_character({
+                "project": "novel", "name": "冲突人物", "narrativeRole": "配角",
+                "characterScope": "常驻人物", "side": "主角方", "mainPlotImpact": 20,
+                "color": "#3f7fc1", "markers": ["反派"], "intro": "不应创建",
+            })
+        self.assertFalse(any("冲突人物" in path.name for path in characters_root.glob("*.md")))
+
+        character_path = characters_root / "3-林越.md"
+        original = "---\nid: 3\nname: 林越\nnarrativeRole: 配角\ncharacterScope: 常驻人物\nside: 中立\nmarkers: [常驻人物]\ncolor: \"#3867b7\"\n---\n原始设定\n"
+        self.write_markdown_at(character_path, original)
+        with self.assertRaisesRegex(ValueError, "人物标识“常驻人物”与出场类型“一次性角色”冲突"):
+            handler.update_character_scope({"project": "novel", "id": "3", "scope": "一次性角色"})
+        self.assertEqual(original, character_path.read_text(encoding="utf-8"))
+
     def test_create_plot_inserts_sequence_without_changing_stable_ids(self):
         handler, project_root, responses = self.relationship_handler()
         plot_seven = project_root / "plots" / "007-old.md"

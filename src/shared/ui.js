@@ -200,6 +200,38 @@ function characterFactSearchValues(person) {
   return (person?.facts || []).flatMap((fact) => [fact.label, fact.value]);
 }
 
+const CHARACTER_MARKER_CLASSIFICATIONS = {
+  主角: ["戏份定位", "主角", "narrativeRole"],
+  男主: ["戏份定位", "主角", "narrativeRole"],
+  女主: ["戏份定位", "主角", "narrativeRole"],
+  配角: ["戏份定位", "配角", "narrativeRole"],
+  主线人物: ["出场类型", "主线人物", "characterScope"],
+  常驻人物: ["出场类型", "常驻人物", "characterScope"],
+  一次性角色: ["出场类型", "一次性角色", "characterScope"],
+  待定角色: ["出场类型", "待定角色", "characterScope"],
+  正派: ["人物阵营", "主角方", "side"],
+  主角方: ["人物阵营", "主角方", "side"],
+  主角团: ["人物阵营", "主角方", "side"],
+  反派: ["人物阵营", "反派方", "side"],
+  反派方: ["人物阵营", "反派方", "side"],
+  中立: ["人物阵营", "中立", "side"],
+};
+
+function characterClassificationIssues(person) {
+  const actual = {
+    narrativeRole: person?.narrativeRole || "配角",
+    characterScope: person?.characterScope || "常驻人物",
+    side: person?.side || "中立",
+  };
+  return [...new Set((person?.markers || []).flatMap((marker) => {
+    const rule = CHARACTER_MARKER_CLASSIFICATIONS[String(marker || "").trim()];
+    if (!rule) return [];
+    const [label, expected, field] = rule;
+    if (actual[field] === expected) return [];
+    return [`人物标识“${marker}”与${label}“${actual[field]}”冲突；请改为“${expected}”或移除该标识。`];
+  }))];
+}
+
 function markerTone(marker) {
   const semanticTones = {
     男主: "#3f7fc1",

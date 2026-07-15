@@ -480,23 +480,29 @@ function closeCharacterCreateDialog() {
 async function createCharacterFromDialog(event) {
   event.preventDefault();
   if (!characterCreateForm?.reportValidity()) return;
+  const payload = {
+    project: currentProjectId(),
+    name: characterCreateName?.value.trim() || "",
+    narrativeRole: characterCreateRole?.value || "配角",
+    characterScope: characterCreateScope?.value || "常驻人物",
+    side: characterCreateSide?.value || "中立",
+    group: characterCreateGroup?.value.trim() || "",
+    mainPlotImpact: Number(characterCreateImpact?.value || 50),
+    color: characterCreateColor?.value || "#3f7fc1",
+    aliases: commaSeparatedValues(characterCreateAliases?.value),
+    markers: commaSeparatedValues(characterCreateMarkers?.value),
+    supplements: bulletNoteLines(characterCreateSupplements?.value),
+    intro: characterCreateIntro?.value.trim() || "",
+  };
+  const classificationIssue = characterClassificationIssues(payload)[0];
+  if (classificationIssue) {
+    setCharacterCreateStatus(classificationIssue, "error");
+    return;
+  }
   setCharacterCreateBusy(true);
   setCharacterCreateStatus("正在创建人物档案…");
   try {
-    const result = await refactorApi("/api/characters/create", {
-      project: currentProjectId(),
-      name: characterCreateName?.value.trim() || "",
-      narrativeRole: characterCreateRole?.value || "配角",
-      characterScope: characterCreateScope?.value || "常驻人物",
-      side: characterCreateSide?.value || "中立",
-      group: characterCreateGroup?.value.trim() || "",
-      mainPlotImpact: Number(characterCreateImpact?.value || 50),
-      color: characterCreateColor?.value || "#3f7fc1",
-      aliases: commaSeparatedValues(characterCreateAliases?.value),
-      markers: commaSeparatedValues(characterCreateMarkers?.value),
-      supplements: bulletNoteLines(characterCreateSupplements?.value),
-      intro: characterCreateIntro?.value.trim() || "",
-    });
+    const result = await refactorApi("/api/characters/create", payload);
     setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}）`, "success");
     await refreshWorkspaceDataInPlace({ characterId: result.id });
     closeCharacterCreateDialog();
@@ -942,6 +948,16 @@ function renderCharacterScopeTools(person) {
 }
 
 async function updateCharacterScope(person, scope, status, buttons) {
+  const classificationIssue = characterClassificationIssues({ ...person, characterScope: scope })[0];
+  if (classificationIssue) {
+    if (status) {
+      status.textContent = classificationIssue;
+      status.className = status.classList.contains("temporary-scope-status")
+        ? "temporary-scope-status is-error"
+        : "character-scope-status is-error";
+    }
+    return;
+  }
   buttons.forEach((button) => {
     button.disabled = true;
   });

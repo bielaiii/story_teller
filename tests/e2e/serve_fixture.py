@@ -36,7 +36,7 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     encoding="utf-8",
 )
 (project_root / "characters" / "2-陆沉舟.md").write_text(
-    "---\nid: 2\nname: 陆沉舟\nnarrativeRole: 配角\ncharacterScope: 常驻人物\nside: 主角方\nmainPlotImpact: 70\ncolor: \"#3f7fc1\"\n---\n可以恢复的人物设定\n",
+    "---\nid: 2\nname: 陆沉舟\nnarrativeRole: 配角\ncharacterScope: 常驻人物\nside: 反派方\nmainPlotImpact: 70\ncolor: \"#3f7fc1\"\nmarkers: [反派, 常驻人物]\n---\n可以恢复的人物设定\n",
     encoding="utf-8",
 )
 (project_root / "relationships" / "1-沈清妙__2-陆沉舟.md").write_text(

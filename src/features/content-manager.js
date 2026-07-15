@@ -228,9 +228,14 @@ async function openContentEditor(kind, record = null, options = {}) {
   if (kind === "character") {
     fields.innerHTML = `
       ${contentEditorField("ceName", "人物姓名", record?.name || "", { required: true })}
-      ${contentEditorField("ceRole", "叙事定位", record?.narrativeRole || characterNarrativeRole(record), { type: "select", html: `<option>主角</option><option>配角</option>` })}
-      ${contentEditorField("ceScope", "收纳状态", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
-      ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
+      <fieldset class="content-editor-classification is-wide">
+        <legend>角色定位</legend>
+        <div>
+          ${contentEditorField("ceRole", "戏份定位", record?.narrativeRole || characterNarrativeRole(record), { type: "select", html: `<option>主角</option><option>配角</option>` })}
+          ${contentEditorField("ceScope", "出场类型", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
+          ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
+        </div>
+      </fieldset>
       ${contentEditorField("ceGroup", "人物分组", record?.group || "")}
       ${contentEditorField("ceImpact", "主线影响", record?.mainPlotImpact ?? 50, { type: "number", min: 0, max: 100, note: "0 最小 · 100 最大" })}
       ${contentEditorField("ceColor", "人物颜色", record?.color || "#3f7fc1", { type: "color" })}
@@ -350,6 +355,14 @@ async function saveContentEditor(event) {
     if (kind === "character") {
       const currentName = value("ceName");
       const originalName = form.dataset.originalCharacterName || "";
+      const classification = {
+        narrativeRole: value("ceRole"),
+        characterScope: value("ceScope"),
+        side: value("ceSide"),
+        markers: commaSeparatedValues(value("ceMarkers")),
+      };
+      const classificationIssue = characterClassificationIssues(classification)[0];
+      if (classificationIssue) throw new Error(classificationIssue);
       if (!creating && currentName !== originalName) {
         if (!form.dataset.renameOperationId || form.dataset.renamePreviewName !== currentName) {
           clearCharacterRenamePreview(form);
@@ -369,7 +382,7 @@ async function saveContentEditor(event) {
         status.textContent = "正在原子保存档案、姓名和已确认引用…";
       }
       path = creating ? "/api/characters/create" : "/api/characters/update";
-      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), supplements: bulletNoteLines(value("ceSupplements")), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
+      payload = { ...payload, id: form.dataset.recordId, name: currentName, ...classification, group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), supplements: bulletNoteLines(value("ceSupplements")), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
     } else if (kind === "relationship") {
       path = "/api/relationships/update";
       payload = { ...payload, id: form.dataset.recordId, firstRole: value("ceFirstRole"), secondRole: value("ceSecondRole"), label: value("ceLabel"), type: value("ceType"), color: value("ceColor") };

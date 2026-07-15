@@ -50,6 +50,22 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn('contentEditorField("ceSupplements"', editor)
         self.assertIn('managed_values["supplements"]', server)
 
+    def test_character_classification_is_grouped_and_validated_on_every_write_surface(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        shared = (ROOT / "src" / "shared" / "ui.js").read_text(encoding="utf-8")
+        model = (ROOT / "src" / "core" / "model.js").read_text(encoding="utf-8")
+        characters = (ROOT / "src" / "views" / "characters.js").read_text(encoding="utf-8")
+        editor = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        server = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn('class="character-create-classification"', markup)
+        self.assertIn('class="content-editor-classification is-wide"', editor)
+        self.assertIn("function characterClassificationIssues", shared)
+        self.assertIn("characterClassificationIssues(payload)", characters)
+        self.assertIn("characterClassificationIssues({ ...person, characterScope: scope })", characters)
+        self.assertIn("characterClassificationIssues(classification)", editor)
+        self.assertIn("classificationMissing", model)
+        self.assertGreaterEqual(server.count("validate_character_classification("), 4)
+
     def test_editing_ui_does_not_reload_or_replace_the_page(self):
         forbidden = {
             "location.reload": re.compile(r"\blocation\.reload\s*\("),

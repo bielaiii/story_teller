@@ -41,8 +41,15 @@ test("新建人物时可以直接写入核心和补充设定", async ({ page }) 
   await page.evaluate(() => { window.__characterCreateSentinel = "alive"; });
   await page.locator("#characterCreateTrigger").click();
   await page.locator("#characterCreateName").fill("顾遥");
+  await page.locator("#characterCreateMarkers").fill("反派");
   await page.locator("#characterCreateIntro").fill("追查旧港失踪案。\n逐步学会信任同伴。");
   await page.locator("#characterCreateSupplements").fill("随身携带录音笔。\n会避开没有第二出口的房间。");
+  await page.locator("#characterCreateSubmit").click();
+
+  await expect(page.locator("#characterCreateDialog")).toBeVisible();
+  await expect(page.locator("#characterCreateStatus")).toContainText("人物标识“反派”与人物阵营“中立”冲突");
+  expect(await page.evaluate(() => window.__characterCreateSentinel)).toBe("alive");
+  await page.locator("#characterCreateSide").selectOption("反派方");
   await page.locator("#characterCreateSubmit").click();
 
   await expect(page.locator("#characterCreateDialog")).not.toBeVisible();
@@ -53,6 +60,29 @@ test("新建人物时可以直接写入核心和补充设定", async ({ page }) 
 
   const databaseReadback = await (await page.request.get("/api/project-data?project=novel")).json();
   expect(databaseReadback.documents["characters/3-顾遥.md"]).toContain("会避开没有第二出口的房间");
+});
+
+test("编辑定位和快捷调整出场类型都会阻止冲突", async ({ page }) => {
+  await page.goto("/?project=novel");
+  await page.locator('[data-view="characters"]').click();
+  await page.locator('.character-list-item[data-id="2"]').click();
+  await page.evaluate(() => { window.__classificationSentinel = "alive"; });
+
+  await page.getByRole("button", { name: "一次性角色" }).click();
+  await expect(page.locator(".character-scope-status")).toContainText("人物标识“常驻人物”与出场类型“一次性角色”冲突");
+  await expect(page.locator(".character-scope-current")).toHaveText("常驻人物");
+
+  await page.getByRole("button", { name: "编辑陆沉舟的档案" }).click();
+  await page.locator("#ceSide").selectOption("主角方");
+  await page.locator("#contentEditorSubmit").click();
+  await expect(page.locator("#contentEditorDialog")).toBeVisible();
+  await expect(page.locator("#contentEditorStatus")).toContainText("人物标识“反派”与人物阵营“主角方”冲突");
+  expect(await page.evaluate(() => window.__classificationSentinel)).toBe("alive");
+
+  const databaseReadback = await (await page.request.get("/api/project-data?project=novel")).json();
+  expect(databaseReadback.documents["characters/2-陆沉舟.md"]).toContain("side: 反派方");
+  expect(databaseReadback.documents["characters/2-陆沉舟.md"]).toContain("characterScope: 常驻人物");
+  await page.locator("#contentEditorCancel").click();
 });
 
 test("剧情状态筛选只显示真实状态且默认全部选中", async ({ page }) => {

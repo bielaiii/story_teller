@@ -43,7 +43,48 @@ CONTENT_INDEX_NAME = "content-index.json"
 FORBIDDEN_FILENAME_PATTERN = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 CHARACTER_SCOPES = {"主线人物", "常驻人物", "待定角色", "一次性角色"}
+CHARACTER_NARRATIVE_ROLES = {"主角", "配角"}
+CHARACTER_SIDES = {"主角方", "中立", "反派方"}
+CHARACTER_MARKER_CLASSIFICATIONS = {
+    "主角": ("戏份定位", "主角", "narrativeRole"),
+    "男主": ("戏份定位", "主角", "narrativeRole"),
+    "女主": ("戏份定位", "主角", "narrativeRole"),
+    "配角": ("戏份定位", "配角", "narrativeRole"),
+    "主线人物": ("出场类型", "主线人物", "characterScope"),
+    "常驻人物": ("出场类型", "常驻人物", "characterScope"),
+    "一次性角色": ("出场类型", "一次性角色", "characterScope"),
+    "待定角色": ("出场类型", "待定角色", "characterScope"),
+    "正派": ("人物阵营", "主角方", "side"),
+    "主角方": ("人物阵营", "主角方", "side"),
+    "主角团": ("人物阵营", "主角方", "side"),
+    "反派": ("人物阵营", "反派方", "side"),
+    "反派方": ("人物阵营", "反派方", "side"),
+    "中立": ("人物阵营", "中立", "side"),
+}
 TIMELINE_SIDES = {"center", "left", "right"}
+
+
+def validate_character_classification(narrative_role, scope, side, markers):
+    if narrative_role not in CHARACTER_NARRATIVE_ROLES:
+        raise ValueError("人物戏份定位不合法")
+    if scope not in CHARACTER_SCOPES:
+        raise ValueError("人物出场类型不合法")
+    if side not in CHARACTER_SIDES:
+        raise ValueError("人物阵营不合法")
+    actual = {
+        "narrativeRole": narrative_role,
+        "characterScope": scope,
+        "side": side,
+    }
+    for marker in markers or []:
+        rule = CHARACTER_MARKER_CLASSIFICATIONS.get(str(marker).strip())
+        if not rule:
+            continue
+        label, expected, field = rule
+        if actual[field] != expected:
+            raise ValueError(
+                f"人物标识“{marker}”与{label}“{actual[field]}”冲突；请改为“{expected}”或移除该标识"
+            )
 
 
 def parse_frontmatter(text):
@@ -1478,12 +1519,6 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
 
         if not name or len(name) > 80 or "\n" in name or "\r" in name:
             raise ValueError("人物姓名长度需要在 1 到 80 个字符之间")
-        if narrative_role not in {"主角", "配角"}:
-            raise ValueError("人物定位不合法")
-        if scope not in CHARACTER_SCOPES:
-            raise ValueError("人物收纳状态不合法")
-        if side not in {"主角方", "中立", "反派方"}:
-            raise ValueError("人物阵营不合法")
         if len(group) > 80 or "\n" in group or "\r" in group:
             raise ValueError("人物分组不能超过 80 个字符")
         if len(intro) > 20000:
@@ -1515,6 +1550,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
 
         aliases = clean_list("aliases", "人物别名")
         markers = clean_list("markers", "人物标识")
+        validate_character_classification(narrative_role, scope, side, markers)
         supplements = clean_values(payload.get("supplements"), "人物补充设定", 60, 600)
         avatar = clean_text(payload.get("avatar"), "头像路径", 500)
         facts = payload.get("facts", {})
@@ -1587,11 +1623,12 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         )
 
     def character_update_text(self, original, payload, character_id, name):
-        narrative_role = clean_text(payload.get("narrativeRole", "配角"), "人物定位", 20, required=True)
-        scope = clean_text(payload.get("characterScope", "常驻人物"), "收纳状态", 20, required=True)
+        narrative_role = clean_text(payload.get("narrativeRole", "配角"), "戏份定位", 20, required=True)
+        scope = clean_text(payload.get("characterScope", "常驻人物"), "出场类型", 20, required=True)
         side = clean_text(payload.get("side", "中立"), "人物阵营", 20, required=True)
-        if narrative_role not in {"主角", "配角"} or scope not in CHARACTER_SCOPES or side not in {"主角方", "中立", "反派方"}:
-            raise ValueError("人物分类设置不合法")
+        aliases = clean_values(payload.get("aliases"), "人物别名", 24, 40)
+        markers = clean_values(payload.get("markers"), "人物标识", 24, 40)
+        validate_character_classification(narrative_role, scope, side, markers)
         try:
             impact = int(payload.get("mainPlotImpact", 50))
         except (TypeError, ValueError) as error:
@@ -1616,12 +1653,12 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         managed_values = {
             "id": int(character_id) if character_id.isdigit() else character_id,
             "name": name,
-            "aliases": clean_values(payload.get("aliases"), "人物别名", 24, 40),
+            "aliases": aliases,
             "color": color,
             "gradient": gradient,
             "avatar": clean_text(payload.get("avatar"), "头像路径", 500),
             "group": clean_text(payload.get("group"), "人物分组", 80),
-            "markers": clean_values(payload.get("markers"), "人物标识", 24, 40),
+            "markers": markers,
             "narrativeRole": narrative_role,
             "mainPlotImpact": impact,
             "side": side,
@@ -2403,6 +2440,12 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         project_root = self.project_root(project)
         target_path, fields, text = self.locate_target(project_root, "character", target_id)
         name = str(fields.get("name", "")).strip()
+        validate_character_classification(
+            str(fields.get("narrativeRole", "配角")).strip(),
+            scope,
+            str(fields.get("side", "中立")).strip(),
+            frontmatter_list_values(text, "markers"),
+        )
         updated = update_frontmatter_field(text, "characterScope", scope)
         if updated != text:
             atomic_write(target_path, updated)
