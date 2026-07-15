@@ -364,6 +364,7 @@ async function init() {
     refreshOperationHistoryAccess();
     refreshTimelineEditorAccess();
     refreshContentManagerAccess();
+    enableSmartSuggestions(document);
     switchView("graph");
     startGraphLoop();
   } catch (error) {

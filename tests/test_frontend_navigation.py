@@ -66,6 +66,26 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("classificationMissing", model)
         self.assertGreaterEqual(server.count("validate_character_classification("), 4)
 
+    def test_every_narrative_editor_uses_the_shared_entity_suggestions(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        bootstrap = (ROOT / "src" / "bootstrap.js").read_text(encoding="utf-8")
+        editor = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        suggestions = (ROOT / "src" / "features" / "smart-suggest.js").read_text(encoding="utf-8")
+        styles = (ROOT / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('src/features/smart-suggest.js', markup)
+        for field_id in ("plotCreateName", "plotCreateSummary", "plotCreateBody", "characterCreateIntro", "characterCreateSupplements"):
+            self.assertRegex(markup, rf'id="{field_id}"[^>]*data-smart-suggest')
+        self.assertGreaterEqual(editor.count("suggest: true"), 5)
+        self.assertIn('id="ceBody" required spellcheck="true" data-smart-suggest', editor)
+        self.assertIn("enableSmartSuggestions(dialog)", editor)
+        self.assertIn("enableSmartSuggestions(document)", bootstrap)
+        self.assertIn('trigger === "@"', suggestions)
+        self.assertIn('trigger === "/"', suggestions)
+        self.assertIn('form.id === "plotCreateForm"', suggestions)
+        self.assertIn('candidate.kind === "character" ? "#plotCreatePeople" : "#plotCreateEntries"', suggestions)
+        self.assertIn('addEventListener("compositionstart"', suggestions)
+        self.assertIn("smart-suggest-popover", styles)
+
     def test_editing_ui_does_not_reload_or_replace_the_page(self):
         forbidden = {
             "location.reload": re.compile(r"\blocation\.reload\s*\("),

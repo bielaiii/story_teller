@@ -1773,6 +1773,19 @@ button {
   font-weight: 850;
 }
 
+.plot-editor-pane > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plot-editor-pane > span small {
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 760;
+}
+
 .plot-create-meta small {
   font-weight: 600;
 }
@@ -1940,6 +1953,142 @@ button {
   border-top: 1px solid var(--line);
   padding-top: 14px;
   background: linear-gradient(180deg, rgba(250, 250, 247, 0.82), rgba(250, 250, 247, 0.98) 28%);
+}
+
+.smart-suggest-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(390px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid rgba(37, 56, 66, 0.12);
+  border-radius: 14px;
+  padding: 6px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 18px 46px rgba(32, 53, 63, 0.2), 0 2px 8px rgba(32, 53, 63, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.smart-suggest-popover[hidden] {
+  display: none;
+}
+
+.smart-suggest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px 8px;
+  color: var(--muted);
+  border-bottom: 1px solid rgba(37, 56, 66, 0.08);
+}
+
+.smart-suggest-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.smart-suggest-head kbd {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--teal);
+  background: rgba(42, 167, 155, 0.1);
+  box-shadow: none;
+  font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.smart-suggest-head small {
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.smart-suggest-options {
+  max-height: 322px;
+  overflow: auto;
+  padding: 4px 0 0;
+}
+
+.smart-suggest-option {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 50px;
+  border-radius: 9px;
+  padding: 5px 8px 5px 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.smart-suggest-option:hover,
+.smart-suggest-option.is-active {
+  color: #173c3b;
+  background: rgba(42, 167, 155, 0.1);
+}
+
+.smart-suggest-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--teal);
+  background: rgba(42, 167, 155, 0.09);
+}
+
+.smart-suggest-icon .ui-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.smart-suggest-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.smart-suggest-copy strong,
+.smart-suggest-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-suggest-copy strong {
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.smart-suggest-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 620;
+}
+
+.smart-suggest-type {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .smart-suggest-head small {
+    display: none;
+  }
+
+  .smart-suggest-popover {
+    width: min(330px, calc(100vw - 20px));
+  }
 }
 
 .plot-create-actions p {

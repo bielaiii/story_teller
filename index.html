@@ -124,7 +124,7 @@
               <div class="plot-create-meta">
                 <label class="plot-create-title-field">
                   <span>剧情标题</span>
-                  <input id="plotCreateName" type="text" maxlength="120" autocomplete="off" placeholder="这一章发生了什么？" required />
+                  <input id="plotCreateName" type="text" maxlength="120" autocomplete="off" data-smart-suggest placeholder="这一章发生了什么？" required />
                 </label>
                 <label class="plot-create-chapter">
                   <span>所属篇章 <small>按章序自动归类</small></span>
@@ -149,7 +149,7 @@
                 </label>
                 <label class="plot-create-wide">
                   <span>一句话摘要</span>
-                  <input id="plotCreateSummary" type="text" maxlength="500" placeholder="可选，用一句话说明这一章的作用" />
+                  <input id="plotCreateSummary" type="text" maxlength="500" data-smart-suggest placeholder="可选，用一句话说明这一章的作用" />
                 </label>
                 <label class="plot-create-wide">
                   <span>剧情线 <small>在时间线编辑器中编排</small></span>
@@ -176,8 +176,8 @@
             </details>
             <div class="plot-editor-workspace">
               <label class="plot-editor-pane">
-                <span>Markdown 正文</span>
-                <textarea id="plotCreateBody" maxlength="60000" spellcheck="true" placeholder="## 场景标题&#10;&#10;从这里开始写剧情……" required></textarea>
+                <span>Markdown 正文 <small>@ 人物 · / 设定</small></span>
+                <textarea id="plotCreateBody" maxlength="60000" spellcheck="true" data-smart-suggest placeholder="## 场景标题&#10;&#10;从这里开始写剧情……" required></textarea>
               </label>
               <section class="plot-preview-pane" aria-label="剧情预览">
                 <div class="plot-preview-head"><span>实时预览</span><small>Markdown</small></div>
@@ -500,11 +500,11 @@
               </label>
               <label class="character-create-wide">
                 <span>核心设定 <small>人物的大方向</small></span>
-                <textarea id="characterCreateIntro" rows="5" maxlength="20000" placeholder="每行一条，例如人物目标、核心矛盾和成长方向。"></textarea>
+                <textarea id="characterCreateIntro" rows="5" maxlength="20000" data-smart-suggest placeholder="每行一条，例如人物目标、核心矛盾和成长方向。"></textarea>
               </label>
               <label class="character-create-wide">
                 <span>补充设定 <small>每行一条</small></span>
-                <textarea id="characterCreateSupplements" rows="5" placeholder="例如习惯、反应方式、特殊经历等补充细节。"></textarea>
+                <textarea id="characterCreateSupplements" rows="5" data-smart-suggest placeholder="例如习惯、反应方式、特殊经历等补充细节。"></textarea>
               </label>
             </div>
             <div class="character-create-actions">
@@ -653,6 +653,7 @@
     <script src="./src/core/model.js?v=fluid-appearance-panel"></script>
     <script src="./src/core/runtime.js?v=fluid-appearance-panel"></script>
     <script src="./src/shared/ui.js?v=fluid-appearance-panel"></script>
+    <script src="./src/features/smart-suggest.js?v=entity-suggestions"></script>
     <script src="./src/features/local-tools.js?v=fluid-appearance-panel"></script>
     <script src="./src/views/story.js?v=fluid-appearance-panel"></script>
     <script src="./src/views/timeline.js?v=fluid-appearance-panel"></script>

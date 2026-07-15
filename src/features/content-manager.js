@@ -93,13 +93,14 @@ function ensureContentEditorDialog() {
 
 function contentEditorField(id, label, value = "", options = {}) {
   const fieldLabel = `<span>${escapeHtml(label)}${options.note ? `<small>${escapeHtml(options.note)}</small>` : ""}</span>`;
+  const smartSuggest = options.suggest ? "data-smart-suggest" : "";
   if (options.type === "textarea") {
-    return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""}>${escapeHtml(value)}</textarea></label>`;
+    return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${smartSuggest}>${escapeHtml(value)}</textarea></label>`;
   }
   if (options.type === "select") {
     return `<label>${fieldLabel}<select id="${id}" ${options.multiple ? "multiple" : ""} ${options.required ? "required" : ""}>${options.html || ""}</select></label>`;
   }
-  return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} /></label>`;
+  return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} ${smartSuggest} /></label>`;
 }
 
 function contentEditorSelected(id) {
@@ -242,9 +243,9 @@ async function openContentEditor(kind, record = null, options = {}) {
       ${contentEditorField("ceAvatar", "头像路径", record?.avatar?.replace(`${contentBasePath()}/`, "") || "")}
       ${contentEditorField("ceAliases", "别名", editorListValue(record?.aliases))}
       ${contentEditorField("ceMarkers", "人物标识", editorListValue(record?.markers))}
-      ${contentEditorField("ceFacts", "档案信息（每行一个“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
-      ${contentEditorField("ceIntro", "核心设定（大方向，每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 7 })}
-      ${contentEditorField("ceSupplements", "补充设定（每行一条）", (record?.supplements || []).join("\n"), { type: "textarea", wide: true, rows: 8 })}
+      ${contentEditorField("ceFacts", "档案信息（每行一个“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4, suggest: true })}
+      ${contentEditorField("ceIntro", "核心设定（大方向，每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 7, suggest: true })}
+      ${contentEditorField("ceSupplements", "补充设定（每行一条）", (record?.supplements || []).join("\n"), { type: "textarea", wide: true, rows: 8, suggest: true })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
       ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}
     `;
@@ -277,7 +278,7 @@ async function openContentEditor(kind, record = null, options = {}) {
       ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
       ${contentEditorField("cePeople", "强相关人物", "", { type: "select", multiple: true, html: editorMultiOptions(characters, record?.people, (person) => person.name) })}
       ${contentEditorField("cePlots", "手动补充剧情", "", { type: "select", multiple: true, html: editorMultiOptions(plots, record?.plots, (plot) => `第 ${plotSequence(plot)} 章 · ${plot.title}`) })}
-      ${contentEditorField("ceBody", "设定正文", record?.intro || "", { type: "textarea", wide: true, rows: 10 })}
+      ${contentEditorField("ceBody", "设定正文", record?.intro || "", { type: "textarea", wide: true, rows: 10, suggest: true })}
       ${!creating ? '<p class="content-editor-note is-wide">修改设定名称请使用检查页的安全重命名，以同步正文引用。</p>' : ""}
     `;
   } else if (kind === "fragment") {
@@ -293,7 +294,7 @@ async function openContentEditor(kind, record = null, options = {}) {
         </summary>
         <div class="fragment-editor-meta-fields">
           ${contentEditorField("ceId", "稳定 ID", record?.id || "", { readonly: !creating, required: true })}
-          ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true })}
+          ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true, suggest: true })}
           ${contentEditorField("ceStatus", "整理状态", record?.status || "灵感", { required: true })}
           ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
           ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
@@ -301,8 +302,8 @@ async function openContentEditor(kind, record = null, options = {}) {
       </details>
       <div class="fragment-editor-workspace is-wide">
         <label class="fragment-editor-source">
-          <span>剧本草稿<small>支持 Markdown</small></span>
-          <textarea id="ceBody" required spellcheck="true">${escapeHtml(record?.text || "")}</textarea>
+          <span>剧本草稿<small>支持 Markdown · @ 人物 · / 设定</small></span>
+          <textarea id="ceBody" required spellcheck="true" data-smart-suggest>${escapeHtml(record?.text || "")}</textarea>
         </label>
         <section class="fragment-editor-preview" aria-label="碎片剧本预览">
           <div class="fragment-editor-preview-head"><span>实时预览</span><small>仅预览，不会生成剧情</small></div>
@@ -333,6 +334,7 @@ async function openContentEditor(kind, record = null, options = {}) {
   if (!contentManagerWritable()) {
     throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
   }
+  enableSmartSuggestions(dialog);
   form.querySelectorAll("button, input, select, textarea").forEach((element) => {
     element.disabled = false;
   });
