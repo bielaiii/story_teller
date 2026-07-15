@@ -38,6 +38,8 @@ function renderStoryFilters() {
     label: "状态",
     items: statuses,
     selected: state.plotStatus,
+    includeAll: false,
+    allowClear: true,
     onChange: (value) => {
       state.plotStatus = value;
       state.plotPage = 1;

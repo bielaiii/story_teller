@@ -4,6 +4,22 @@ const path = require("node:path");
 
 const runtimeProject = path.join(__dirname, ".runtime-content", "novel");
 
+test("剧情状态筛选只显示真实状态且默认全部选中", async ({ page }) => {
+  await page.goto("/?project=novel");
+  await page.locator('[data-view="story"]').click();
+  const statusButtons = page.locator("#statusFilter .filter-chip");
+  await expect(statusButtons).toHaveCount(2);
+  expect(await statusButtons.allTextContents()).not.toContain("全部");
+  await expect(statusButtons.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(statusButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await statusButtons.first().click();
+  await expect(statusButtons.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(statusButtons.nth(1)).toHaveAttribute("aria-pressed", "false");
+  await statusButtons.first().click();
+  await expect(statusButtons.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(statusButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
+});
+
 test("人物编辑重命名、删除、预览和恢复保持页面状态", async ({ page }) => {
   await page.goto("/?project=novel");
   await page.locator('[data-view="characters"]').click();

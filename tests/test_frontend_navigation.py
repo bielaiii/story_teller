@@ -130,6 +130,16 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("/api/history/undo", story)
         self.assertIn("await showAppConfirm", timeline)
 
+    def test_story_status_filter_uses_only_real_status_chips(self):
+        story = (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8")
+        status_filter = re.search(
+            r"container:\s*statusFilter,[\s\S]*?onChange:\s*\(value\)",
+            story,
+        )
+        self.assertIsNotNone(status_filter)
+        self.assertIn("includeAll: false", status_filter.group(0))
+        self.assertIn("allowClear: true", status_filter.group(0))
+
 
 if __name__ == "__main__":
     unittest.main()

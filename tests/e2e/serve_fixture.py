@@ -55,9 +55,10 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
 )
 for sequence in range(2, 13):
     lane = "支线" if sequence % 2 == 0 else "主线"
+    status = "已完成" if sequence % 3 == 0 else "草稿"
     (project_root / "plots" / f"{sequence:03d}-节点{sequence}.md").write_text(
         f"---\nid: {sequence}\nsequence: {sequence}\nchapter: act1\ntitle: 节点{sequence}\n"
-        f"summary: 第 {sequence} 个浏览器测试节点。\nlanes: [{lane}]\nstatus: 草稿\naccent: \"#3f7fc1\"\n---\n"
+        f"summary: 第 {sequence} 个浏览器测试节点。\nlanes: [{lane}]\nstatus: {status}\naccent: \"#3f7fc1\"\n---\n"
         f"这是第 {sequence} 个时间线节点。\n",
         encoding="utf-8",
     )

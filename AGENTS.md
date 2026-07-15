@@ -73,6 +73,8 @@ Core style:
 * Use a light, soft, semi-transparent workspace style with subtle shadows and restrained glass-like panels.
 * Keep the interface calm and mature. It can feel alive, but avoid childish bounce, excessive glow, loud decoration, or over-animated effects.
 * Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states.
+* Never synthesize a visible `全部` tag/chip inside tag or status filters. Multi-select filters default to all real values selected; single-select filters use an internal no-filter state or an ordinary select control, without rendering that state as a fake tag.
+* When an internal no-filter state is represented by all real filter chips being active, clicking one chip narrows to that value and clicking the active chip again returns to the all-real-values state.
 * Prefer recognizable icon controls for compact or repeated actions such as edit, rename, delete, settings, collapse, close, move, restore, and preview. Avoid a bordered rectangle containing only an ordinary action word.
 * Reuse one coherent icon language. Prefer the project's existing icon set or small inline SVG icons; do not mix unrelated emoji, text glyphs, and icon styles.
 * Every icon-only action must have an accurate accessible name, a `title` or tooltip, visible hover/focus/disabled states, and a sufficiently large click target. The icon may be visually minimal without making the hit area tiny.
