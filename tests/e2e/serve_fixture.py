@@ -48,7 +48,9 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     encoding="utf-8",
 )
 (project_root / "fragments" / "scene-draft.md").write_text(
-    "---\nid: scene-draft\ntitle: 雨夜草稿\nstatus: 草稿\ntags: [雨夜]\naccent: \"#7d6bd6\"\n---\n旧的场景草稿。\n",
+    "---\nid: scene-draft\ntitle: 雨夜草稿\nstatus: 草稿\ntags: [雨夜]\naccent: \"#7d6bd6\"\n---\n旧的场景草稿。\n\n"
+    + "这是用于检查卡片摘要长度的段落。" * 18
+    + "CARD_TAIL_HIDDEN\n",
     encoding="utf-8",
 )
 for sequence in range(2, 13):

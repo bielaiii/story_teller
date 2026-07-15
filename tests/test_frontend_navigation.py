@@ -90,8 +90,12 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("保存后仍只在碎片箱中", source)
         self.assertIn('id="fragmentEditorPreview"', source)
         self.assertIn("renderFragmentEditorPreview", source)
+        self.assertIn("syncFragmentEditorScroll", source)
+        self.assertIn("setFragmentWriterImmersive", source)
+        self.assertIn('id="contentEditorFullscreen"', source)
         self.assertIn(".fragment-editor-workspace", styles)
         self.assertIn(".fragment-editor-preview", styles)
+        self.assertIn(".content-editor-dialog.is-fragment-writer.is-immersive", styles)
 
 
 if __name__ == "__main__":

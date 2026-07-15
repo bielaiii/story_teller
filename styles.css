@@ -156,6 +156,16 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   height: min(840px, calc(100vh - 32px));
 }
 
+.content-editor-dialog.is-fragment-writer.is-immersive {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .is-fragment-writer .content-editor-form {
   height: 100%;
 }
@@ -201,6 +211,26 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   color: #53687a;
   font-size: 24px;
   cursor: pointer;
+}
+
+.content-editor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-editor-fullscreen {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 8px;
+  color: #53687a;
+  background: #eef3f7;
+  cursor: pointer;
+}
+
+.content-editor-fullscreen.is-hidden {
+  display: none;
 }
 
 .content-editor-fields {
@@ -403,6 +433,12 @@ body:not(.is-content-writable) .relationship-manager-list article > div:last-chi
   max-width: none;
   overflow: auto;
   padding: 14px 18px;
+}
+
+.plot-detail-body.plot-create-preview > *,
+.plot-detail-body.fragment-editor-preview-body > * {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
 }
 
 .fragment-editor-preview-empty {
@@ -3263,9 +3299,10 @@ body.is-timeline-view .timeline-floating-legend {
 
 .fragment-card {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   align-content: start;
   gap: 10px;
-  min-height: 180px;
+  height: 240px;
   border: 1px solid var(--line);
   border-left: 5px solid var(--accent);
   border-radius: 6px;
@@ -3285,12 +3322,19 @@ body.is-timeline-view .timeline-floating-legend {
 }
 
 .fragment-body {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
   color: #596678;
   line-height: 1.62;
 }
 
 .fragment-body p {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
 }
 
 .character-page {

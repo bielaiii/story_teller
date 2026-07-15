@@ -8,6 +8,8 @@ const UI_ICON_PATHS = {
   eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/>',
   folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 7V5a2 2 0 0 1 2-2h5l2 2"/>',
   layout: '<path d="M4 6h16M8 3v6M4 18h16M16 15v6M4 12h16M12 9v6"/>',
+  maximize: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+  minimize: '<path d="M8 8H3V3M16 8h5V3M8 16H3v5M16 16h5v5"/>',
   repair: '<path d="m15 4 5 5L8 21H3v-5Z"/><path d="m13 6 5 5M5 3v4M3 5h4M19 16v5M16.5 18.5h5"/>',
   restore: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   save: '<path d="m5 12 4 4L19 6"/>',

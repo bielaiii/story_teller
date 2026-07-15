@@ -563,6 +563,13 @@ function renderFragmentFilters() {
   });
 }
 
+function fragmentPreviewText(text, limit = 220) {
+  const container = document.createElement("div");
+  container.innerHTML = renderMarkdownBody(text || "");
+  const normalized = String(container.textContent || "").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit).trimEnd()}…` : normalized;
+}
+
 function renderFragments() {
   if (!fragmentBoard) return;
   const visible = fragments.filter((fragment) => (
@@ -577,7 +584,7 @@ function renderFragments() {
         ${tagBadges(fragment.tags)}
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
-      <div class="fragment-body">${renderMarkdownBody(fragment.text)}</div>
+      <div class="fragment-body" aria-label="${escapeHtml(fragment.title)}摘要"><p>${escapeHtml(fragmentPreviewText(fragment.text) || "暂无正文")}</p></div>
       <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
     </article>
   `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';

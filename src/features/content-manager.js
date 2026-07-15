@@ -1,4 +1,6 @@
 let pendingFragmentConversionId = "";
+let fragmentEditorSyncedElement = null;
+let fragmentEditorScrollUnlockFrame = 0;
 
 const CONTENT_KIND_LABELS = {
   character: "人物",
@@ -52,7 +54,10 @@ function ensureContentEditorDialog() {
     <form class="content-editor-form" id="contentEditorForm">
       <header>
         <div><p>内容管理</p><h3 id="contentEditorTitle">编辑档案</h3></div>
-        <button class="content-editor-close icon-action" id="contentEditorClose" type="button" aria-label="关闭" title="关闭">${uiIcon("close")}</button>
+        <div class="content-editor-head-actions">
+          <button class="content-editor-fullscreen icon-action is-hidden" id="contentEditorFullscreen" type="button" aria-label="进入沉浸写作" title="进入沉浸写作">${uiIcon("maximize")}</button>
+          <button class="content-editor-close icon-action" id="contentEditorClose" type="button" aria-label="关闭" title="关闭">${uiIcon("close")}</button>
+        </div>
       </header>
       <div class="content-editor-fields" id="contentEditorFields"></div>
       <footer>
@@ -68,8 +73,20 @@ function ensureContentEditorDialog() {
   document.body.append(dialog);
   dialog.querySelector("#contentEditorClose").addEventListener("click", () => dialog.close());
   dialog.querySelector("#contentEditorCancel").addEventListener("click", () => dialog.close());
+  dialog.querySelector("#contentEditorFullscreen").addEventListener("click", () => {
+    setFragmentWriterImmersive(dialog, !dialog.classList.contains("is-immersive"));
+  });
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (!dialog.classList.contains("is-immersive")) return;
+    event.preventDefault();
+    setFragmentWriterImmersive(dialog, false);
+  });
+  dialog.addEventListener("close", () => {
+    dialog.classList.remove("is-immersive");
+    resetFragmentEditorScrollSync();
   });
   return dialog;
 }
@@ -89,13 +106,50 @@ function contentEditorSelected(id) {
   return [...(document.querySelector(`#${id}`)?.selectedOptions || [])].map((item) => item.value);
 }
 
+function syncFragmentEditorScroll(source, target) {
+  if (!source || !target || fragmentEditorSyncedElement === source) return;
+  const sourceRange = Math.max(0, source.scrollHeight - source.clientHeight);
+  const targetRange = Math.max(0, target.scrollHeight - target.clientHeight);
+  fragmentEditorSyncedElement = target;
+  target.scrollTop = (sourceRange > 0 ? source.scrollTop / sourceRange : 0) * targetRange;
+  if (fragmentEditorScrollUnlockFrame) cancelAnimationFrame(fragmentEditorScrollUnlockFrame);
+  fragmentEditorScrollUnlockFrame = requestAnimationFrame(() => {
+    fragmentEditorSyncedElement = null;
+    fragmentEditorScrollUnlockFrame = 0;
+  });
+}
+
+function resetFragmentEditorScrollSync() {
+  if (fragmentEditorScrollUnlockFrame) cancelAnimationFrame(fragmentEditorScrollUnlockFrame);
+  fragmentEditorScrollUnlockFrame = 0;
+  fragmentEditorSyncedElement = null;
+}
+
+function setFragmentWriterImmersive(dialog, immersive) {
+  if (!dialog?.classList.contains("is-fragment-writer")) return;
+  dialog.classList.toggle("is-immersive", immersive);
+  setIconButton(
+    dialog.querySelector("#contentEditorFullscreen"),
+    immersive ? "minimize" : "maximize",
+    immersive ? "退出沉浸写作" : "进入沉浸写作",
+  );
+  requestAnimationFrame(() => {
+    syncFragmentEditorScroll(
+      dialog.querySelector("#ceBody"),
+      dialog.querySelector("#fragmentEditorPreview"),
+    );
+  });
+}
+
 function renderFragmentEditorPreview() {
   const preview = document.querySelector("#fragmentEditorPreview");
   if (!preview) return;
-  const body = document.querySelector("#ceBody")?.value || "";
+  const source = document.querySelector("#ceBody");
+  const body = source?.value || "";
   preview.innerHTML = body.trim()
     ? renderMarkdownBody(body)
     : '<p class="fragment-editor-preview-empty">从左侧开始写，预览会同步显示在这里。</p>';
+  syncFragmentEditorScroll(source, preview);
 }
 
 function clearCharacterRenamePreview(form) {
@@ -161,6 +215,10 @@ async function openContentEditor(kind, record = null) {
   form.dataset.sourcePath = record?.sourcePath || "";
   form.dataset.originalCharacterName = kind === "character" ? (record?.name || "") : "";
   dialog.classList.toggle("is-fragment-writer", kind === "fragment");
+  dialog.classList.remove("is-immersive");
+  const fullscreenButton = dialog.querySelector("#contentEditorFullscreen");
+  fullscreenButton.classList.toggle("is-hidden", kind !== "fragment");
+  setIconButton(fullscreenButton, "maximize", "进入沉浸写作");
   clearCharacterRenamePreview(form);
   title.textContent = `${creating ? "新建" : "编辑"}${CONTENT_KIND_LABELS[kind] || "档案"}`;
   setIconButton(submit, creating ? "add" : "save", creating ? `创建${CONTENT_KIND_LABELS[kind] || "档案"}` : "保存修改");
@@ -248,7 +306,12 @@ async function openContentEditor(kind, record = null) {
       ${!creating ? `<div class="fragment-editor-convert-row is-wide"><span>准备好进入正式编排时再转换。</span><button class="content-editor-convert icon-action" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button></div>` : ""}
     `;
     dialog.querySelector("#contentEditorConvert")?.addEventListener("click", () => convertFragmentToPlot(record));
-    dialog.querySelector("#ceBody")?.addEventListener("input", renderFragmentEditorPreview);
+    const fragmentBody = dialog.querySelector("#ceBody");
+    const fragmentPreview = dialog.querySelector("#fragmentEditorPreview");
+    fragmentBody?.addEventListener("input", renderFragmentEditorPreview);
+    fragmentBody?.addEventListener("scroll", () => syncFragmentEditorScroll(fragmentBody, fragmentPreview));
+    fragmentPreview?.addEventListener("scroll", () => syncFragmentEditorScroll(fragmentPreview, fragmentBody));
+    resetFragmentEditorScrollSync();
     renderFragmentEditorPreview();
   }
 
