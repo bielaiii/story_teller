@@ -551,7 +551,6 @@ function renderFragmentFilters() {
   const tags = allFragmentTags();
   renderChipFilter({
     container: fragmentTagFilter,
-    label: "标签",
     items: tags,
     selected: state.fragmentTags,
     mode: "multi",

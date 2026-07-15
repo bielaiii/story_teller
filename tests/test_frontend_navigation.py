@@ -48,13 +48,20 @@ class FrontendNavigationTests(unittest.TestCase):
 
     def test_fragment_page_has_no_redundant_english_label(self):
         markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        story_source = (ROOT / "src" / "views" / "story.js").read_text(encoding="utf-8")
         fragment_page = re.search(
             r'<section class="fragment-page[\s\S]*?</section>',
             markup,
         )
+        fragment_filters = re.search(
+            r"function renderFragmentFilters\(\)[\s\S]*?\n}\n\nfunction renderFragments",
+            story_source,
+        )
         self.assertIsNotNone(fragment_page)
+        self.assertIsNotNone(fragment_filters)
         self.assertNotIn(">Fragments<", fragment_page.group(0))
         self.assertIn("<h2>灵感碎片箱</h2>", fragment_page.group(0))
+        self.assertNotIn('label: "标签"', fragment_filters.group(0))
 
 
 if __name__ == "__main__":
