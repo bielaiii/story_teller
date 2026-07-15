@@ -1558,24 +1558,37 @@ body.is-timeline-view .timeline-list {
 
 .timeline-editor-workspace {
   display: grid;
-  grid-template-columns: minmax(340px, 400px) minmax(360px, 1fr) minmax(280px, 330px);
+  grid-template-columns: minmax(300px, 380px) minmax(360px, 1fr) minmax(330px, 380px);
   min-height: 0;
 }
 
-.timeline-editor-lines,
+.timeline-editor-map,
 .timeline-editor-events,
-.timeline-editor-inspector {
+.timeline-editor-details {
   min-height: 0;
-  overflow: auto;
 }
 
-.timeline-editor-lines {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 12px;
+.timeline-editor-map {
+  overflow: hidden;
   border-right: 1px solid rgba(25, 33, 42, 0.09);
   padding: 15px;
   background: color-mix(in srgb, var(--blue) 3%, rgba(255, 255, 255, 0.48));
+}
+
+.timeline-editor-details {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-left: 1px solid rgba(25, 33, 42, 0.09);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.timeline-editor-line-panel {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid rgba(25, 33, 42, 0.09);
+  padding: 15px;
+  background: color-mix(in srgb, var(--blue) 2%, rgba(255, 255, 255, 0.7));
 }
 
 .timeline-editor-section-head,
@@ -1616,11 +1629,12 @@ body.is-timeline-view .timeline-list {
 
 .timeline-editor-line-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   align-content: start;
   gap: 6px;
-  max-height: 138px;
+  max-height: 172px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .timeline-editor-line-entry {
@@ -1722,6 +1736,7 @@ body.is-timeline-view .timeline-list {
 
 .timeline-editor-preview-viewport {
   position: relative;
+  height: 100%;
   min-height: 0;
   overflow: auto;
   border: 1px solid rgba(25, 33, 42, 0.09);
@@ -2043,9 +2058,9 @@ body.is-timeline-view .timeline-list {
   display: grid;
   align-content: start;
   gap: 14px;
-  border-left: 1px solid rgba(25, 33, 42, 0.09);
+  min-height: 0;
+  overflow: auto;
   padding: 17px;
-  background: rgba(255, 255, 255, 0.62);
 }
 
 .timeline-editor-inspector-head {
@@ -2232,14 +2247,15 @@ body.is-timeline-view .timeline-list {
     grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   }
 
-  .timeline-editor-inspector {
+  .timeline-editor-details {
     position: absolute;
     right: 14px;
     bottom: 72px;
-    width: min(330px, calc(100vw - 42px));
+    width: min(370px, calc(100vw - 42px));
     max-height: calc(100vh - 180px);
     border: 1px solid rgba(25, 33, 42, 0.12);
     border-radius: 9px;
+    background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 22px 60px rgba(31, 46, 58, 0.18);
   }
 }
@@ -2254,23 +2270,14 @@ body.is-timeline-view .timeline-list {
     grid-template-columns: 1fr;
   }
 
-  .timeline-editor-lines {
-    grid-template-rows: auto auto minmax(180px, 1fr);
+  .timeline-editor-map {
     max-height: 360px;
     border-right: 0;
     border-bottom: 1px solid rgba(25, 33, 42, 0.09);
   }
 
-  .timeline-editor-line-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .timeline-editor-preview-viewport {
     min-height: 180px;
-  }
-
-  .timeline-editor-unassigned {
-    display: none;
   }
 
   .timeline-editor-events-head {
