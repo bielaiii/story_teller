@@ -29,7 +29,7 @@ const DATA_VERSION = "sqlite-storage-v1";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
 const FRAGMENT_PAGE_SIZE = 6;
-const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则"];
+const ENTRY_TYPES = ["组织", "势力", "地点", "物品", "事件背景", "规则", "术语"];
 const AUTO_ROLE_MENTIONS = new Set(["男主", "女主"]);
 const CHARACTER_SCOPE_OPTIONS = ["主线人物", "常驻人物", "待定角色", "一次性角色"];
 const TEMPORARY_CHARACTER_SCOPES = new Set(["一次性角色", "临时角色", "待定角色"]);
@@ -107,6 +107,13 @@ function normalizeFacts(value) {
 function normalizeMainPlotImpact(value) {
   const impact = Number(value);
   return Number.isFinite(impact) ? Math.max(0, Math.min(100, impact)) : 0;
+}
+
+function normalizeNarrativeRole(value, markers = []) {
+  const role = String(value || "").trim();
+  if (["主角", "配角"].includes(role)) return role;
+  const markerSet = new Set(Array.isArray(markers) ? markers : []);
+  return ["主角", "男主", "女主"].some((marker) => markerSet.has(marker)) ? "主角" : "配角";
 }
 
 function normalizeCharacterScope(value, graphVisible = true) {
@@ -427,6 +434,17 @@ function validateProjectConfiguration() {
     if (person.id && !/^\d+$/.test(person.id)) {
       add("error", `人物 id 应为数字：${person.id}`, `${person.name || "未命名人物"}需要使用创建时分配的自增编号。`, "人物");
     }
+    if (person.classificationMissing?.length) {
+      add(
+        "warning",
+        `人物定位未完整保存：${person.name}`,
+        `缺少${person.classificationMissing.join("、")}，当前显示的是兼容默认值；请打开人物档案确认。`,
+        `人物 ${person.id}`,
+      );
+    }
+    characterClassificationIssues(person).forEach((detail) => {
+      add("error", `人物定位冲突：${person.name}`, detail, `人物 ${person.id}`);
+    });
   });
   checkAmbiguousTerms(characters, "人物");
   checkAmbiguousTerms(places, "设定");
@@ -841,9 +859,21 @@ async function loadMarkdownData() {
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
         facts: normalizeFacts(meta.facts),
+        supplements: Array.isArray(meta.supplements)
+          ? meta.supplements.map((item) => String(item || "").trim()).filter(Boolean)
+          : [],
         mainPlotImpact: normalizeMainPlotImpact(meta.mainPlotImpact),
+        narrativeRole: normalizeNarrativeRole(
+          meta.narrativeRole,
+          Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
+        ),
         side: String(meta.side || "中立").trim(),
         characterScope: normalizeCharacterScope(meta.characterScope, meta.graphVisible),
+        classificationMissing: [
+          !String(meta.narrativeRole || "").trim() ? "戏份定位" : "",
+          !String(meta.characterScope || "").trim() ? "出场类型" : "",
+          !String(meta.side || "").trim() ? "人物阵营" : "",
+        ].filter(Boolean),
         graphVisible: meta.graphVisible !== false,
       };
     })),

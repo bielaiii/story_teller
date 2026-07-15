@@ -29,7 +29,6 @@ function openPlotInStory(plotId) {
   state.highlightPlotId = plotId;
   setChapterFilter(plot.chapter);
   switchView("story");
-  renderPlots();
   window.setTimeout(() => {
     document.querySelector(`[data-plot-id="${plotId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, 60);
@@ -85,9 +84,13 @@ async function deletePlotFromDetail(plot, button) {
     window.alert(error.message);
     return;
   }
-  const confirmed = window.confirm(
-    `确定将《${plot.title}》移入回收站吗？\n\n它会保留 7 天，期间可以从剧情页的回收站恢复。`,
-  );
+  const confirmed = await showAppConfirm({
+    title: "移入回收站？",
+    message: `《${plot.title}》将从剧情和时间线中移除。`,
+    detail: "它会保留 7 天，期间可以从检查页的回收站恢复。",
+    confirmLabel: `确认删除${plot.title}`,
+    cancelLabel: `取消删除${plot.title}`,
+  });
   if (!confirmed) return;
   if (button) {
     button.disabled = true;
@@ -98,31 +101,13 @@ async function deletePlotFromDetail(plot, button) {
       project: currentProjectId(),
       id: Number(plot.id),
     });
-    const deletedSequence = plotSequence(plot);
-    plots = plots
-      .filter((item) => Number(item.id) !== Number(plot.id))
-      .map((item) => (
-        plotSequence(item) > deletedSequence
-          ? { ...item, sequence: plotSequence(item) - 1 }
-          : item
-      ));
-    characters.forEach((person) => {
-      person.events = (person.events || []).filter((id) => Number(id) !== Number(plot.id));
-    });
-    places.forEach((place) => {
-      place.plots = (place.plots || []).filter((id) => Number(id) !== Number(plot.id));
-    });
-    timelineModel = null;
-    timelineViewportKey = "";
     state.selectedPlotId = null;
     state.highlightPlotId = null;
     state.detailReturnContext = null;
     state.plotPage = 1;
     setChapterFilter(plot.chapter);
+    await refreshWorkspaceDataInPlace({ render: false });
     switchView("story");
-    renderStoryFilters();
-    renderPlots();
-    await refreshWorkspaceDataInPlace();
     refreshPlotTrashAccess();
   } catch (error) {
     window.alert(error.message);

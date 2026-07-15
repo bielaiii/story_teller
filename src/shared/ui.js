@@ -8,6 +8,8 @@ const UI_ICON_PATHS = {
   eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/>',
   folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 7V5a2 2 0 0 1 2-2h5l2 2"/>',
   layout: '<path d="M4 6h16M8 3v6M4 18h16M16 15v6M4 12h16M12 9v6"/>',
+  maximize: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+  minimize: '<path d="M8 8H3V3M16 8h5V3M8 16H3v5M16 16h5v5"/>',
   repair: '<path d="m15 4 5 5L8 21H3v-5Z"/><path d="m13 6 5 5M5 3v4M3 5h4M19 16v5M16.5 18.5h5"/>',
   restore: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   save: '<path d="m5 12 4 4L19 6"/>',
@@ -29,86 +31,154 @@ function setIconButton(button, icon, label) {
   button.dataset.icon = icon;
 }
 
+let appConfirmResolver = null;
+
+function settleAppConfirm(result) {
+  const resolver = appConfirmResolver;
+  appConfirmResolver = null;
+  if (appConfirmDialog?.open) appConfirmDialog.close();
+  if (resolver) resolver(Boolean(result));
+}
+
+function showAppConfirm({
+  eyebrow = "需要确认",
+  title = "确认操作？",
+  message = "",
+  detail = "",
+  variant = "danger",
+  icon = variant === "danger" ? "trash" : "repair",
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+} = {}) {
+  if (!appConfirmDialog) return Promise.resolve(false);
+  if (appConfirmResolver) settleAppConfirm(false);
+  appConfirmEyebrow.textContent = eyebrow;
+  appConfirmTitle.textContent = title;
+  appConfirmMessage.textContent = message;
+  appConfirmDetail.textContent = detail;
+  appConfirmDetail.classList.toggle("is-hidden", !detail);
+  appConfirmDialog.classList.toggle("is-warning", variant === "warning");
+  appConfirmSymbol.innerHTML = uiIcon(icon);
+  setIconButton(appConfirmCancel, "close", cancelLabel);
+  setIconButton(appConfirmSubmit, icon, confirmLabel);
+  appConfirmSubmit.classList.toggle("is-danger", variant === "danger");
+  appConfirmDialog.showModal();
+  requestAnimationFrame(() => appConfirmCancel?.focus());
+  return new Promise((resolve) => { appConfirmResolver = resolve; });
+}
+
+appConfirmCancel?.addEventListener("click", () => settleAppConfirm(false));
+appConfirmSubmit?.addEventListener("click", () => settleAppConfirm(true));
+appConfirmDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  settleAppConfirm(false);
+});
+appConfirmDialog?.addEventListener("click", (event) => {
+  if (event.target === appConfirmDialog) settleAppConfirm(false);
+});
+appConfirmDialog?.addEventListener("close", () => {
+  if (!appConfirmResolver) return;
+  const resolver = appConfirmResolver;
+  appConfirmResolver = null;
+  resolver(false);
+});
+
+let workspaceRefreshDepth = 0;
+
+function isWorkspaceRefreshing() {
+  return workspaceRefreshDepth > 0;
+}
+
 async function refreshWorkspaceDataInPlace(options = {}) {
-  const activeView = state.view;
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  const scrollPositions = [...document.querySelectorAll("[id]")]
-    .filter((element) => element.scrollTop || element.scrollLeft)
-    .map((element) => ({ id: element.id, top: element.scrollTop, left: element.scrollLeft }));
-  const graphPositions = new Map(characters.map((person) => [String(person.id), {
-    px: person.px,
-    py: person.py,
-  }]));
+  workspaceRefreshDepth += 1;
+  try {
+    const activeView = state.view;
+    const renderView = options.render !== false;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const scrollPositions = [...document.querySelectorAll("[id]")]
+      .filter((element) => element.scrollTop || element.scrollLeft)
+      .map((element) => ({ id: element.id, top: element.scrollTop, left: element.scrollLeft }));
+    const graphPositions = new Map(characters.map((person) => [String(person.id), {
+      px: person.px,
+      py: person.py,
+    }]));
 
-  await loadMarkdownData();
+    await loadMarkdownData();
+    timelineModel = null;
+    timelineViewportKey = "";
 
-  characters.forEach((person) => {
-    const previous = graphPositions.get(String(person.id));
-    if (!previous) return;
-    if (Number.isFinite(previous.px)) person.px = previous.px;
-    if (Number.isFinite(previous.py)) person.py = previous.py;
-  });
-
-  if (options.characterId && getCharacter(options.characterId)) {
-    state.selectedCharacter = String(options.characterId);
-    if (state.selected === String(options.characterId)) state.selected = String(options.characterId);
-    setCharacterShelfForPerson(getCharacter(options.characterId));
-  }
-  if (options.placeId && getPlace(options.placeId)) state.selectedPlace = String(options.placeId);
-  if (options.plotId && plots.some((plot) => Number(plot.id) === Number(options.plotId))) {
-    state.selectedPlotId = Number(options.plotId);
-  }
-
-  if (state.selected && !getCharacter(state.selected)) {
-    state.selected = "";
-    state.hasSelection = false;
-  }
-  if (state.selectedCharacter && !getCharacter(state.selectedCharacter)) {
-    state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
-  }
-  if (state.selectedPlace && !getPlace(state.selectedPlace)) state.selectedPlace = places[0]?.id || "";
-
-  renderProjectChrome();
-  graphDataDirty = true;
-  if (activeView === "graph") {
-    renderGraphFilters();
-    renderNodes();
-    renderLinks();
-    markRelatedNodes();
-    renderProfile();
-    graphDataDirty = false;
-  } else if (activeView === "characters") {
-    renderCharacterList();
-    renderCharacterDetail();
-  } else if (activeView === "places") {
-    renderPlaceList();
-    renderPlaceDetail();
-  } else if (activeView === "fragments") {
-    renderFragmentFilters();
-    renderFragments();
-  } else if (activeView === "story") {
-    renderChapterSwitch();
-    renderStoryFilters();
-    renderPlots();
-  } else if (activeView === "plot-detail") {
-    renderPlotDetail();
-  } else if (activeView === "timeline") {
-    requestTimelineRender();
-  } else if (activeView === "diagnostics") {
-    requestDiagnosticsRender();
-    refreshPlotTrashAccess();
-  }
-
-  const restoreScrollPositions = () => {
-    scrollPositions.forEach(({ id, top, left }) => {
-      const element = document.getElementById(id);
-      if (element) element.scrollTo({ top, left, behavior: "instant" });
+    characters.forEach((person) => {
+      const previous = graphPositions.get(String(person.id));
+      if (!previous) return;
+      if (Number.isFinite(previous.px)) person.px = previous.px;
+      if (Number.isFinite(previous.py)) person.py = previous.py;
     });
-    window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
-  };
-  restoreScrollPositions();
-  window.requestAnimationFrame(restoreScrollPositions);
+
+    if (options.characterId && getCharacter(options.characterId)) {
+      state.selectedCharacter = String(options.characterId);
+      if (state.selected === String(options.characterId)) state.selected = String(options.characterId);
+      setCharacterShelfForPerson(getCharacter(options.characterId));
+    }
+    if (options.placeId && getPlace(options.placeId)) state.selectedPlace = String(options.placeId);
+    if (options.plotId && plots.some((plot) => Number(plot.id) === Number(options.plotId))) {
+      state.selectedPlotId = Number(options.plotId);
+    }
+
+    if (state.selected && !getCharacter(state.selected)) {
+      state.selected = "";
+      state.hasSelection = false;
+    }
+    if (state.selectedCharacter && !getCharacter(state.selectedCharacter)) {
+      state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
+    }
+    if (state.selectedPlace && !getPlace(state.selectedPlace)) state.selectedPlace = places[0]?.id || "";
+
+    renderProjectChrome();
+    graphDataDirty = true;
+    if (!renderView) return;
+    if (activeView === "graph") {
+      renderGraphFilters();
+      renderNodes({ animate: false });
+      renderLinks();
+      markRelatedNodes();
+      renderProfile({ animate: false });
+      graphDataDirty = false;
+    } else if (activeView === "characters") {
+      renderCharacterList();
+      renderCharacterDetail();
+    } else if (activeView === "places") {
+      renderPlaceList();
+      renderPlaceDetail();
+    } else if (activeView === "fragments") {
+      renderFragmentFilters();
+      renderFragments({ animate: false });
+    } else if (activeView === "story") {
+      renderChapterSwitch();
+      renderStoryFilters();
+      renderPlots({ animate: false });
+    } else if (activeView === "plot-detail") {
+      renderPlotDetail();
+    } else if (activeView === "timeline") {
+      await requestTimelineRender({ preserveExisting: true, animate: false });
+    } else if (activeView === "diagnostics") {
+      await requestDiagnosticsRender({ preserveExisting: true });
+      refreshPlotTrashAccess();
+      refreshOperationHistoryAccess();
+    }
+
+    const restoreScrollPositions = () => {
+      scrollPositions.forEach(({ id, top, left }) => {
+        const element = document.getElementById(id);
+        if (element) element.scrollTo({ top, left, behavior: "instant" });
+      });
+      window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
+    };
+    restoreScrollPositions();
+    window.requestAnimationFrame(restoreScrollPositions);
+  } finally {
+    workspaceRefreshDepth = Math.max(0, workspaceRefreshDepth - 1);
+  }
 }
 
 function initial(name) {
@@ -128,6 +198,38 @@ function characterMarkers(person) {
 
 function characterFactSearchValues(person) {
   return (person?.facts || []).flatMap((fact) => [fact.label, fact.value]);
+}
+
+const CHARACTER_MARKER_CLASSIFICATIONS = {
+  主角: ["戏份定位", "主角", "narrativeRole"],
+  男主: ["戏份定位", "主角", "narrativeRole"],
+  女主: ["戏份定位", "主角", "narrativeRole"],
+  配角: ["戏份定位", "配角", "narrativeRole"],
+  主线人物: ["出场类型", "主线人物", "characterScope"],
+  常驻人物: ["出场类型", "常驻人物", "characterScope"],
+  一次性角色: ["出场类型", "一次性角色", "characterScope"],
+  待定角色: ["出场类型", "待定角色", "characterScope"],
+  正派: ["人物阵营", "主角方", "side"],
+  主角方: ["人物阵营", "主角方", "side"],
+  主角团: ["人物阵营", "主角方", "side"],
+  反派: ["人物阵营", "反派方", "side"],
+  反派方: ["人物阵营", "反派方", "side"],
+  中立: ["人物阵营", "中立", "side"],
+};
+
+function characterClassificationIssues(person) {
+  const actual = {
+    narrativeRole: person?.narrativeRole || "配角",
+    characterScope: person?.characterScope || "常驻人物",
+    side: person?.side || "中立",
+  };
+  return [...new Set((person?.markers || []).flatMap((marker) => {
+    const rule = CHARACTER_MARKER_CLASSIFICATIONS[String(marker || "").trim()];
+    if (!rule) return [];
+    const [label, expected, field] = rule;
+    if (actual[field] === expected) return [];
+    return [`人物标识“${marker}”与${label}“${actual[field]}”冲突；请改为“${expected}”或移除该标识。`];
+  }))];
 }
 
 function markerTone(marker) {
@@ -374,6 +476,19 @@ function nextSelectedTags(selected, allTags, tag) {
     : [...activeTags, tag];
 }
 
+function syncChipFilterSelection(container, selected, items, mode = "single", includeAll = true) {
+  if (!container) return;
+  const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
+  container.querySelectorAll("[data-value]").forEach((button) => {
+    const value = button.dataset.value;
+    const active = mode === "multi"
+      ? activeItems.includes(value)
+      : (value === "all" ? selected === "all" : selected === value || (!includeAll && selected === "all"));
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
 function renderChipFilter({
   container,
   label,
@@ -390,6 +505,7 @@ function renderChipFilter({
     return;
   }
   const activeItems = mode === "multi" ? visibleSelectedTags(selected, items) : [];
+  let currentSelected = selected;
   container.innerHTML = `
     ${label ? `<span class="filter-label">${escapeHtml(label)}</span>` : ""}
     ${mode === "single" && includeAll ? `<button class="filter-chip ${selected === "all" ? "is-active" : ""}" data-value="all" type="button">全部</button>` : ""}
@@ -404,10 +520,19 @@ function renderChipFilter({
   `;
   container.querySelectorAll("[data-value]").forEach((button) => {
     button.addEventListener("click", () => {
-      const value = allowClear && mode === "single" && button.dataset.value === selected
+      const currentActiveItems = mode === "multi" ? visibleSelectedTags(currentSelected, items) : [];
+      const value = allowClear && mode === "single" && button.dataset.value === currentSelected
         ? "all"
         : button.dataset.value;
-      onChange(value, activeItems);
+      const nextSelected = onChange(value, currentActiveItems);
+      currentSelected = nextSelected === undefined ? value : nextSelected;
+      syncChipFilterSelection(
+        container,
+        currentSelected,
+        items,
+        mode,
+        includeAll,
+      );
     });
   });
 }
@@ -538,6 +663,7 @@ function personMatchesSearch(person) {
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
+    ...(person.supplements || []),
     ...characterRelationshipSearchValues(person),
     ...relatedPlots.map((plot) => `${plot.title} ${plot.text}`),
   ]

@@ -1,4 +1,6 @@
 let pendingFragmentConversionId = "";
+let fragmentEditorSyncedElement = null;
+let fragmentEditorScrollUnlockFrame = 0;
 
 const CONTENT_KIND_LABELS = {
   character: "人物",
@@ -52,7 +54,10 @@ function ensureContentEditorDialog() {
     <form class="content-editor-form" id="contentEditorForm">
       <header>
         <div><p>内容管理</p><h3 id="contentEditorTitle">编辑档案</h3></div>
-        <button class="content-editor-close icon-action" id="contentEditorClose" type="button" aria-label="关闭" title="关闭">${uiIcon("close")}</button>
+        <div class="content-editor-head-actions">
+          <button class="content-editor-fullscreen icon-action is-hidden" id="contentEditorFullscreen" type="button" aria-label="进入沉浸写作" title="进入沉浸写作">${uiIcon("maximize")}</button>
+          <button class="content-editor-close icon-action" id="contentEditorClose" type="button" aria-label="关闭" title="关闭">${uiIcon("close")}</button>
+        </div>
       </header>
       <div class="content-editor-fields" id="contentEditorFields"></div>
       <footer>
@@ -68,25 +73,84 @@ function ensureContentEditorDialog() {
   document.body.append(dialog);
   dialog.querySelector("#contentEditorClose").addEventListener("click", () => dialog.close());
   dialog.querySelector("#contentEditorCancel").addEventListener("click", () => dialog.close());
+  dialog.querySelector("#contentEditorFullscreen").addEventListener("click", () => {
+    setFragmentWriterImmersive(dialog, !dialog.classList.contains("is-immersive"));
+  });
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (!dialog.classList.contains("is-immersive")) return;
+    event.preventDefault();
+    setFragmentWriterImmersive(dialog, false);
+  });
+  dialog.addEventListener("close", () => {
+    dialog.classList.remove("is-immersive");
+    resetFragmentEditorScrollSync();
   });
   return dialog;
 }
 
 function contentEditorField(id, label, value = "", options = {}) {
   const fieldLabel = `<span>${escapeHtml(label)}${options.note ? `<small>${escapeHtml(options.note)}</small>` : ""}</span>`;
+  const smartSuggest = options.suggest ? "data-smart-suggest" : "";
   if (options.type === "textarea") {
-    return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""}>${escapeHtml(value)}</textarea></label>`;
+    return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<textarea id="${id}" rows="${options.rows || 5}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${smartSuggest}>${escapeHtml(value)}</textarea></label>`;
   }
   if (options.type === "select") {
     return `<label>${fieldLabel}<select id="${id}" ${options.multiple ? "multiple" : ""} ${options.required ? "required" : ""}>${options.html || ""}</select></label>`;
   }
-  return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} /></label>`;
+  return `<label class="${options.wide ? "is-wide" : ""}">${fieldLabel}<input id="${id}" type="${options.type || "text"}" value="${escapeHtml(value)}" ${options.required ? "required" : ""} ${options.readonly ? "readonly" : ""} ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} ${smartSuggest} /></label>`;
 }
 
 function contentEditorSelected(id) {
   return [...(document.querySelector(`#${id}`)?.selectedOptions || [])].map((item) => item.value);
+}
+
+function syncFragmentEditorScroll(source, target) {
+  if (!source || !target || fragmentEditorSyncedElement === source) return;
+  const sourceRange = Math.max(0, source.scrollHeight - source.clientHeight);
+  const targetRange = Math.max(0, target.scrollHeight - target.clientHeight);
+  fragmentEditorSyncedElement = target;
+  target.scrollTop = (sourceRange > 0 ? source.scrollTop / sourceRange : 0) * targetRange;
+  if (fragmentEditorScrollUnlockFrame) cancelAnimationFrame(fragmentEditorScrollUnlockFrame);
+  fragmentEditorScrollUnlockFrame = requestAnimationFrame(() => {
+    fragmentEditorSyncedElement = null;
+    fragmentEditorScrollUnlockFrame = 0;
+  });
+}
+
+function resetFragmentEditorScrollSync() {
+  if (fragmentEditorScrollUnlockFrame) cancelAnimationFrame(fragmentEditorScrollUnlockFrame);
+  fragmentEditorScrollUnlockFrame = 0;
+  fragmentEditorSyncedElement = null;
+}
+
+function setFragmentWriterImmersive(dialog, immersive) {
+  if (!dialog?.classList.contains("is-fragment-writer")) return;
+  dialog.classList.toggle("is-immersive", immersive);
+  setIconButton(
+    dialog.querySelector("#contentEditorFullscreen"),
+    immersive ? "minimize" : "maximize",
+    immersive ? "退出沉浸写作" : "进入沉浸写作",
+  );
+  requestAnimationFrame(() => {
+    syncFragmentEditorScroll(
+      dialog.querySelector("#ceBody"),
+      dialog.querySelector("#fragmentEditorPreview"),
+    );
+  });
+}
+
+function renderFragmentEditorPreview() {
+  const preview = document.querySelector("#fragmentEditorPreview");
+  if (!preview) return;
+  const source = document.querySelector("#ceBody");
+  const body = source?.value || "";
+  preview.innerHTML = body.trim()
+    ? renderMarkdownBody(body)
+    : '<p class="fragment-editor-preview-empty">从左侧开始写，预览会同步显示在这里。</p>';
+  syncFragmentEditorScroll(source, preview);
 }
 
 function clearCharacterRenamePreview(form) {
@@ -138,7 +202,7 @@ function renderCharacterRenamePreview(form, result) {
   preview.scrollIntoView({ block: "nearest" });
 }
 
-async function openContentEditor(kind, record = null) {
+async function openContentEditor(kind, record = null, options = {}) {
   const dialog = ensureContentEditorDialog();
   const form = dialog.querySelector("#contentEditorForm");
   const fields = dialog.querySelector("#contentEditorFields");
@@ -151,6 +215,11 @@ async function openContentEditor(kind, record = null) {
   form.dataset.recordId = kind === "relationship" && record ? `${record.from}__${record.to}` : (record?.id || "");
   form.dataset.sourcePath = record?.sourcePath || "";
   form.dataset.originalCharacterName = kind === "character" ? (record?.name || "") : "";
+  dialog.classList.toggle("is-fragment-writer", kind === "fragment");
+  dialog.classList.remove("is-immersive");
+  const fullscreenButton = dialog.querySelector("#contentEditorFullscreen");
+  fullscreenButton.classList.toggle("is-hidden", kind !== "fragment");
+  setIconButton(fullscreenButton, "maximize", "进入沉浸写作");
   clearCharacterRenamePreview(form);
   title.textContent = `${creating ? "新建" : "编辑"}${CONTENT_KIND_LABELS[kind] || "档案"}`;
   setIconButton(submit, creating ? "add" : "save", creating ? `创建${CONTENT_KIND_LABELS[kind] || "档案"}` : "保存修改");
@@ -160,17 +229,23 @@ async function openContentEditor(kind, record = null) {
   if (kind === "character") {
     fields.innerHTML = `
       ${contentEditorField("ceName", "人物姓名", record?.name || "", { required: true })}
-      ${contentEditorField("ceRole", "叙事定位", record?.narrativeRole || characterNarrativeRole(record), { type: "select", html: `<option>主角</option><option>配角</option>` })}
-      ${contentEditorField("ceScope", "收纳状态", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
-      ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
+      <fieldset class="content-editor-classification is-wide">
+        <legend>角色定位</legend>
+        <div>
+          ${contentEditorField("ceRole", "戏份定位", record?.narrativeRole || characterNarrativeRole(record), { type: "select", html: `<option>主角</option><option>配角</option>` })}
+          ${contentEditorField("ceScope", "出场类型", record?.characterScope || "常驻人物", { type: "select", html: ["主线人物", "常驻人物", "一次性角色", "待定角色"].map((value) => `<option ${value === record?.characterScope ? "selected" : ""}>${value}</option>`).join("") })}
+          ${contentEditorField("ceSide", "人物阵营", record?.side || "中立", { type: "select", html: ["主角方", "中立", "反派方"].map((value) => `<option ${value === (record?.side || "中立") ? "selected" : ""}>${value}</option>`).join("") })}
+        </div>
+      </fieldset>
       ${contentEditorField("ceGroup", "人物分组", record?.group || "")}
       ${contentEditorField("ceImpact", "主线影响", record?.mainPlotImpact ?? 50, { type: "number", min: 0, max: 100, note: "0 最小 · 100 最大" })}
       ${contentEditorField("ceColor", "人物颜色", record?.color || "#3f7fc1", { type: "color" })}
       ${contentEditorField("ceAvatar", "头像路径", record?.avatar?.replace(`${contentBasePath()}/`, "") || "")}
       ${contentEditorField("ceAliases", "别名", editorListValue(record?.aliases))}
       ${contentEditorField("ceMarkers", "人物标识", editorListValue(record?.markers))}
-      ${contentEditorField("ceFacts", "档案字段（每行“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
-      ${contentEditorField("ceIntro", "人物设定（每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
+      ${contentEditorField("ceFacts", "档案信息（每行一个“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4, suggest: true })}
+      ${contentEditorField("ceIntro", "核心设定（大方向，每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 7, suggest: true })}
+      ${contentEditorField("ceSupplements", "补充设定（每行一条）", (record?.supplements || []).join("\n"), { type: "textarea", wide: true, rows: 8, suggest: true })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
       ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}
     `;
@@ -203,20 +278,48 @@ async function openContentEditor(kind, record = null) {
       ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
       ${contentEditorField("cePeople", "强相关人物", "", { type: "select", multiple: true, html: editorMultiOptions(characters, record?.people, (person) => person.name) })}
       ${contentEditorField("cePlots", "手动补充剧情", "", { type: "select", multiple: true, html: editorMultiOptions(plots, record?.plots, (plot) => `第 ${plotSequence(plot)} 章 · ${plot.title}`) })}
-      ${contentEditorField("ceBody", "设定正文", record?.intro || "", { type: "textarea", wide: true, rows: 10 })}
+      ${contentEditorField("ceBody", "设定正文", record?.intro || "", { type: "textarea", wide: true, rows: 10, suggest: true })}
       ${!creating ? '<p class="content-editor-note is-wide">修改设定名称请使用检查页的安全重命名，以同步正文引用。</p>' : ""}
     `;
   } else if (kind === "fragment") {
     fields.innerHTML = `
-      ${contentEditorField("ceId", "稳定 ID", record?.id || "", { readonly: !creating, required: true })}
-      ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true })}
-      ${contentEditorField("ceStatus", "整理状态", record?.status || "灵感", { required: true })}
-      ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
-      ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
-      ${contentEditorField("ceBody", "碎片内容", record?.text || "", { type: "textarea", wide: true, rows: 12, required: true })}
-      ${!creating ? `<button class="content-editor-convert icon-action is-wide" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button>` : ""}
+      <div class="fragment-editor-retention is-wide">
+        <strong>独立剧本草稿</strong>
+        <span>保存后仍只在碎片箱中；只有主动转为剧情，才会进入剧情 Tab。</span>
+      </div>
+      <details class="fragment-editor-meta is-wide" ${creating ? "open" : ""}>
+        <summary>
+          <span><strong>碎片信息</strong><small>${escapeHtml(record?.title || "补充标题、状态和标签")}</small></span>
+          <i aria-hidden="true"></i>
+        </summary>
+        <div class="fragment-editor-meta-fields">
+          ${contentEditorField("ceId", "稳定 ID", record?.id || "", { readonly: !creating, required: true })}
+          ${contentEditorField("ceTitle", "碎片标题", record?.title || "", { required: true, suggest: true })}
+          ${contentEditorField("ceStatus", "整理状态", record?.status || "灵感", { required: true })}
+          ${contentEditorField("ceColor", "碎片颜色", record?.accent || "#7d6bd6", { type: "color" })}
+          ${contentEditorField("ceTags", "标签", editorListValue(record?.tags))}
+        </div>
+      </details>
+      <div class="fragment-editor-workspace is-wide">
+        <label class="fragment-editor-source">
+          <span>剧本草稿<small>支持 Markdown · @ 人物 · / 设定</small></span>
+          <textarea id="ceBody" required spellcheck="true" data-smart-suggest>${escapeHtml(record?.text || "")}</textarea>
+        </label>
+        <section class="fragment-editor-preview" aria-label="碎片剧本预览">
+          <div class="fragment-editor-preview-head"><span>实时预览</span><small>仅预览，不会生成剧情</small></div>
+          <div class="plot-detail-body fragment-editor-preview-body" id="fragmentEditorPreview"></div>
+        </section>
+      </div>
+      ${!creating ? `<div class="fragment-editor-convert-row is-wide"><span>准备好进入正式编排时再转换。</span><button class="content-editor-convert icon-action" id="contentEditorConvert" type="button" aria-label="转为正式剧情" title="转为正式剧情">${uiIcon("convert")}</button></div>` : ""}
     `;
     dialog.querySelector("#contentEditorConvert")?.addEventListener("click", () => convertFragmentToPlot(record));
+    const fragmentBody = dialog.querySelector("#ceBody");
+    const fragmentPreview = dialog.querySelector("#fragmentEditorPreview");
+    fragmentBody?.addEventListener("input", renderFragmentEditorPreview);
+    fragmentBody?.addEventListener("scroll", () => syncFragmentEditorScroll(fragmentBody, fragmentPreview));
+    fragmentPreview?.addEventListener("scroll", () => syncFragmentEditorScroll(fragmentPreview, fragmentBody));
+    resetFragmentEditorScrollSync();
+    renderFragmentEditorPreview();
   }
 
   for (const id of ["ceRole", "ceScope", "ceSide"]) {
@@ -231,10 +334,12 @@ async function openContentEditor(kind, record = null) {
   if (!contentManagerWritable()) {
     throw new Error("本地服务版本与页面不一致，请重新运行项目启动命令");
   }
+  enableSmartSuggestions(dialog);
   form.querySelectorAll("button, input, select, textarea").forEach((element) => {
     element.disabled = false;
   });
   dialog.showModal();
+  if (kind === "fragment" && options.immersive) setFragmentWriterImmersive(dialog, true);
 }
 
 async function saveContentEditor(event) {
@@ -252,6 +357,14 @@ async function saveContentEditor(event) {
     if (kind === "character") {
       const currentName = value("ceName");
       const originalName = form.dataset.originalCharacterName || "";
+      const classification = {
+        narrativeRole: value("ceRole"),
+        characterScope: value("ceScope"),
+        side: value("ceSide"),
+        markers: commaSeparatedValues(value("ceMarkers")),
+      };
+      const classificationIssue = characterClassificationIssues(classification)[0];
+      if (classificationIssue) throw new Error(classificationIssue);
       if (!creating && currentName !== originalName) {
         if (!form.dataset.renameOperationId || form.dataset.renamePreviewName !== currentName) {
           clearCharacterRenamePreview(form);
@@ -271,7 +384,7 @@ async function saveContentEditor(event) {
         status.textContent = "正在原子保存档案、姓名和已确认引用…";
       }
       path = creating ? "/api/characters/create" : "/api/characters/update";
-      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
+      payload = { ...payload, id: form.dataset.recordId, name: currentName, ...classification, group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), supplements: bulletNoteLines(value("ceSupplements")), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
     } else if (kind === "relationship") {
       path = "/api/relationships/update";
       payload = { ...payload, id: form.dataset.recordId, firstRole: value("ceFirstRole"), secondRole: value("ceSecondRole"), label: value("ceLabel"), type: value("ceType"), color: value("ceColor") };
@@ -298,7 +411,14 @@ async function saveContentEditor(event) {
 async function deleteContentRecord(kind, record) {
   if (!record) return;
   const label = record.name || record.title || record.label || record.id;
-  if (!window.confirm(`删除“${label}”？它会进入回收站，7 天后才永久删除。`)) return;
+  const confirmed = await showAppConfirm({
+    title: "移入回收站？",
+    message: `“${label}”将从当前页面移除。`,
+    detail: "内容会保留 7 天，期间可以从检查页的回收站恢复。",
+    confirmLabel: `确认删除${label}`,
+    cancelLabel: `取消删除${label}`,
+  });
+  if (!confirmed) return;
   const id = kind === "relationship" ? `${record.from}__${record.to}` : record.id;
   const dialog = ensureContentEditorDialog();
   const dialogWasOpen = dialog.open;
@@ -434,7 +554,20 @@ async function openProjectSettings() {
   `;
   const rows = dialog.querySelector("#projectChapterRows");
   const bindRemove = () => rows.querySelectorAll(".project-chapter-remove").forEach((button) => {
-    button.onclick = () => button.closest(".project-chapter-row")?.remove();
+    button.onclick = async () => {
+      const row = button.closest(".project-chapter-row");
+      if (!row) return;
+      const chapterId = row.querySelector(".project-chapter-id")?.value.trim() || "";
+      const chapterLabel = row.querySelector(".project-chapter-label")?.value.trim() || chapterId || "未命名篇章";
+      const confirmed = await showAppConfirm({
+        title: "删除这个篇章？",
+        message: `“${chapterLabel}”将从作品结构中移除。`,
+        detail: "保存作品设置后进入回收站，7 天内可以恢复；关闭当前编辑框则不会生效。",
+        confirmLabel: `确认删除篇章${chapterLabel}`,
+        cancelLabel: `取消删除篇章${chapterLabel}`,
+      });
+      if (confirmed) row.remove();
+    };
   });
   bindRemove();
   dialog.querySelector("#projectChapterAdd").onclick = () => {
@@ -524,7 +657,17 @@ async function openGraphSettings() {
 }
 
 async function repairProjectDiagnostics() {
-  if (!window.confirm("安全修复会整理文章顺序并修正人物、关系文件名。稳定 ID 和正文不会改变，是否继续？")) return;
+  const confirmed = await showAppConfirm({
+    eyebrow: "安全修复",
+    title: "执行自动修复？",
+    message: "系统会整理文章顺序，并修正人物和关系文件名。",
+    detail: "稳定 ID 和正文内容不会改变。",
+    variant: "warning",
+    icon: "repair",
+    confirmLabel: "确认安全修复",
+    cancelLabel: "取消安全修复",
+  });
+  if (!confirmed) return;
   const button = document.querySelector("#diagnosticRepairTrigger");
   button.disabled = true;
   setIconButton(button, "restore", "正在安全修复…");

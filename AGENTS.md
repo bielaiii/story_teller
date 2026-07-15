@@ -33,6 +33,7 @@ Do not ask the user about routine frontend implementation choices.
 
 * Implement user-facing features as complete vertical slices. A visible control is not complete until its interaction, API, persistence, reload, and error states all work together.
 * Successful saves must refresh persisted data in place. Do not use a full page reload as save handling; preserve the active page, selection, filters, editor mode, graph viewport, and scroll positions without a visible flash.
+* No user action may blank or replace the active page with a loading state, replay page-level entrance animations, or rebuild unrelated panels. Keep the current surface visible while asynchronous data is prepared, swap only the smallest owning region when the replacement is ready, and suppress entrance animation on already-visible content.
 * Keep changes focused.
 * Avoid large rewrites unless clearly needed.
 * Avoid introducing new libraries for small UI changes.
@@ -73,6 +74,10 @@ Core style:
 * Use a light, soft, semi-transparent workspace style with subtle shadows and restrained glass-like panels.
 * Keep the interface calm and mature. It can feel alive, but avoid childish bounce, excessive glow, loud decoration, or over-animated effects.
 * Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states.
+* Never synthesize a visible `全部` tag/chip inside tag or status filters. Multi-select filters default to all real values selected; single-select filters use an internal no-filter state or an ordinary select control, without rendering that state as a fake tag.
+* When an internal no-filter state is represented by all real filter chips being active, clicking one chip narrows to that value and clicking the active chip again returns to the all-real-values state.
+* Update filter-chip selection in place. Do not rebuild the filter bar, replace the focused chip, refresh an unrelated detail pane, or replay page/card entrance animations after a filter click; preserve focus and scroll state without a visible flash.
+* Search, pagination, tab, selection, save, restore, undo, and timeline-direction interactions must follow the same in-place rule. Re-render only data that actually changed; retain stable toolbars, filters, page roots, and detail panes whenever their selected record is unchanged.
 * Prefer recognizable icon controls for compact or repeated actions such as edit, rename, delete, settings, collapse, close, move, restore, and preview. Avoid a bordered rectangle containing only an ordinary action word.
 * Reuse one coherent icon language. Prefer the project's existing icon set or small inline SVG icons; do not mix unrelated emoji, text glyphs, and icon styles.
 * Every icon-only action must have an accurate accessible name, a `title` or tooltip, visible hover/focus/disabled states, and a sufficiently large click target. The icon may be visually minimal without making the hit area tiny.
@@ -152,6 +157,8 @@ Treat novel content as user data rather than application source.
 * Local reads must come from SQLite. Static deployments may read the generated exports in read-only mode.
 * Never import generated exports over an existing database during normal startup. Import Markdown only for the one-time initial migration or an explicit recovery operation requested by the user.
 * Every mutation must validate first, commit the complete result to SQLite transactionally, regenerate affected exports, then return success. If the database transaction fails, restore exports from the database and return an error.
+* Every successful user-initiated mutation must create a seven-day SQLite undo snapshot, including creates, edits, ordering changes, moves, configuration changes, restores, and deletes. Undo must verify that affected content still matches the recorded post-operation state and refuse to overwrite newer conflicting work.
+* Every destructive action must also appear in the checks-page recycle bin with an explicit deletion type. The recycle bin must distinguish plots, characters, entries, fragments, relationships, timeline lines, and chapters; restoring a structural deletion must safely undo the complete persisted operation.
 * Preserve flexible Markdown article bodies as text values inside SQLite. Structured identity, ordering, collection, transaction, and retention data must remain queryable and validated by the storage layer.
 * Keep `story.db` eligible for Git tracking. It contains the full backup, including data whose generated export is ignored, such as the seven-day trash. Never commit SQLite journal, WAL, or shared-memory sidecar files.
 * When a persisted structure needs migration, version the SQLite schema, migrate it through tested application code, and keep the UI as the ongoing source of operations. Reject databases created by a newer unsupported schema instead of silently rewriting them.

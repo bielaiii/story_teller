@@ -9,7 +9,8 @@ import time
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+HISTORY_RETENTION_SECONDS = 7 * 24 * 60 * 60
 DATABASE_NAME = "story.db"
 MANAGED_ROOTS = {"characters", "plots", "entries", "fragments", "relationships", ".trash"}
 MANAGED_FILES = {"manifest.md", "timeline.md", "graph-layout.md", "content-index.json"}
@@ -150,10 +151,39 @@ class SQLiteProjectStore:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         created_at INTEGER NOT NULL,
                         operation TEXT NOT NULL,
-                        changed_paths TEXT NOT NULL
+                        changed_paths TEXT NOT NULL,
+                        label TEXT NOT NULL DEFAULT '',
+                        entity_type TEXT NOT NULL DEFAULT 'content',
+                        action TEXT NOT NULL DEFAULT 'update',
+                        details TEXT NOT NULL DEFAULT '{}',
+                        expires_at INTEGER NOT NULL DEFAULT 0,
+                        undone_by INTEGER
                     );
+                    CREATE TABLE IF NOT EXISTS transaction_changes (
+                        transaction_id INTEGER NOT NULL,
+                        path TEXT NOT NULL,
+                        before_content BLOB,
+                        after_content BLOB,
+                        PRIMARY KEY(transaction_id, path),
+                        FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS transactions_created_at
+                        ON transactions(created_at DESC, id DESC);
                     """
                 )
+                transaction_columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(transactions)")
+                }
+                for column, definition in (
+                    ("label", "TEXT NOT NULL DEFAULT ''"),
+                    ("entity_type", "TEXT NOT NULL DEFAULT 'content'"),
+                    ("action", "TEXT NOT NULL DEFAULT 'update'"),
+                    ("details", "TEXT NOT NULL DEFAULT '{}'"),
+                    ("expires_at", "INTEGER NOT NULL DEFAULT 0"),
+                    ("undone_by", "INTEGER"),
+                ):
+                    if column not in transaction_columns:
+                        connection.execute(f"ALTER TABLE transactions ADD COLUMN {column} {definition}")
                 metadata_version = connection.execute(
                     "SELECT value FROM metadata WHERE key = 'schema_version'"
                 ).fetchone()
@@ -166,7 +196,11 @@ class SQLiteProjectStore:
                 if user_version != SCHEMA_VERSION:
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             if not database_exists or self.document_count() == 0:
-                self.capture_from_exports("initial-markdown-import")
+                self.capture_from_exports("initial-markdown-import", {
+                    "label": "初始化项目数据库",
+                    "entityType": "project",
+                    "action": "system",
+                })
             else:
                 self.materialize_exports(clean=True)
 
@@ -187,14 +221,15 @@ class SQLiteProjectStore:
             files[relative_path] = path.read_bytes()
         return files
 
-    def capture_from_exports(self, operation="content-write"):
+    def capture_from_exports(self, operation="content-write", metadata=None):
         with self._lock:
             files = self.scan_exports()
             now = int(time.time())
+            metadata = metadata if isinstance(metadata, dict) else {}
             with self.connect() as connection:
                 previous = {
-                    row["path"]: row["content_hash"]
-                    for row in connection.execute("SELECT path, content_hash FROM documents")
+                    row["path"]: {"hash": row["content_hash"], "content": bytes(row["content"])}
+                    for row in connection.execute("SELECT path, content_hash, content FROM documents")
                 }
                 current_paths = set(files)
                 changed_paths = sorted(set(previous) ^ current_paths)
@@ -208,7 +243,7 @@ class SQLiteProjectStore:
                     connection.execute("DELETE FROM documents")
                 for relative_path, content in files.items():
                     digest = hashlib.sha256(content).hexdigest()
-                    if previous.get(relative_path) == digest:
+                    if previous.get(relative_path, {}).get("hash") == digest:
                         continue
                     changed_paths.append(relative_path)
                     collection, stable_id, display_name, sequence = classify_path(relative_path, content)
@@ -228,10 +263,43 @@ class SQLiteProjectStore:
                         (relative_path, collection, stable_id, display_name, sequence, content, digest, now),
                     )
                 changed_paths = sorted(set(changed_paths))
-                connection.execute(
-                    "INSERT INTO transactions(created_at, operation, changed_paths) VALUES(?, ?, ?)",
-                    (now, str(operation or "content-write"), json.dumps(changed_paths, ensure_ascii=False)),
-                )
+                if changed_paths:
+                    details = metadata.get("details") if isinstance(metadata.get("details"), dict) else {}
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO transactions(
+                            created_at, operation, changed_paths, label, entity_type,
+                            action, details, expires_at
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            now,
+                            str(operation or "content-write"),
+                            json.dumps(changed_paths, ensure_ascii=False),
+                            str(metadata.get("label") or operation or "内容修改"),
+                            str(metadata.get("entityType") or "content"),
+                            str(metadata.get("action") or "update"),
+                            json.dumps(details, ensure_ascii=False),
+                            now + HISTORY_RETENTION_SECONDS,
+                        ),
+                    )
+                    transaction_id = int(cursor.lastrowid)
+                    connection.executemany(
+                        """
+                        INSERT INTO transaction_changes(
+                            transaction_id, path, before_content, after_content
+                        ) VALUES(?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                transaction_id,
+                                path,
+                                previous.get(path, {}).get("content"),
+                                files.get(path),
+                            )
+                            for path in changed_paths
+                        ],
+                    )
                 connection.execute(
                     "INSERT OR REPLACE INTO metadata(key, value) VALUES('last_operation', ?)",
                     (str(operation or "content-write"),),
@@ -241,6 +309,203 @@ class SQLiteProjectStore:
                     (str(now),),
                 )
             return changed_paths
+
+    @staticmethod
+    def _history_details(raw_details):
+        try:
+            value = json.loads(raw_details or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def _transaction_can_undo(self, connection, transaction, changes, now=None):
+        current_time = int(time.time()) if now is None else int(now)
+        if str(transaction["action"]) == "system":
+            return False, "系统初始化记录不能撤销"
+        if transaction["undone_by"] is not None:
+            return False, "这项操作已经撤销"
+        if int(transaction["expires_at"] or 0) <= current_time:
+            return False, "这项操作已超过 7 天"
+        current = {
+            row["path"]: bytes(row["content"])
+            for row in connection.execute(
+                f"SELECT path, content FROM documents WHERE path IN ({','.join('?' for _ in changes)})",
+                tuple(change["path"] for change in changes),
+            )
+        } if changes else {}
+        for change in changes:
+            expected = bytes(change["after_content"]) if change["after_content"] is not None else None
+            if current.get(change["path"]) != expected:
+                return False, f"{change['path']} 后来又被修改，不能安全撤销"
+        return True, ""
+
+    def history(self, limit=100, deletion_only=False):
+        safe_limit = max(1, min(int(limit or 100), 300))
+        now = int(time.time())
+        with self._lock, self.connect() as connection:
+            transactions = list(connection.execute(
+                """
+                SELECT * FROM transactions
+                WHERE expires_at > ? AND action <> 'system'
+                ORDER BY id DESC LIMIT ?
+                """,
+                (now, safe_limit),
+            ))
+            items = []
+            for transaction in transactions:
+                details = self._history_details(transaction["details"])
+                deleted_items = details.get("deletedItems", [])
+                if deletion_only and not deleted_items:
+                    continue
+                changes = list(connection.execute(
+                    "SELECT * FROM transaction_changes WHERE transaction_id = ? ORDER BY path",
+                    (transaction["id"],),
+                ))
+                if not changes:
+                    continue
+                can_undo, blocked_reason = self._transaction_can_undo(
+                    connection, transaction, changes, now
+                )
+                remaining_seconds = max(0, int(transaction["expires_at"]) - now)
+                items.append({
+                    "id": int(transaction["id"]),
+                    "createdAt": int(transaction["created_at"]),
+                    "operation": str(transaction["operation"]),
+                    "label": str(transaction["label"] or transaction["operation"]),
+                    "entityType": str(transaction["entity_type"] or "content"),
+                    "action": str(transaction["action"] or "update"),
+                    "changedPaths": json.loads(transaction["changed_paths"] or "[]"),
+                    "changedCount": len(changes),
+                    "details": details,
+                    "deletedItems": deleted_items if isinstance(deleted_items, list) else [],
+                    "expiresAt": int(transaction["expires_at"]),
+                    "daysRemaining": int((remaining_seconds + 86399) // 86400),
+                    "undone": transaction["undone_by"] is not None,
+                    "canUndo": can_undo,
+                    "undoBlockedReason": blocked_reason,
+                })
+            return items
+
+    def undo_transaction(self, transaction_id):
+        try:
+            target_id = int(transaction_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError("请选择有效的操作记录") from error
+        now = int(time.time())
+        with self._lock, self.connect() as connection:
+            transaction = connection.execute(
+                "SELECT * FROM transactions WHERE id = ?", (target_id,)
+            ).fetchone()
+            if not transaction:
+                raise ValueError("这项操作记录不存在")
+            changes = list(connection.execute(
+                "SELECT * FROM transaction_changes WHERE transaction_id = ? ORDER BY path",
+                (target_id,),
+            ))
+            if not changes:
+                raise ValueError("这项旧操作没有可用的撤销快照")
+            can_undo, blocked_reason = self._transaction_can_undo(
+                connection, transaction, changes, now
+            )
+            if not can_undo:
+                raise ValueError(blocked_reason)
+
+            for change in changes:
+                if change["before_content"] is None:
+                    connection.execute("DELETE FROM documents WHERE path = ?", (change["path"],))
+            for change in changes:
+                if change["before_content"] is None:
+                    continue
+                content = bytes(change["before_content"])
+                digest = hashlib.sha256(content).hexdigest()
+                collection, stable_id, display_name, sequence = classify_path(change["path"], content)
+                connection.execute(
+                    """
+                    INSERT INTO documents(path, collection, stable_id, display_name, sequence, content, content_hash, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(path) DO UPDATE SET
+                        collection=excluded.collection,
+                        stable_id=excluded.stable_id,
+                        display_name=excluded.display_name,
+                        sequence=excluded.sequence,
+                        content=excluded.content,
+                        content_hash=excluded.content_hash,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        change["path"], collection, stable_id, display_name, sequence,
+                        content, digest, now,
+                    ),
+                )
+
+            target_details = self._history_details(transaction["details"])
+            inverse_details = {"targetTransactionId": target_id}
+            target_deleted_items = target_details.get("deletedItems", [])
+            target_redo_deleted_items = target_details.get("redoDeletedItems", [])
+            if isinstance(target_deleted_items, list) and target_deleted_items:
+                inverse_details["redoDeletedItems"] = target_deleted_items
+            elif isinstance(target_redo_deleted_items, list) and target_redo_deleted_items:
+                inverse_details["deletedItems"] = target_redo_deleted_items
+            inverse_action = "delete" if inverse_details.get("deletedItems") else "undo"
+            inverse_label = (
+                f"重新执行：{transaction['label']}"
+                if inverse_action == "delete"
+                else f"撤销：{transaction['label'] or transaction['operation']}"
+            )
+            inverse_cursor = connection.execute(
+                """
+                INSERT INTO transactions(
+                    created_at, operation, changed_paths, label, entity_type,
+                    action, details, expires_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now,
+                    "/api/history/undo",
+                    transaction["changed_paths"],
+                    inverse_label,
+                    transaction["entity_type"],
+                    inverse_action,
+                    json.dumps(inverse_details, ensure_ascii=False),
+                    now + HISTORY_RETENTION_SECONDS,
+                ),
+            )
+            inverse_id = int(inverse_cursor.lastrowid)
+            connection.executemany(
+                """
+                INSERT INTO transaction_changes(
+                    transaction_id, path, before_content, after_content
+                ) VALUES(?, ?, ?, ?)
+                """,
+                [
+                    (
+                        inverse_id,
+                        change["path"],
+                        change["after_content"],
+                        change["before_content"],
+                    )
+                    for change in changes
+                ],
+            )
+            connection.execute(
+                "UPDATE transactions SET undone_by = ? WHERE id = ?",
+                (inverse_id, target_id),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO metadata(key, value) VALUES('last_operation', ?)",
+                ("/api/history/undo",),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO metadata(key, value) VALUES('updated_at', ?)",
+                (str(now),),
+            )
+        self.materialize_exports(clean=True)
+        return {
+            "ok": True,
+            "transactionId": target_id,
+            "undoTransactionId": inverse_id,
+            "label": str(transaction["label"] or transaction["operation"]),
+        }
 
     def materialize_exports(self, clean=True):
         with self._lock:

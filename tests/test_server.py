@@ -359,6 +359,7 @@ label: 母子
                 "color": "#3f7fc1",
                 "aliases": ["小顾"],
                 "markers": ["记者"],
+                "supplements": ["习惯先确认消息来源"],
                 "intro": "负责追踪旧港失踪案的记者。",
             }
         )
@@ -369,6 +370,7 @@ label: 母子
         self.assertIn("id: 10", character_text)
         self.assertIn('narrativeRole: "配角"', character_text)
         self.assertIn('aliases: ["小顾"]', character_text)
+        self.assertIn('supplements: ["习惯先确认消息来源"]', character_text)
         self.assertIn("负责追踪旧港失踪案的记者。", character_text)
         self.assertEqual(responses[-1][1], 201)
         index = json.loads((project_root / "content-index.json").read_text(encoding="utf-8"))
@@ -379,7 +381,7 @@ label: 母子
         character_path = project_root / "characters" / "3-林越.md"
         self.write_markdown_at(
             character_path,
-            "---\nid: 3\nname: 林越\ncolor: \"#3867b7\"\ngradient: \"linear-gradient(135deg, #3867b7, #2aa79b)\"\nx: 25\ny: 46\nevents: [1, 4, 25]\nlegacyField: keep-me\nfacts:\n  身份: \"调查员\"\n---\n旧简介\n",
+            "---\nid: 3\nname: 林越\ncolor: \"#3867b7\"\ngradient: \"linear-gradient(135deg, #3867b7, #2aa79b)\"\nx: 25\ny: 46\nevents: [1, 4, 25]\nlegacyField: keep-me\nfacts:\n  身份: \"调查员\"\nsupplements: [\"旧的补充设定\"]\n---\n旧简介\n",
         )
 
         handler.update_character({
@@ -405,6 +407,7 @@ label: 母子
         self.assertIn("legacyField: keep-me", updated)
         self.assertIn('gradient: "linear-gradient(135deg, #3f7fc1, #2aa79b)"', updated)
         self.assertIn('facts:\n  身份: "记者"', updated)
+        self.assertIn('supplements: ["旧的补充设定"]', updated)
         self.assertNotIn("调查员", updated)
         self.assertIn("新简介", updated)
         self.assertEqual(responses[-1][0]["id"], "3")
@@ -452,6 +455,40 @@ label: 母子
             })
         self.assertTrue((project_root / "characters" / "3-林越.md").is_file())
         self.assertFalse((project_root / "characters" / "3-林澈.md").exists())
+
+    def test_invalid_character_supplement_does_not_change_the_profile(self):
+        handler, project_root, _responses = self.relationship_handler()
+        character_path = project_root / "characters" / "3-林越.md"
+        original = "---\nid: 3\nname: 林越\ncolor: \"#3867b7\"\n---\n原始设定\n"
+        self.write_markdown_at(character_path, original)
+
+        with self.assertRaisesRegex(ValueError, "人物补充设定中的单项不能超过 600 个字符"):
+            handler.update_character({
+                "project": "novel", "id": "3", "name": "林越",
+                "narrativeRole": "配角", "characterScope": "常驻人物", "side": "主角方",
+                "mainPlotImpact": 50, "color": "#3867b7", "facts": {},
+                "supplements": ["过长" * 301], "intro": "不应保存",
+            })
+
+        self.assertEqual(original, character_path.read_text(encoding="utf-8"))
+
+    def test_character_classification_conflicts_are_rejected_before_writing(self):
+        handler, project_root, _responses = self.relationship_handler()
+        characters_root = project_root / "characters"
+        with self.assertRaisesRegex(ValueError, "人物标识“反派”与人物阵营“主角方”冲突"):
+            handler.create_character({
+                "project": "novel", "name": "冲突人物", "narrativeRole": "配角",
+                "characterScope": "常驻人物", "side": "主角方", "mainPlotImpact": 20,
+                "color": "#3f7fc1", "markers": ["反派"], "intro": "不应创建",
+            })
+        self.assertFalse(any("冲突人物" in path.name for path in characters_root.glob("*.md")))
+
+        character_path = characters_root / "3-林越.md"
+        original = "---\nid: 3\nname: 林越\nnarrativeRole: 配角\ncharacterScope: 常驻人物\nside: 中立\nmarkers: [常驻人物]\ncolor: \"#3867b7\"\n---\n原始设定\n"
+        self.write_markdown_at(character_path, original)
+        with self.assertRaisesRegex(ValueError, "人物标识“常驻人物”与出场类型“一次性角色”冲突"):
+            handler.update_character_scope({"project": "novel", "id": "3", "scope": "一次性角色"})
+        self.assertEqual(original, character_path.read_text(encoding="utf-8"))
 
     def test_create_plot_inserts_sequence_without_changing_stable_ids(self):
         handler, project_root, responses = self.relationship_handler()

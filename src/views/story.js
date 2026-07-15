@@ -24,8 +24,7 @@ function renderChapterSwitch() {
     button.addEventListener("click", () => {
       setChapterFilter(button.dataset.chapter);
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
     });
   });
 }
@@ -38,11 +37,13 @@ function renderStoryFilters() {
     label: "状态",
     items: statuses,
     selected: state.plotStatus,
+    includeAll: false,
+    allowClear: true,
     onChange: (value) => {
       state.plotStatus = value;
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
+      return state.plotStatus;
     },
   });
 
@@ -56,8 +57,8 @@ function renderStoryFilters() {
     onChange: (value) => {
       state.plotTags = nextSelectedTags(state.plotTags, tags, value);
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
+      return state.plotTags;
     },
   });
 }
@@ -74,7 +75,7 @@ function renderSideTaskToggle() {
   if (sideTaskCount) sideTaskCount.textContent = String(active ? plots.length : sideCount);
 }
 
-function renderPlots() {
+function renderPlots({ animate = false } = {}) {
   const visible = plots.filter((plot) => {
     const chapterMatch = state.chapter === "all"
       || (state.chapter === "key" && plot.key)
@@ -89,7 +90,7 @@ function renderPlots() {
   state.plotPage = page.currentPage;
   plotStrip.innerHTML = page.items.length ? page.items
     .map((plot, index) => `
-      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
+      <button class="${storyCardClass(plot, `plot-card ${state.highlightPlotId === plot.id ? "is-highlighted" : ""} ${animate ? "" : "is-filter-result"}`)}" data-plot-id="${escapeHtml(plot.id)}" type="button" style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 55}ms">
         <div class="plot-index">${escapeHtml(plotSequence(plot))}</div>
         <div>${renderStoryCardContent(plot)}</div>
       </button>
@@ -100,7 +101,7 @@ function renderPlots() {
   });
   renderPagination(plotPagination, page.currentPage, page.totalPages, (nextPage) => {
     state.plotPage = nextPage;
-    renderPlots();
+    renderPlots({ animate: false });
   });
 }
 
@@ -150,6 +151,47 @@ function setPlotTrashStatus(message = "", type = "") {
   plotTrashStatus.className = `plot-trash-status${type ? ` is-${type}` : ""}`;
 }
 
+const TRASH_KIND_LABELS = {
+  plot: "剧情",
+  character: "人物",
+  entry: "设定",
+  fragment: "碎片",
+  relationship: "人物关系",
+  timeline: "剧情线",
+  chapter: "篇章",
+};
+
+const HISTORY_KIND_LABELS = {
+  ...TRASH_KIND_LABELS,
+  project: "作品设置",
+  graph: "人物图谱",
+  diagnostics: "配置修复",
+  refactor: "批量重命名",
+  content: "内容",
+};
+
+let plotTrashItemsCache = [];
+
+function trashKindLabel(kind) {
+  return TRASH_KIND_LABELS[kind] || CONTENT_KIND_LABELS[kind] || "内容";
+}
+
+function renderPlotTrashKindFilter(items) {
+  if (!plotTrashKindFilter) return;
+  const previous = plotTrashKindFilter.value || "all";
+  const counts = items.reduce((result, item) => {
+    result[item.kind] = (result[item.kind] || 0) + 1;
+    return result;
+  }, {});
+  plotTrashKindFilter.innerHTML = [
+    `<option value="all">所有类型（${items.length}）</option>`,
+    ...Object.entries(TRASH_KIND_LABELS).map(([kind, label]) => (
+      `<option value="${kind}">${label}（${counts[kind] || 0}）</option>`
+    )),
+  ].join("");
+  plotTrashKindFilter.value = previous in counts || previous === "all" ? previous : "all";
+}
+
 function updatePlotTrashTrigger(count = 0, writable = false) {
   if (plotTrashCount) plotTrashCount.textContent = String(count);
   plotTrashWorkspace?.classList.toggle("is-hidden", !writable);
@@ -158,25 +200,29 @@ function updatePlotTrashTrigger(count = 0, writable = false) {
 
 function renderPlotTrashItems(items = []) {
   if (!plotTrashList) return;
-  plotTrashList.innerHTML = items.length
-    ? items.map((item) => `
+  plotTrashItemsCache = items;
+  renderPlotTrashKindFilter(items);
+  const selectedKind = plotTrashKindFilter?.value || "all";
+  const visibleItems = selectedKind === "all" ? items : items.filter((item) => item.kind === selectedKind);
+  plotTrashList.innerHTML = visibleItems.length
+    ? visibleItems.map((item) => `
         <article class="plot-trash-item">
           <div>
-            <span>${item.kind === "plot" ? `原第 ${escapeHtml(item.sequence)} 章` : escapeHtml(CONTENT_KIND_LABELS[item.kind] || "档案")}</span>
+            <span>${escapeHtml(trashKindLabel(item.kind))}${item.kind === "plot" ? ` · 原第 ${escapeHtml(item.sequence)} 章` : ""}</span>
             <strong>${escapeHtml(item.title)}</strong>
             <small>${escapeHtml(item.daysRemaining)} 天后永久删除</small>
             ${item.restoreBlockedReason ? `<small class="plot-trash-restore-warning">${escapeHtml(item.restoreBlockedReason)}</small>` : ""}
           </div>
           <div class="plot-trash-item-actions">
-            <button class="plot-trash-preview-btn icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="预览${escapeHtml(item.title)}" title="预览">${uiIcon("eye")}</button>
-            <button class="plot-trash-restore icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" type="button" aria-label="恢复${escapeHtml(item.title)}" title="${escapeHtml(item.restoreBlockedReason || "恢复")}" ${item.canRestore === false ? "disabled" : ""}>${uiIcon("restore")}</button>
+            <button class="plot-trash-preview-btn icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" data-history="${item.history ? "true" : "false"}" type="button" aria-label="预览${escapeHtml(item.title)}" title="预览">${uiIcon("eye")}</button>
+            <button class="plot-trash-restore icon-action" data-trash-id="${escapeHtml(item.trashId)}" data-kind="${escapeHtml(item.kind || "plot")}" data-history="${item.history ? "true" : "false"}" type="button" aria-label="恢复${escapeHtml(item.title)}" title="${escapeHtml(item.restoreBlockedReason || "恢复")}" ${item.canRestore === false ? "disabled" : ""}>${uiIcon("restore")}</button>
           </div>
         </article>
       `).join("")
     : `
         <div class="plot-trash-empty">
-          <strong>回收站是空的</strong>
-          <p>删除的内容会在这里保留 7 天。</p>
+          <strong>${items.length ? "这个类型没有删除内容" : "回收站是空的"}</strong>
+          <p>${items.length ? "可以切换其他删除类型查看。" : "删除的内容会在这里保留 7 天。"}</p>
         </div>
       `;
   plotTrashList.querySelectorAll(".plot-trash-preview-btn").forEach((button) => {
@@ -208,6 +254,23 @@ async function previewPlotFromTrash(button) {
   button.textContent = "加载中…";
   setPlotTrashStatus("正在加载正文预览…");
   try {
+    if (button.dataset.history === "true") {
+      const item = plotTrashItemsCache.find((candidate) => String(candidate.trashId) === String(trashId) && candidate.history);
+      if (!item) throw new Error("这项删除记录已经失效");
+      plotTrashPreview.innerHTML = `
+        <header class="plot-trash-preview-head">
+          <span>${escapeHtml(trashKindLabel(kind))} · ${escapeHtml(item.daysRemaining)} 天后永久删除</span>
+          <h3>${escapeHtml(item.title)}</h3>
+        </header>
+        <div class="plot-trash-structure-preview">
+          <strong>恢复会撤销这次结构删除</strong>
+          <p>${escapeHtml(item.label)}</p>
+          <small>同时恢复这次操作涉及的时间线或篇章配置；如果相关内容后来又被修改，系统会停止恢复并提示冲突。</small>
+        </div>
+      `;
+      setPlotTrashStatus("结构删除会通过安全撤销恢复。");
+      return;
+    }
     const endpoint = kind === "plot" ? "/api/plots/trash/preview" : "/api/records/trash/preview";
     const result = await refactorApi(`${endpoint}?project=${encodeURIComponent(currentProjectId())}&trashId=${encodeURIComponent(trashId)}`);
     plotTrashPreview.style.setProperty("--accent", result.accent || "#3f7fc1");
@@ -229,13 +292,24 @@ async function previewPlotFromTrash(button) {
 }
 
 async function fetchPlotTrash() {
-  const [plotResult, recordResult] = await Promise.all([
+  const [plotResult, recordResult, historyResult] = await Promise.all([
     refactorApi(`/api/plots/trash?project=${encodeURIComponent(currentProjectId())}`),
     refactorApi(`/api/records/trash?project=${encodeURIComponent(currentProjectId())}`),
+    refactorApi(`/api/history/trash?project=${encodeURIComponent(currentProjectId())}`),
   ]);
   return { ...plotResult, items: [
     ...plotResult.items.map((item) => ({ ...item, kind: "plot" })),
     ...recordResult.items,
+    ...historyResult.items.map((item) => ({
+      ...item,
+      history: true,
+      trashId: String(item.id),
+      kind: item.entityType,
+      title: item.deletedItems?.map((deleted) => deleted.title).join("、") || item.label,
+      deletedAt: item.createdAt,
+      canRestore: item.canUndo,
+      restoreBlockedReason: item.undoBlockedReason,
+    })),
   ].sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0)) };
 }
 
@@ -286,20 +360,128 @@ async function restorePlotFromTrash(button) {
   button.textContent = "正在恢复…";
   setPlotTrashStatus("正在恢复内容…");
   try {
-    const result = await refactorApi(kind === "plot" ? "/api/plots/trash/restore" : "/api/records/trash/restore", {
-      project: currentProjectId(),
-      trashId,
-    });
+    const result = button.dataset.history === "true"
+      ? await refactorApi("/api/history/undo", { project: currentProjectId(), transactionId: Number(trashId) })
+      : await refactorApi(kind === "plot" ? "/api/plots/trash/restore" : "/api/records/trash/restore", {
+          project: currentProjectId(),
+          trashId,
+        });
     await refreshWorkspaceDataInPlace();
     const trash = await fetchPlotTrash();
     renderPlotTrashItems(trash.items);
     resetPlotTrashPreview();
     updatePlotTrashTrigger(trash.items.length, true);
-    setPlotTrashStatus(`已恢复“${result.title || result.name || result.id}”`, "success");
+    await refreshOperationHistoryAccess();
+    setPlotTrashStatus(`已恢复“${result.title || result.name || result.label || result.id}”`, "success");
   } catch (error) {
     setPlotTrashStatus(error.message, "error");
     button.disabled = false;
     button.textContent = "恢复";
+  }
+}
+
+function formatHistoryTime(timestamp) {
+  const date = new Date(Number(timestamp || 0) * 1000);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function setOperationHistoryStatus(message = "", type = "") {
+  if (!operationHistoryStatus) return;
+  operationHistoryStatus.textContent = message;
+  operationHistoryStatus.className = `plot-trash-status${type ? ` is-${type}` : ""}`;
+}
+
+function updateOperationHistoryTrigger(items = [], writable = false) {
+  operationHistoryWorkspace?.classList.toggle("is-hidden", !writable);
+  operationHistoryTrigger?.classList.toggle("is-hidden", !writable);
+  if (operationHistoryCount) operationHistoryCount.textContent = String(items.filter((item) => item.canUndo).length);
+}
+
+function renderOperationHistoryItems(items = []) {
+  if (!operationHistoryList) return;
+  operationHistoryList.innerHTML = items.length ? items.map((item) => `
+    <article class="operation-history-item${item.canUndo ? "" : " is-blocked"}">
+      <div class="operation-history-type"><span>${escapeHtml(HISTORY_KIND_LABELS[item.entityType] || "内容")}</span><small>${escapeHtml(formatHistoryTime(item.createdAt))}</small></div>
+      <div class="operation-history-copy">
+        <strong>${escapeHtml(item.label)}</strong>
+        <small>${escapeHtml(item.changedCount)} 项持久化内容发生变化 · ${escapeHtml(item.daysRemaining)} 天内可撤销</small>
+        ${item.undoBlockedReason ? `<p>${escapeHtml(item.undoBlockedReason)}</p>` : ""}
+      </div>
+      <button class="operation-history-undo icon-action" data-transaction-id="${escapeHtml(item.id)}" type="button" aria-label="撤销${escapeHtml(item.label)}" title="${escapeHtml(item.undoBlockedReason || "撤销这项操作")}" ${item.canUndo ? "" : "disabled"}>${uiIcon("restore")}</button>
+    </article>
+  `).join("") : `
+    <div class="plot-trash-empty"><strong>还没有可撤销操作</strong><p>之后的保存和删除会记录在这里。</p></div>
+  `;
+  operationHistoryList.querySelectorAll(".operation-history-undo").forEach((button) => {
+    button.addEventListener("click", () => undoHistoryOperation(button));
+  });
+}
+
+async function fetchOperationHistory() {
+  return refactorApi(`/api/history?project=${encodeURIComponent(currentProjectId())}`);
+}
+
+async function refreshOperationHistoryAccess() {
+  try {
+    await initializeRefactorWorkspace();
+    if (!refactorCapability?.features?.includes("operation-history-v1")) throw new Error("当前本地服务需要更新");
+    const result = await fetchOperationHistory();
+    updateOperationHistoryTrigger(result.items, true);
+    return result.items;
+  } catch {
+    updateOperationHistoryTrigger([], false);
+    return [];
+  }
+}
+
+async function openOperationHistoryDialog() {
+  if (!operationHistoryDialog || operationHistoryDialog.open) return;
+  moveDialogToVisibleRoot(operationHistoryDialog);
+  renderOperationHistoryItems([]);
+  setOperationHistoryStatus("正在读取操作记录…");
+  operationHistoryDialog.showModal();
+  try {
+    const result = await fetchOperationHistory();
+    renderOperationHistoryItems(result.items);
+    updateOperationHistoryTrigger(result.items, true);
+    setOperationHistoryStatus(result.items.length ? "只会安全撤销未被后续修改覆盖的操作。" : "");
+  } catch (error) {
+    setOperationHistoryStatus(error.message, "error");
+  }
+}
+
+function closeOperationHistoryDialog() {
+  if (operationHistoryDialog?.open) operationHistoryDialog.close();
+  setOperationHistoryStatus();
+}
+
+async function undoHistoryOperation(button) {
+  const transactionId = Number(button?.dataset.transactionId);
+  if (!transactionId) return;
+  const confirmed = await showAppConfirm({
+    eyebrow: "安全撤销",
+    title: "撤销这项操作？",
+    message: button.getAttribute("aria-label")?.replace(/^撤销/, "") || "所选操作将恢复到修改前状态。",
+    detail: "撤销本身也会生成一条记录，因此仍可再次撤销。",
+    variant: "warning",
+    icon: "restore",
+    confirmLabel: "确认撤销这项操作",
+    cancelLabel: "取消撤销",
+  });
+  if (!confirmed) return;
+  button.disabled = true;
+  setOperationHistoryStatus("正在检查冲突并撤销…");
+  try {
+    const result = await refactorApi("/api/history/undo", { project: currentProjectId(), transactionId });
+    await refreshWorkspaceDataInPlace();
+    const history = await fetchOperationHistory();
+    renderOperationHistoryItems(history.items);
+    updateOperationHistoryTrigger(history.items, true);
+    await refreshPlotTrashAccess();
+    setOperationHistoryStatus(`已撤销“${result.label}”`, "success");
+  } catch (error) {
+    setOperationHistoryStatus(error.message, "error");
+    button.disabled = false;
   }
 }
 
@@ -551,20 +733,26 @@ function renderFragmentFilters() {
   const tags = allFragmentTags();
   renderChipFilter({
     container: fragmentTagFilter,
-    label: "标签",
     items: tags,
     selected: state.fragmentTags,
     mode: "multi",
     onChange: (value) => {
       state.fragmentTags = nextSelectedTags(state.fragmentTags, tags, value);
       state.fragmentPage = 1;
-      renderFragmentFilters();
-      renderFragments();
+      renderFragments({ animate: false });
+      return state.fragmentTags;
     },
   });
 }
 
-function renderFragments() {
+function fragmentPreviewText(text, limit = 220) {
+  const container = document.createElement("div");
+  container.innerHTML = renderMarkdownBody(text || "");
+  const normalized = String(container.textContent || "").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit).trimEnd()}…` : normalized;
+}
+
+function renderFragments({ animate = false } = {}) {
   if (!fragmentBoard) return;
   const visible = fragments.filter((fragment) => (
     matchesSelectedTags(fragment.tags || [], state.fragmentTags, allFragmentTags())
@@ -572,19 +760,23 @@ function renderFragments() {
   const page = pagedItems(visible, state.fragmentPage, FRAGMENT_PAGE_SIZE);
   state.fragmentPage = page.currentPage;
   fragmentBoard.innerHTML = page.items.length ? page.items.map((fragment, index) => `
-    <article class="fragment-card" id="fragment-${escapeHtml(fragment.id)}" style="--accent:${escapeHtml(fragment.accent)}; animation-delay:${index * 55}ms">
+    <article class="fragment-card ${animate ? "" : "is-filter-result"}" id="fragment-${escapeHtml(fragment.id)}" style="--accent:${escapeHtml(fragment.accent)}; animation-delay:${index * 55}ms">
       <div class="fragment-head">
         <span class="status-badge">${escapeHtml(fragment.status || "灵感")}</span>
         ${tagBadges(fragment.tags)}
       </div>
       <h3>${escapeHtml(fragment.title)}</h3>
-      <div class="fragment-body">${renderMarkdownBody(fragment.text)}</div>
-      <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
+      <div class="fragment-body" aria-label="${escapeHtml(fragment.title)}摘要"><p>${escapeHtml(fragmentPreviewText(fragment.text) || "暂无正文")}</p></div>
+      <div class="fragment-actions" aria-label="${escapeHtml(fragment.title)}的操作"><button class="fragment-edit-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="编辑${escapeHtml(fragment.title)}" title="编辑碎片">${uiIcon("edit")}</button><button class="fragment-immersive-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="沉浸式编写${escapeHtml(fragment.title)}" title="沉浸式编写">${uiIcon("maximize")}</button><button class="fragment-convert-record icon-action" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="将${escapeHtml(fragment.title)}转为剧情" title="转为剧情">${uiIcon("convert")}</button><button class="fragment-delete-record icon-action is-danger" data-id="${escapeHtml(fragment.id)}" type="button" aria-label="删除${escapeHtml(fragment.title)}" title="删除碎片">${uiIcon("trash")}</button></div>
     </article>
   `).join("") : '<p class="empty-state">没有匹配的碎片。</p>';
   fragmentBoard.querySelectorAll(".fragment-edit-record").forEach((button) => button.addEventListener("click", () => {
     const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
     if (fragment) openContentEditor("fragment", fragment);
+  }));
+  fragmentBoard.querySelectorAll(".fragment-immersive-record").forEach((button) => button.addEventListener("click", () => {
+    const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
+    if (fragment) openContentEditor("fragment", fragment, { immersive: true });
   }));
   fragmentBoard.querySelectorAll(".fragment-convert-record").forEach((button) => button.addEventListener("click", () => {
     const fragment = fragments.find((item) => String(item.id) === button.dataset.id);
@@ -596,7 +788,7 @@ function renderFragments() {
   }));
   renderPagination(fragmentPagination, page.currentPage, page.totalPages, (nextPage) => {
     state.fragmentPage = nextPage;
-    renderFragments();
+    renderFragments({ animate: false });
   });
 }
 

@@ -1,36 +1,48 @@
-function renderPlaceList() {
+function syncPlaceListSelection() {
+  placeList?.querySelectorAll(".place-list-item").forEach((button) => {
+    const active = button.dataset.id === state.selectedPlace;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "true" : "false");
+  });
+}
+
+function renderPlaceList({ renderFilters = true } = {}) {
   if (!placeList) return;
   const discoveredTypes = [...new Set(places.map((place) => place.type).filter(Boolean))];
   const entryTypes = [
     ...ENTRY_TYPES.filter((type) => discoveredTypes.includes(type)),
     ...discoveredTypes.filter((type) => !ENTRY_TYPES.includes(type)),
   ];
-  renderChipFilter({
+  if (renderFilters) renderChipFilter({
     container: entryTypeFilter,
     label: "类型",
     items: entryTypes,
     selected: state.entryTypes,
     mode: "multi",
     onChange: (value) => {
+      const selectedPlace = state.selectedPlace;
       state.entryTypes = nextSelectedTags(state.entryTypes, entryTypes, value);
-      renderPlaceList();
-      renderPlaceDetail();
+      renderPlaceList({ renderFilters: false });
+      if (state.selectedPlace !== selectedPlace) renderPlaceDetail();
+      return state.entryTypes;
     },
   });
 
   const entryTags = allEntryTags();
   const entryTagCount = document.querySelector("#entryTagCount");
   if (entryTagCount) entryTagCount.textContent = String(entryTags.length);
-  renderChipFilter({
+  if (renderFilters) renderChipFilter({
     container: entryTagFilter,
     label: "",
     items: entryTags,
     selected: state.entryTags,
     mode: "multi",
     onChange: (value) => {
+      const selectedPlace = state.selectedPlace;
       state.entryTags = nextSelectedTags(state.entryTags, entryTags, value);
-      renderPlaceList();
-      renderPlaceDetail();
+      renderPlaceList({ renderFilters: false });
+      if (state.selectedPlace !== selectedPlace) renderPlaceDetail();
+      return state.entryTags;
     },
   });
 
@@ -76,7 +88,7 @@ function renderPlaceList() {
   document.querySelectorAll(".place-list-item").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedPlace = button.dataset.id;
-      renderPlaceList();
+      syncPlaceListSelection();
       renderPlaceDetail();
     });
   });

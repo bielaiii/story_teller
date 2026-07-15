@@ -67,14 +67,16 @@ relationFilter.addEventListener("change", () => {
 
 characterSearch.addEventListener("input", () => {
   state.characterSearch = characterSearch.value.trim();
-  renderCharacterList();
-  renderCharacterDetail();
+  const selectedCharacter = state.selectedCharacter;
+  renderCharacterList({ renderChrome: false });
+  if (state.selectedCharacter !== selectedCharacter) renderCharacterDetail();
 });
 
 characterSearch.addEventListener("search", () => {
   state.characterSearch = characterSearch.value.trim();
-  renderCharacterList();
-  renderCharacterDetail();
+  const selectedCharacter = state.selectedCharacter;
+  renderCharacterList({ renderChrome: false });
+  if (state.selectedCharacter !== selectedCharacter) renderCharacterDetail();
 });
 
 temporaryCharacterToggle?.addEventListener("click", () => {
@@ -98,13 +100,14 @@ characterCreateForm?.addEventListener("submit", createCharacterFromDialog);
 
 sideTaskToggle?.addEventListener("click", () => {
   state.plotShelf = state.plotShelf === "side" ? "all" : "side";
-  state.chapter = "all";
+  setChapterFilter("all");
   state.plotStatus = "all";
   state.plotTags = allPlotTags();
   state.plotPage = 1;
-  renderChapterSwitch();
-  renderStoryFilters();
-  renderPlots();
+  renderSideTaskToggle();
+  syncChipFilterSelection(statusFilter, state.plotStatus, [...new Set(plots.map((plot) => plot.status).filter(Boolean))], "single", false);
+  syncChipFilterSelection(tagFilter, state.plotTags, allPlotTags(), "multi");
+  renderPlots({ animate: false });
 });
 
 plotCreateTrigger?.addEventListener("click", openPlotCreateDialog);
@@ -121,20 +124,28 @@ plotCreateBody?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreate
 plotCreatePreview?.addEventListener("scroll", () => syncPlotEditorScroll(plotCreatePreview, plotCreateBody));
 plotTrashTrigger?.addEventListener("click", openPlotTrashDialog);
 plotTrashClose?.addEventListener("click", closePlotTrashDialog);
+plotTrashKindFilter?.addEventListener("change", () => renderPlotTrashItems(plotTrashItemsCache));
 plotTrashDialog?.addEventListener("click", (event) => {
   if (event.target === plotTrashDialog) closePlotTrashDialog();
+});
+operationHistoryTrigger?.addEventListener("click", openOperationHistoryDialog);
+operationHistoryClose?.addEventListener("click", closeOperationHistoryDialog);
+operationHistoryDialog?.addEventListener("click", (event) => {
+  if (event.target === operationHistoryDialog) closeOperationHistoryDialog();
 });
 
 placeSearch?.addEventListener("input", () => {
   state.placeSearch = placeSearch.value.trim();
-  renderPlaceList();
-  renderPlaceDetail();
+  const selectedPlace = state.selectedPlace;
+  renderPlaceList({ renderFilters: false });
+  if (state.selectedPlace !== selectedPlace) renderPlaceDetail();
 });
 
 placeSearch?.addEventListener("search", () => {
   state.placeSearch = placeSearch.value.trim();
-  renderPlaceList();
-  renderPlaceDetail();
+  const selectedPlace = state.selectedPlace;
+  renderPlaceList({ renderFilters: false });
+  if (state.selectedPlace !== selectedPlace) renderPlaceDetail();
 });
 
 timelineList?.addEventListener("scroll", () => scheduleTimelineViewportRender());
@@ -244,7 +255,7 @@ document.querySelectorAll(".view-btn").forEach((button) => {
 timelineDirectionBtn?.addEventListener("click", () => {
   state.timelineReversed = !state.timelineReversed;
   hideTimelineFloat();
-  requestTimelineRender();
+  requestTimelineRender({ preserveExisting: true, animate: false });
 });
 
 timelineEditTrigger?.addEventListener("click", openTimelineEditor);
@@ -253,12 +264,19 @@ timelineEditorCancel?.addEventListener("click", closeTimelineEditor);
 timelineEditorSave?.addEventListener("click", saveTimelineEditor);
 timelineEditorAddLine?.addEventListener("click", addTimelineEditorLine);
 timelineEditorSearch?.addEventListener("input", renderTimelineEditorEvents);
+timelineEditorPreviewViewport?.addEventListener("scroll", scheduleTimelineEditorPreviewViewportRender, { passive: true });
 timelineEditorDialog?.addEventListener("click", (event) => {
   if (event.target === timelineEditorDialog) closeTimelineEditor();
 });
 timelineEditorDialog?.addEventListener("close", () => {
   timelineEditorDraft = null;
   timelineEditorDraggedPlotId = null;
+  timelineEditorPreviewTransition = null;
+  timelineEditorLastPreviewFocus = "";
+  if (timelineEditorPreviewTransitionTimer) clearTimeout(timelineEditorPreviewTransitionTimer);
+  timelineEditorPreviewTransitionTimer = null;
+  if (timelineEditorPreviewScrollFrame) cancelAnimationFrame(timelineEditorPreviewScrollFrame);
+  timelineEditorPreviewScrollFrame = null;
 });
 timelineEditorUnassigned?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -276,9 +294,7 @@ timelineEditorUnassigned?.addEventListener("click", () => {
   timelineEditorSelectedLine = "";
   timelineEditorSelectedPlotId = timelineEditorUnassignedOnly ? null : (plots[0]?.id || null);
   timelineEditorEditingLine = "";
-  renderTimelineEditorLines();
-  renderTimelineEditorEvents();
-  renderTimelineEditorInspector();
+  renderTimelineEditorFocus();
 });
 
 diagnosticRefreshBtn?.addEventListener("click", () => {
@@ -317,11 +333,13 @@ characterDetail.addEventListener("click", (event) => {
   const button = event.target.closest(".relation-row[data-character-id]");
   if (!button || !characterDetail.contains(button)) return;
   const person = getCharacter(button.dataset.characterId);
+  const previousShelf = state.characterShelf;
   if (person) setCharacterShelfForPerson(person);
   state.selectedCharacter = button.dataset.characterId;
   state.characterSearch = "";
   if (characterSearch) characterSearch.value = "";
-  renderCharacterList();
+  if (state.characterShelf === previousShelf) syncCharacterListSelection();
+  else renderCharacterList();
   renderCharacterDetail();
   scrollPageToTop();
 });
@@ -343,8 +361,10 @@ async function init() {
     renderLinks();
     markRelatedNodes();
     refreshPlotTrashAccess();
+    refreshOperationHistoryAccess();
     refreshTimelineEditorAccess();
     refreshContentManagerAccess();
+    enableSmartSuggestions(document);
     switchView("graph");
     startGraphLoop();
   } catch (error) {

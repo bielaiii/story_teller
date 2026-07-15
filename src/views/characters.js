@@ -7,6 +7,7 @@ function characterSearchValues(person) {
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
+    ...(person.supplements || []),
     ...characterRelationshipSearchValues(person),
   ];
 }
@@ -98,9 +99,13 @@ function renderCharacterManagerFilters() {
     }).join("");
     characterCategoryFilter.querySelectorAll("button[data-category]").forEach((button) => {
       button.addEventListener("click", () => {
+        const selectedCharacter = state.selectedCharacter;
         state.characterCategory = button.dataset.category || "all";
-        renderCharacterList();
-        renderCharacterDetail();
+        characterCategoryFilter.querySelectorAll("button[data-category]").forEach((item) => {
+          item.classList.toggle("is-active", item === button);
+        });
+        renderCharacterList({ renderChrome: false });
+        if (state.selectedCharacter !== selectedCharacter) renderCharacterDetail();
       });
     });
   }
@@ -113,9 +118,10 @@ function renderCharacterManagerFilters() {
       .join("");
     characterGroupArchiveFilter.value = state.characterGroup;
     characterGroupArchiveFilter.onchange = () => {
+      const selectedCharacter = state.selectedCharacter;
       state.characterGroup = characterGroupArchiveFilter.value;
-      renderCharacterList();
-      renderCharacterDetail();
+      renderCharacterList({ renderChrome: false });
+      if (state.selectedCharacter !== selectedCharacter) renderCharacterDetail();
     };
   }
 
@@ -125,16 +131,31 @@ function renderCharacterManagerFilters() {
     button.setAttribute("aria-pressed", String(active));
     button.onclick = () => {
       state.characterViewMode = button.dataset.mode || "cards";
-      renderCharacterList();
+      characterViewSwitch.querySelectorAll("button[data-mode]").forEach((item) => {
+        const itemActive = item === button;
+        item.classList.toggle("is-active", itemActive);
+        item.setAttribute("aria-pressed", String(itemActive));
+      });
+      renderCharacterList({ renderChrome: false });
     };
   });
   if (characterLibraryTitle) characterLibraryTitle.textContent = state.characterShelf === "temporary" ? "临时角色收纳箱" : "长期人物库";
 }
 
-function renderCharacterList() {
-  renderTemporaryCharacterToggle();
-  renderCharacterOverview();
-  renderCharacterManagerFilters();
+function syncCharacterListSelection() {
+  characterList?.querySelectorAll(".character-list-item").forEach((button) => {
+    const active = button.dataset.id === state.selectedCharacter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "true" : "false");
+  });
+}
+
+function renderCharacterList({ renderChrome = true } = {}) {
+  if (renderChrome) {
+    renderTemporaryCharacterToggle();
+    renderCharacterOverview();
+    renderCharacterManagerFilters();
+  }
   const visibleCharacters = characters.filter(characterVisibleInArchive);
 
   if (visibleCharacters.length && !visibleCharacters.some((person) => person.id === state.selectedCharacter)) {
@@ -173,7 +194,7 @@ function renderCharacterList() {
     button.addEventListener("click", () => {
       state.selectedCharacter = button.dataset.id;
       state.characterAppearanceChapter = "all";
-      renderCharacterList();
+      syncCharacterListSelection();
       renderCharacterDetail();
       scrollPageToTop();
     });
@@ -459,22 +480,29 @@ function closeCharacterCreateDialog() {
 async function createCharacterFromDialog(event) {
   event.preventDefault();
   if (!characterCreateForm?.reportValidity()) return;
+  const payload = {
+    project: currentProjectId(),
+    name: characterCreateName?.value.trim() || "",
+    narrativeRole: characterCreateRole?.value || "配角",
+    characterScope: characterCreateScope?.value || "常驻人物",
+    side: characterCreateSide?.value || "中立",
+    group: characterCreateGroup?.value.trim() || "",
+    mainPlotImpact: Number(characterCreateImpact?.value || 50),
+    color: characterCreateColor?.value || "#3f7fc1",
+    aliases: commaSeparatedValues(characterCreateAliases?.value),
+    markers: commaSeparatedValues(characterCreateMarkers?.value),
+    supplements: bulletNoteLines(characterCreateSupplements?.value),
+    intro: characterCreateIntro?.value.trim() || "",
+  };
+  const classificationIssue = characterClassificationIssues(payload)[0];
+  if (classificationIssue) {
+    setCharacterCreateStatus(classificationIssue, "error");
+    return;
+  }
   setCharacterCreateBusy(true);
   setCharacterCreateStatus("正在创建人物档案…");
   try {
-    const result = await refactorApi("/api/characters/create", {
-      project: currentProjectId(),
-      name: characterCreateName?.value.trim() || "",
-      narrativeRole: characterCreateRole?.value || "配角",
-      characterScope: characterCreateScope?.value || "常驻人物",
-      side: characterCreateSide?.value || "中立",
-      group: characterCreateGroup?.value.trim() || "",
-      mainPlotImpact: Number(characterCreateImpact?.value || 50),
-      color: characterCreateColor?.value || "#3f7fc1",
-      aliases: commaSeparatedValues(characterCreateAliases?.value),
-      markers: commaSeparatedValues(characterCreateMarkers?.value),
-      intro: characterCreateIntro?.value.trim() || "",
-    });
+    const result = await refactorApi("/api/characters/create", payload);
     setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}）`, "success");
     await refreshWorkspaceDataInPlace({ characterId: result.id });
     closeCharacterCreateDialog();
@@ -566,7 +594,7 @@ function renderAllAppearanceList(items) {
   `;
 }
 
-function renderCharacterAppearances(person, items) {
+function characterAppearanceView(items) {
   const options = characterAppearanceChapterOptions(items);
   const activeChapter = options.some((option) => option.chapter === state.characterAppearanceChapter)
     ? state.characterAppearanceChapter
@@ -575,6 +603,20 @@ function renderCharacterAppearances(person, items) {
   const scopedItems = activeChapter === "all"
     ? items
     : items.filter((item) => (item.plot.chapter || "unknown") === activeChapter);
+  return { options, activeChapter, scopedItems };
+}
+
+function renderCharacterAppearanceContent(person, scopedItems) {
+  return `
+    ${renderCharacterAppearanceSummary(person, scopedItems)}
+    ${scopedItems.length ? renderCharacterDensityMap(scopedItems) : ""}
+    ${renderRepresentativeAppearances(scopedItems)}
+    ${renderAllAppearanceList(scopedItems)}
+  `;
+}
+
+function renderCharacterAppearances(person, items) {
+  const { options, activeChapter, scopedItems } = characterAppearanceView(items);
   return `
     ${options.length > 1 ? `
       <div class="character-appearance-tabs" aria-label="按篇章查看出场统计">
@@ -590,11 +632,32 @@ function renderCharacterAppearances(person, items) {
         `).join("")}
       </div>
     ` : ""}
-    ${renderCharacterAppearanceSummary(person, scopedItems)}
-    ${scopedItems.length ? renderCharacterDensityMap(scopedItems) : ""}
-    ${renderRepresentativeAppearances(scopedItems)}
-    ${renderAllAppearanceList(scopedItems)}
+    <div class="character-appearance-content">
+      ${renderCharacterAppearanceContent(person, scopedItems)}
+    </div>
   `;
+}
+
+function bindCharacterAppearanceContent(person) {
+  characterDetail.querySelectorAll(".character-appearance-plot[data-plot-id], .character-density-segment[data-plot-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hideCharacterDensityFloat();
+      openPlotFromCharacterDetail(Number(button.dataset.plotId), person.id);
+    });
+  });
+  bindCharacterDensityFloat();
+}
+
+function updateCharacterAppearancePanel(person) {
+  const items = characterAppearanceItems(person);
+  const { activeChapter, scopedItems } = characterAppearanceView(items);
+  characterDetail.querySelectorAll(".character-appearance-tab[data-chapter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.chapter === activeChapter);
+    button.setAttribute("aria-pressed", String(button.dataset.chapter === activeChapter));
+  });
+  const content = characterDetail.querySelector(".character-appearance-content");
+  if (content) content.innerHTML = renderCharacterAppearanceContent(person, scopedItems);
+  bindCharacterAppearanceContent(person);
 }
 
 function openPlotFromCharacterDetail(plotId, characterId = state.selectedCharacter) {
@@ -634,7 +697,7 @@ function renderCharacterDetail() {
 
   characterDetail.innerHTML = `
     ${detailReturnButton()}
-    <div class="character-hero ${person.facts.length ? "has-facts" : ""}" style="--accent:${escapeHtml(person.color)}">
+    <div class="character-hero" style="--accent:${escapeHtml(person.color)}">
       <div class="character-avatar" style="--avatar-gradient:${escapeHtml(person.gradient)}">${avatarContent(person)}</div>
       <div class="character-copy">
         <p class="label">${escapeHtml(characterNarrativeRole(person))} · ${escapeHtml(person.group || "未分组")} · ${escapeHtml(characterScopeLabel(person))}</p>
@@ -644,22 +707,46 @@ function renderCharacterDetail() {
           <button class="character-delete-record icon-action is-danger" type="button" aria-label="删除${escapeHtml(person.name)}" title="删除人物">${uiIcon("trash")}</button>
         </div>
         ${renderBulletNotes(person.intro, "character-intro-list")}
-        ${person.facts.length ? `
-          <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
-            ${person.facts.map((fact) => `
-              <div class="character-fact">
-                <dt>${escapeHtml(fact.label)}</dt>
-                <dd>${escapeHtml(fact.value)}</dd>
-              </div>
-            `).join("")}
-          </dl>
-        ` : ""}
       </div>
       <aside class="character-marker-panel">
         ${markerBadges(person)}
         ${renderCharacterScopeTools(person)}
       </aside>
     </div>
+
+    ${person.facts.length ? `
+      <section class="character-section character-facts-section" style="--accent:${escapeHtml(person.color)}">
+        <div class="section-title">
+          <p class="label">档案信息</p>
+          <h3>${person.facts.length} 项</h3>
+        </div>
+        <dl class="character-facts" aria-label="${escapeHtml(person.name)}的档案信息">
+          ${person.facts.map((fact) => `
+            <div class="character-fact">
+              <dt>${escapeHtml(fact.label)}</dt>
+              <dd>${escapeHtml(fact.value)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      </section>
+    ` : ""}
+
+    ${person.supplements.length ? `
+      <section class="character-section character-supplement-section" style="--accent:${escapeHtml(person.color)}">
+        <div class="section-title">
+          <p class="label">补充设定</p>
+          <h3>${person.supplements.length} 条</h3>
+        </div>
+        <ol class="character-supplement-list" aria-label="${escapeHtml(person.name)}的补充设定">
+          ${person.supplements.map((note, index) => `
+            <li class="character-supplement-item">
+              <span aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>
+              <p>${escapeHtml(note)}</p>
+            </li>
+          `).join("")}
+        </ol>
+      </section>
+    ` : ""}
 
     <section class="character-section">
       <div class="section-title">
@@ -708,16 +795,10 @@ function renderCharacterDetail() {
   characterDetail.querySelectorAll(".character-appearance-tab[data-chapter]").forEach((button) => {
     button.addEventListener("click", () => {
       state.characterAppearanceChapter = button.dataset.chapter || "all";
-      renderCharacterDetail();
+      updateCharacterAppearancePanel(person);
     });
   });
-  characterDetail.querySelectorAll(".character-appearance-plot[data-plot-id], .character-density-segment[data-plot-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      hideCharacterDensityFloat();
-      openPlotFromCharacterDetail(Number(button.dataset.plotId), person.id);
-    });
-  });
-  bindCharacterDensityFloat();
+  bindCharacterAppearanceContent(person);
   bindCharacterScopeTools(person);
   characterDetail.querySelector(".character-edit-record")?.addEventListener("click", () => openContentEditor("character", person));
   characterDetail.querySelector(".character-delete-record")?.addEventListener("click", () => deleteContentRecord("character", person));
@@ -823,7 +904,7 @@ function bindTemporaryCharacterArchive() {
     button.addEventListener("click", () => {
       state.selectedCharacter = button.dataset.characterId;
       state.characterAppearanceChapter = "all";
-      renderCharacterList();
+      syncCharacterListSelection();
       renderTemporaryCharacterArchive();
     });
   });
@@ -867,6 +948,16 @@ function renderCharacterScopeTools(person) {
 }
 
 async function updateCharacterScope(person, scope, status, buttons) {
+  const classificationIssue = characterClassificationIssues({ ...person, characterScope: scope })[0];
+  if (classificationIssue) {
+    if (status) {
+      status.textContent = classificationIssue;
+      status.className = status.classList.contains("temporary-scope-status")
+        ? "temporary-scope-status is-error"
+        : "character-scope-status is-error";
+    }
+    return;
+  }
   buttons.forEach((button) => {
     button.disabled = true;
   });
@@ -896,7 +987,7 @@ async function updateCharacterScope(person, scope, status, buttons) {
     renderCharacterList();
     renderCharacterDetail();
     renderGraphFilters();
-    renderNodes();
+    renderNodes({ animate: false });
     renderLinks();
     markRelatedNodes();
   } catch (error) {

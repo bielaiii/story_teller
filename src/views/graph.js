@@ -1,7 +1,7 @@
 let graphLinesReady = false;
 let graphDataDirty = false;
 
-function switchView(view, { resetStory = false } = {}) {
+function switchView(view, { resetStory = false, animateContent = false } = {}) {
   const previousView = state.view;
   const activeNav = view === "plot-detail" ? "story" : view;
   if (view === "story" && resetStory) resetStoryNavigationState();
@@ -18,7 +18,7 @@ function switchView(view, { resetStory = false } = {}) {
   if (state.view === "graph") {
     if (graphDataDirty) {
       renderGraphFilters();
-      renderNodes();
+      renderNodes({ animate: animateContent });
       renderLinks();
       graphDataDirty = false;
     }
@@ -50,22 +50,23 @@ function switchView(view, { resetStory = false } = {}) {
   }
   if (state.view === "fragments") {
     renderFragmentFilters();
-    renderFragments();
+    renderFragments({ animate: animateContent });
   }
   if (state.view === "diagnostics") {
     requestDiagnosticsRender();
     refreshPlotTrashAccess();
+    refreshOperationHistoryAccess();
   }
   if (state.view === "story" && (previousView !== "story" || resetStory)) {
     renderChapterSwitch();
     renderStoryFilters();
-    renderPlots();
+    renderPlots({ animate: animateContent });
   }
   if (state.view === "plot-detail") renderPlotDetail();
   scrollPageToTop();
 }
 
-function renderProfile() {
+function renderProfile({ animate = !isWorkspaceRefreshing() } = {}) {
   if (!state.hasSelection) {
     profileFloat.classList.add("is-hidden");
     return;
@@ -86,7 +87,7 @@ function renderProfile() {
   eventList.innerHTML = items
     .map((plot, index) => `
       <button
-        class="event-item"
+        class="event-item ${animate ? "" : "is-stable"}"
         data-plot-id="${escapeHtml(plot.id)}"
         type="button"
         style="--accent:${escapeHtml(plot.accent)}; animation-delay:${index * 70}ms"
@@ -108,11 +109,12 @@ function renderProfile() {
   profileFloat.classList.remove("is-hidden");
 }
 
-function renderNodes() {
+function renderNodes({ animate = !isWorkspaceRefreshing() } = {}) {
   nodeLayer.innerHTML = "";
   const visibleGraphCharacters = graphCharacters();
   const shouldAnimateEntry = Boolean(
-    graphStage
+    animate
+    && graphStage
     && !graphStage.classList.contains("has-completed-node-entry")
     && !reducedMotionQuery.matches,
   );
@@ -122,6 +124,7 @@ function renderNodes() {
   visibleGraphCharacters.forEach((person, index) => {
     const node = document.createElement("button");
     node.className = "person-node";
+    node.classList.toggle("is-stable", !shouldAnimateEntry);
     node.type = "button";
     node.dataset.id = person.id;
     node.setAttribute("aria-label", `选中${person.name}，查看关联剧情`);

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const markdownit = require("../vendor/markdown-it/markdown-it.min.js");
 const yaml = require("../vendor/js-yaml/js-yaml.min.js");
+const pinyinPro = require("../vendor/pinyin-pro/pinyin-pro.min.js");
 
 test("YAML frontmatter supports structured values", () => {
   const result = yaml.load(`
@@ -55,4 +56,11 @@ label: 母子
     { id: 9, role: "母亲" },
     { id: 3, role: "儿子" },
   ]);
+});
+
+test("Pinyin matching supports full spelling and initials offline", () => {
+  assert.deepEqual(pinyinPro.match("沈清妙", "shen"), [0]);
+  assert.deepEqual(pinyinPro.match("沈清妙", "sqm"), [0, 1, 2]);
+  assert.deepEqual(pinyinPro.match("东港", "dong"), [0]);
+  assert.deepEqual(pinyinPro.match("东港", "dg"), [0, 1]);
 });
