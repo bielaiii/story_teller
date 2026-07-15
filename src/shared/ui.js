@@ -83,87 +83,102 @@ appConfirmDialog?.addEventListener("close", () => {
   resolver(false);
 });
 
+let workspaceRefreshDepth = 0;
+
+function isWorkspaceRefreshing() {
+  return workspaceRefreshDepth > 0;
+}
+
 async function refreshWorkspaceDataInPlace(options = {}) {
-  const activeView = state.view;
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  const scrollPositions = [...document.querySelectorAll("[id]")]
-    .filter((element) => element.scrollTop || element.scrollLeft)
-    .map((element) => ({ id: element.id, top: element.scrollTop, left: element.scrollLeft }));
-  const graphPositions = new Map(characters.map((person) => [String(person.id), {
-    px: person.px,
-    py: person.py,
-  }]));
+  workspaceRefreshDepth += 1;
+  try {
+    const activeView = state.view;
+    const renderView = options.render !== false;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const scrollPositions = [...document.querySelectorAll("[id]")]
+      .filter((element) => element.scrollTop || element.scrollLeft)
+      .map((element) => ({ id: element.id, top: element.scrollTop, left: element.scrollLeft }));
+    const graphPositions = new Map(characters.map((person) => [String(person.id), {
+      px: person.px,
+      py: person.py,
+    }]));
 
-  await loadMarkdownData();
+    await loadMarkdownData();
+    timelineModel = null;
+    timelineViewportKey = "";
 
-  characters.forEach((person) => {
-    const previous = graphPositions.get(String(person.id));
-    if (!previous) return;
-    if (Number.isFinite(previous.px)) person.px = previous.px;
-    if (Number.isFinite(previous.py)) person.py = previous.py;
-  });
-
-  if (options.characterId && getCharacter(options.characterId)) {
-    state.selectedCharacter = String(options.characterId);
-    if (state.selected === String(options.characterId)) state.selected = String(options.characterId);
-    setCharacterShelfForPerson(getCharacter(options.characterId));
-  }
-  if (options.placeId && getPlace(options.placeId)) state.selectedPlace = String(options.placeId);
-  if (options.plotId && plots.some((plot) => Number(plot.id) === Number(options.plotId))) {
-    state.selectedPlotId = Number(options.plotId);
-  }
-
-  if (state.selected && !getCharacter(state.selected)) {
-    state.selected = "";
-    state.hasSelection = false;
-  }
-  if (state.selectedCharacter && !getCharacter(state.selectedCharacter)) {
-    state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
-  }
-  if (state.selectedPlace && !getPlace(state.selectedPlace)) state.selectedPlace = places[0]?.id || "";
-
-  renderProjectChrome();
-  graphDataDirty = true;
-  if (activeView === "graph") {
-    renderGraphFilters();
-    renderNodes();
-    renderLinks();
-    markRelatedNodes();
-    renderProfile();
-    graphDataDirty = false;
-  } else if (activeView === "characters") {
-    renderCharacterList();
-    renderCharacterDetail();
-  } else if (activeView === "places") {
-    renderPlaceList();
-    renderPlaceDetail();
-  } else if (activeView === "fragments") {
-    renderFragmentFilters();
-    renderFragments();
-  } else if (activeView === "story") {
-    renderChapterSwitch();
-    renderStoryFilters();
-    renderPlots();
-  } else if (activeView === "plot-detail") {
-    renderPlotDetail();
-  } else if (activeView === "timeline") {
-    requestTimelineRender();
-  } else if (activeView === "diagnostics") {
-    requestDiagnosticsRender();
-    refreshPlotTrashAccess();
-    refreshOperationHistoryAccess();
-  }
-
-  const restoreScrollPositions = () => {
-    scrollPositions.forEach(({ id, top, left }) => {
-      const element = document.getElementById(id);
-      if (element) element.scrollTo({ top, left, behavior: "instant" });
+    characters.forEach((person) => {
+      const previous = graphPositions.get(String(person.id));
+      if (!previous) return;
+      if (Number.isFinite(previous.px)) person.px = previous.px;
+      if (Number.isFinite(previous.py)) person.py = previous.py;
     });
-    window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
-  };
-  restoreScrollPositions();
-  window.requestAnimationFrame(restoreScrollPositions);
+
+    if (options.characterId && getCharacter(options.characterId)) {
+      state.selectedCharacter = String(options.characterId);
+      if (state.selected === String(options.characterId)) state.selected = String(options.characterId);
+      setCharacterShelfForPerson(getCharacter(options.characterId));
+    }
+    if (options.placeId && getPlace(options.placeId)) state.selectedPlace = String(options.placeId);
+    if (options.plotId && plots.some((plot) => Number(plot.id) === Number(options.plotId))) {
+      state.selectedPlotId = Number(options.plotId);
+    }
+
+    if (state.selected && !getCharacter(state.selected)) {
+      state.selected = "";
+      state.hasSelection = false;
+    }
+    if (state.selectedCharacter && !getCharacter(state.selectedCharacter)) {
+      state.selectedCharacter = (characters.find((person) => !isTemporaryCharacter(person)) || characters[0])?.id || "";
+    }
+    if (state.selectedPlace && !getPlace(state.selectedPlace)) state.selectedPlace = places[0]?.id || "";
+
+    renderProjectChrome();
+    graphDataDirty = true;
+    if (!renderView) return;
+    if (activeView === "graph") {
+      renderGraphFilters();
+      renderNodes({ animate: false });
+      renderLinks();
+      markRelatedNodes();
+      renderProfile({ animate: false });
+      graphDataDirty = false;
+    } else if (activeView === "characters") {
+      renderCharacterList();
+      renderCharacterDetail();
+    } else if (activeView === "places") {
+      renderPlaceList();
+      renderPlaceDetail();
+    } else if (activeView === "fragments") {
+      renderFragmentFilters();
+      renderFragments({ animate: false });
+    } else if (activeView === "story") {
+      renderChapterSwitch();
+      renderStoryFilters();
+      renderPlots({ animate: false });
+    } else if (activeView === "plot-detail") {
+      renderPlotDetail();
+    } else if (activeView === "timeline") {
+      await requestTimelineRender({ preserveExisting: true, animate: false });
+    } else if (activeView === "diagnostics") {
+      await requestDiagnosticsRender({ preserveExisting: true });
+      refreshPlotTrashAccess();
+      refreshOperationHistoryAccess();
+    }
+
+    const restoreScrollPositions = () => {
+      scrollPositions.forEach(({ id, top, left }) => {
+        const element = document.getElementById(id);
+        if (element) element.scrollTo({ top, left, behavior: "instant" });
+      });
+      window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
+    };
+    restoreScrollPositions();
+    window.requestAnimationFrame(restoreScrollPositions);
+  } finally {
+    workspaceRefreshDepth = Math.max(0, workspaceRefreshDepth - 1);
+  }
 }
 
 function initial(name) {

@@ -152,6 +152,23 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertIn("renderFragments({ animate: false })", story)
         self.assertIn("renderPlaceList({ renderFilters: false })", entries)
 
+    def test_interactions_keep_existing_page_surfaces_visible(self):
+        shared = (ROOT / "src" / "shared" / "ui.js").read_text(encoding="utf-8")
+        timeline = (ROOT / "src" / "views" / "timeline.js").read_text(encoding="utf-8")
+        characters = (ROOT / "src" / "views" / "characters.js").read_text(encoding="utf-8")
+        bootstrap = (ROOT / "src" / "bootstrap.js").read_text(encoding="utf-8")
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn("workspaceRefreshDepth", shared)
+        self.assertIn('renderPlots({ animate: false })', shared)
+        self.assertIn('requestTimelineRender({ preserveExisting: true, animate: false })', shared)
+        self.assertIn("if (!preserveExisting || !timelineList.querySelector", timeline)
+        self.assertIn("renderTimelineViewport(true)", timeline)
+        self.assertIn("function syncCharacterListSelection", characters)
+        self.assertIn("function updateCharacterAppearancePanel", characters)
+        self.assertIn("renderCharacterList({ renderChrome: false })", bootstrap)
+        self.assertIn('requestTimelineRender({ preserveExisting: true, animate: false })', bootstrap)
+        self.assertNotRegex(markup, r'<button class="view-btn[^>]*data-view="[^"]+"(?![^>]*type="button")')
+
 
 if __name__ == "__main__":
     unittest.main()

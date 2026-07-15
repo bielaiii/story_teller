@@ -24,8 +24,7 @@ function renderChapterSwitch() {
     button.addEventListener("click", () => {
       setChapterFilter(button.dataset.chapter);
       state.plotPage = 1;
-      renderStoryFilters();
-      renderPlots();
+      renderPlots({ animate: false });
     });
   });
 }
@@ -76,7 +75,7 @@ function renderSideTaskToggle() {
   if (sideTaskCount) sideTaskCount.textContent = String(active ? plots.length : sideCount);
 }
 
-function renderPlots({ animate = true } = {}) {
+function renderPlots({ animate = false } = {}) {
   const visible = plots.filter((plot) => {
     const chapterMatch = state.chapter === "all"
       || (state.chapter === "key" && plot.key)
@@ -102,7 +101,7 @@ function renderPlots({ animate = true } = {}) {
   });
   renderPagination(plotPagination, page.currentPage, page.totalPages, (nextPage) => {
     state.plotPage = nextPage;
-    renderPlots();
+    renderPlots({ animate: false });
   });
 }
 
@@ -753,7 +752,7 @@ function fragmentPreviewText(text, limit = 220) {
   return normalized.length > limit ? `${normalized.slice(0, limit).trimEnd()}…` : normalized;
 }
 
-function renderFragments({ animate = true } = {}) {
+function renderFragments({ animate = false } = {}) {
   if (!fragmentBoard) return;
   const visible = fragments.filter((fragment) => (
     matchesSelectedTags(fragment.tags || [], state.fragmentTags, allFragmentTags())
@@ -789,7 +788,7 @@ function renderFragments({ animate = true } = {}) {
   }));
   renderPagination(fragmentPagination, page.currentPage, page.totalPages, (nextPage) => {
     state.fragmentPage = nextPage;
-    renderFragments();
+    renderFragments({ animate: false });
   });
 }
 

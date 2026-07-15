@@ -53,6 +53,10 @@ server_module.UNDO_PATH = server_module.STATE_ROOT / "last-refactor.json"
     + "CARD_TAIL_HIDDEN\n",
     encoding="utf-8",
 )
+(project_root / "entries" / "old-port.md").write_text(
+    "---\nid: old-port\nname: 旧港\ntype: 地点\narea: 东区\ntags: [雨夜]\naccent: \"#2aa79b\"\n---\n沈清妙与陆沉舟见面的地方。\n",
+    encoding="utf-8",
+)
 for sequence in range(2, 13):
     lane = "支线" if sequence % 2 == 0 else "主线"
     status = "已完成" if sequence % 3 == 0 else "草稿"

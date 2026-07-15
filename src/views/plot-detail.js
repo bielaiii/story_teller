@@ -29,7 +29,6 @@ function openPlotInStory(plotId) {
   state.highlightPlotId = plotId;
   setChapterFilter(plot.chapter);
   switchView("story");
-  renderPlots();
   window.setTimeout(() => {
     document.querySelector(`[data-plot-id="${plotId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, 60);
@@ -102,31 +101,13 @@ async function deletePlotFromDetail(plot, button) {
       project: currentProjectId(),
       id: Number(plot.id),
     });
-    const deletedSequence = plotSequence(plot);
-    plots = plots
-      .filter((item) => Number(item.id) !== Number(plot.id))
-      .map((item) => (
-        plotSequence(item) > deletedSequence
-          ? { ...item, sequence: plotSequence(item) - 1 }
-          : item
-      ));
-    characters.forEach((person) => {
-      person.events = (person.events || []).filter((id) => Number(id) !== Number(plot.id));
-    });
-    places.forEach((place) => {
-      place.plots = (place.plots || []).filter((id) => Number(id) !== Number(plot.id));
-    });
-    timelineModel = null;
-    timelineViewportKey = "";
     state.selectedPlotId = null;
     state.highlightPlotId = null;
     state.detailReturnContext = null;
     state.plotPage = 1;
     setChapterFilter(plot.chapter);
+    await refreshWorkspaceDataInPlace({ render: false });
     switchView("story");
-    renderStoryFilters();
-    renderPlots();
-    await refreshWorkspaceDataInPlace();
     refreshPlotTrashAccess();
   } catch (error) {
     window.alert(error.message);

@@ -163,10 +163,12 @@ function resolvedBranchTrack(branchConfig, occupiedTracks) {
   return track;
 }
 
-async function renderTimeline() {
+async function renderTimeline({ preserveExisting = false, animate = !isWorkspaceRefreshing() } = {}) {
   const renderVersion = ++timelineRenderVersion;
   if (!timelineConfigLoaded) {
-    timelineList.innerHTML = '<div class="timeline-loading">正在按需加载时间线配置…</div>';
+    if (!preserveExisting || !timelineList.querySelector(".timeline-board")) {
+      timelineList.innerHTML = '<div class="timeline-loading">正在按需加载时间线配置…</div>';
+    }
     await ensureTimelineConfig();
     if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
   }
@@ -179,7 +181,9 @@ async function renderTimeline() {
     scheduleTimelineViewportRender(true);
     return;
   }
-  timelineList.innerHTML = '<div class="timeline-loading">正在整理当前可见的剧情线…</div>';
+  if (!preserveExisting || !timelineList.querySelector(".timeline-board")) {
+    timelineList.innerHTML = '<div class="timeline-loading">正在整理当前可见的剧情线…</div>';
+  }
   await yieldToMain();
   if (renderVersion !== timelineRenderVersion || state.view !== "timeline") return;
 
@@ -466,7 +470,7 @@ async function renderTimeline() {
     focusLane: "",
     reversed: state.timelineReversed,
     visibleRange: null,
-    viewportSettled: false,
+    viewportSettled: !animate,
   };
   timelineViewportKey = "";
 
@@ -486,13 +490,15 @@ async function renderTimeline() {
 
   document.querySelector("#timelineCanvasWrap")?.addEventListener("click", handleTimelineCanvasClick);
   document.querySelector(".timeline-board")?.addEventListener("click", handleTimelineBoardClick);
-  scheduleTimelineViewportRender(true);
+  renderTimelineViewport(true);
 }
 
-function requestTimelineRender() {
-  renderTimeline().catch((error) => {
+function requestTimelineRender(options = {}) {
+  return renderTimeline(options).catch((error) => {
     if (state.view === "timeline") {
-      timelineList.innerHTML = `<div class="timeline-loading">时间线加载失败：${escapeHtml(error.message)}</div>`;
+      if (!options.preserveExisting || !timelineList.querySelector(".timeline-board")) {
+        timelineList.innerHTML = `<div class="timeline-loading">时间线加载失败：${escapeHtml(error.message)}</div>`;
+      }
     }
     console.error(error);
   });
@@ -1195,7 +1201,7 @@ function renderTimelineEditorPreview() {
       timelineEditorSelectedPlotId = null;
       timelineEditorUnassignedOnly = false;
       timelineEditorEditingLine = "";
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
   });
   timelineEditorPreview.querySelectorAll("[data-preview-line]").forEach((lane) => {
@@ -1217,7 +1223,7 @@ function renderTimelineEditorPreview() {
       timelineEditorSelectedLine = button.dataset.line;
       timelineEditorUnassignedOnly = false;
       timelineEditorEditingLine = "";
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
   });
   focusTimelineEditorPreview();
@@ -1285,7 +1291,7 @@ function renderTimelineEditorLines() {
       timelineEditorSelectedPlotId = null;
       timelineEditorUnassignedOnly = false;
       timelineEditorEditingLine = "";
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
     button.addEventListener("dragover", (event) => {
       event.preventDefault();
@@ -1305,7 +1311,7 @@ function renderTimelineEditorLines() {
       timelineEditorSelectedPlotId = null;
       timelineEditorUnassignedOnly = false;
       timelineEditorEditingLine = button.dataset.line;
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
   });
   const unassigned = Object.values(timelineEditorDraft.assignments).filter((lanes) => !lanes.length).length;
@@ -1353,7 +1359,7 @@ function renderTimelineEditorEvents() {
     button.addEventListener("click", () => {
       timelineEditorSelectedPlotId = Number(button.dataset.plotId);
       timelineEditorEditingLine = "";
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
     button.addEventListener("dragstart", (event) => {
       timelineEditorDraggedPlotId = Number(button.dataset.plotId);
@@ -1532,7 +1538,7 @@ function renderTimelineEditorLineNodes(line) {
   timelineEditorInspector.querySelectorAll(".timeline-editor-line-node").forEach((button) => {
     button.addEventListener("click", () => {
       timelineEditorSelectedPlotId = Number(button.dataset.plotId);
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
   });
 }
@@ -1618,7 +1624,7 @@ function renderTimelineEditorUnassignedInspector() {
   timelineEditorInspector.querySelectorAll(".timeline-editor-line-node").forEach((button) => {
     button.addEventListener("click", () => {
       timelineEditorSelectedPlotId = Number(button.dataset.plotId);
-      renderTimelineEditor();
+      renderTimelineEditorFocus();
     });
   });
 }
@@ -1641,6 +1647,23 @@ function renderTimelineEditorInspector() {
   }
   const line = timelineEditorDraft.lines.find((item) => item.name === timelineEditorSelectedLine);
   if (line) renderTimelineEditorLineNodes(line);
+}
+
+function syncTimelineEditorFocusState() {
+  timelineEditorLineList?.querySelectorAll(".timeline-editor-line-row").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.line === timelineEditorSelectedLine);
+  });
+  timelineEditorLineList?.querySelectorAll(".timeline-editor-line-settings-trigger").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.line === timelineEditorEditingLine);
+  });
+  timelineEditorUnassigned?.classList.toggle("is-active", timelineEditorUnassignedOnly);
+}
+
+function renderTimelineEditorFocus() {
+  syncTimelineEditorFocusState();
+  renderTimelineEditorPreview();
+  renderTimelineEditorEvents();
+  renderTimelineEditorInspector();
 }
 
 function renderTimelineEditor() {

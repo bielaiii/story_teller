@@ -1,3 +1,11 @@
+function syncPlaceListSelection() {
+  placeList?.querySelectorAll(".place-list-item").forEach((button) => {
+    const active = button.dataset.id === state.selectedPlace;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "true" : "false");
+  });
+}
+
 function renderPlaceList({ renderFilters = true } = {}) {
   if (!placeList) return;
   const discoveredTypes = [...new Set(places.map((place) => place.type).filter(Boolean))];
@@ -80,7 +88,7 @@ function renderPlaceList({ renderFilters = true } = {}) {
   document.querySelectorAll(".place-list-item").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedPlace = button.dataset.id;
-      renderPlaceList({ renderFilters: false });
+      syncPlaceListSelection();
       renderPlaceDetail();
     });
   });

@@ -33,6 +33,7 @@ Do not ask the user about routine frontend implementation choices.
 
 * Implement user-facing features as complete vertical slices. A visible control is not complete until its interaction, API, persistence, reload, and error states all work together.
 * Successful saves must refresh persisted data in place. Do not use a full page reload as save handling; preserve the active page, selection, filters, editor mode, graph viewport, and scroll positions without a visible flash.
+* No user action may blank or replace the active page with a loading state, replay page-level entrance animations, or rebuild unrelated panels. Keep the current surface visible while asynchronous data is prepared, swap only the smallest owning region when the replacement is ready, and suppress entrance animation on already-visible content.
 * Keep changes focused.
 * Avoid large rewrites unless clearly needed.
 * Avoid introducing new libraries for small UI changes.
@@ -76,6 +77,7 @@ Core style:
 * Never synthesize a visible `全部` tag/chip inside tag or status filters. Multi-select filters default to all real values selected; single-select filters use an internal no-filter state or an ordinary select control, without rendering that state as a fake tag.
 * When an internal no-filter state is represented by all real filter chips being active, clicking one chip narrows to that value and clicking the active chip again returns to the all-real-values state.
 * Update filter-chip selection in place. Do not rebuild the filter bar, replace the focused chip, refresh an unrelated detail pane, or replay page/card entrance animations after a filter click; preserve focus and scroll state without a visible flash.
+* Search, pagination, tab, selection, save, restore, undo, and timeline-direction interactions must follow the same in-place rule. Re-render only data that actually changed; retain stable toolbars, filters, page roots, and detail panes whenever their selected record is unchanged.
 * Prefer recognizable icon controls for compact or repeated actions such as edit, rename, delete, settings, collapse, close, move, restore, and preview. Avoid a bordered rectangle containing only an ordinary action word.
 * Reuse one coherent icon language. Prefer the project's existing icon set or small inline SVG icons; do not mix unrelated emoji, text glyphs, and icon styles.
 * Every icon-only action must have an accurate accessible name, a `title` or tooltip, visible hover/focus/disabled states, and a sufficiently large click target. The icon may be visually minimal without making the hit area tiny.

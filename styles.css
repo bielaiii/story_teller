@@ -6184,6 +6184,11 @@ button.plot-place-item:focus-visible {
   z-index: 1;
 }
 
+.character-appearance-content {
+  display: grid;
+  gap: 16px;
+}
+
 .character-appearance-tabs {
   display: flex;
   gap: 0;
@@ -7186,6 +7191,10 @@ h3 {
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 }
 
+.event-item.is-stable {
+  animation: none;
+}
+
 .event-item:hover,
 .event-item:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 48%, rgba(255, 255, 255, 0.28));
@@ -7463,6 +7472,10 @@ body.is-graph-view .graph-wrap {
 }
 
 .graph-stage.has-completed-node-entry .person-node {
+  animation: none;
+}
+
+.person-node.is-stable {
   animation: none;
 }
 

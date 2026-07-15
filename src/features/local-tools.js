@@ -418,8 +418,8 @@ async function undoRefactor() {
   }
 }
 
-async function requestDiagnosticsRender() {
-  if (!timelineConfigLoaded && diagnosticList) {
+async function requestDiagnosticsRender({ preserveExisting = false } = {}) {
+  if (!timelineConfigLoaded && diagnosticList && !preserveExisting) {
     diagnosticList.innerHTML = '<div class="diagnostic-clean"><strong>正在检查配置</strong><p>时间线配置会在这里按需加载。</p></div>';
   }
   try {
