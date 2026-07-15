@@ -24,7 +24,8 @@ let refactorCapability = null;
 let refactorOperationId = "";
 let refactorCapabilityProject = "";
 let trashedPlotIds = new Set();
-const DATA_VERSION = "content-index-v1";
+let databaseDocuments = new Map();
+const DATA_VERSION = "sqlite-storage-v1";
 const DEFAULT_PROJECT_ID = "demo";
 const PLOT_PAGE_SIZE = 9;
 const FRAGMENT_PAGE_SIZE = 6;
@@ -567,19 +568,37 @@ function validateProjectConfiguration() {
 }
 
 async function fetchText(path) {
+  const normalizedPath = String(path || "").split("?", 1)[0];
+  const contentPrefix = `${contentBasePath()}/`;
+  const databasePath = normalizedPath.startsWith(contentPrefix)
+    ? normalizedPath.slice(contentPrefix.length)
+    : normalizedPath.replace(/^\.\//, "");
+  if (databaseDocuments.has(databasePath)) return databaseDocuments.get(databasePath);
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(`${path}${separator}v=${DATA_VERSION}`);
   if (!response.ok) throw new Error(`无法加载 ${path}`);
   return response.text();
 }
 
-async function loadLocalContentIndex() {
-  const response = await fetch(`/api/content-index?project=${encodeURIComponent(requestedProjectId())}`, {
+async function loadLocalProjectData() {
+  const response = await fetch(`/api/project-data?project=${encodeURIComponent(requestedProjectId())}`, {
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("本地内容扫描不可用");
-  const result = await response.json();
-  if (!result?.ok || !result.collections) throw new Error("本地内容扫描结果无效");
+  const responseType = response.headers.get("content-type") || "";
+  if ((response.status === 404 || response.status === 405) && !responseType.includes("application/json")) {
+    return null;
+  }
+  if (!response.ok) throw new Error("本地项目数据库不可用");
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    if (!responseType.includes("application/json")) return null;
+    throw new Error("本地项目数据库结果无效");
+  }
+  if (!result?.ok || result.storage !== "sqlite" || !result.collections || !result.documents) {
+    throw new Error("本地项目数据库结果无效");
+  }
   return result;
 }
 
@@ -766,12 +785,14 @@ async function loadMarkdownData() {
     id: requestedProjectId() || DEFAULT_PROJECT_ID,
   };
 
+  const localData = await loadLocalProjectData();
   let contentIndex;
-  try {
-    const localIndex = await loadLocalContentIndex();
-    projectConfig.id = safeProjectId(localIndex.project);
-    contentIndex = localIndex.collections;
-  } catch {
+  if (localData) {
+    projectConfig.id = safeProjectId(localData.project);
+    contentIndex = localData.collections;
+    databaseDocuments = new Map(Object.entries(localData.documents));
+  } else {
+    databaseDocuments = new Map();
     contentIndex = await loadStaticContentIndex();
   }
 

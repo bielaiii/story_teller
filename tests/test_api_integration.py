@@ -33,7 +33,10 @@ class LocalApiIntegrationTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
-        self.token = self.get_json("/api/capabilities?project=novel")["token"]
+        capabilities = self.get_json("/api/capabilities?project=novel")
+        self.token = capabilities["token"]
+        self.assertEqual("sqlite", capabilities["storage"])
+        self.assertIn("sqlite-storage-v1", capabilities["features"])
 
     def tearDown(self):
         self.server.shutdown()
@@ -82,6 +85,25 @@ class LocalApiIntegrationTests(unittest.TestCase):
         self.assertIn("保存后的完整档案", persisted)
         index = self.get_json("/api/content-index?project=novel")
         self.assertIn(f"./{created['path']}", index["collections"]["characters"])
+        project_data = self.get_json("/api/project-data?project=novel")
+        self.assertEqual("sqlite", project_data["storage"])
+        self.assertIn("保存后的完整档案", project_data["documents"][created["path"]])
+        (self.project_root / "manifest.md").write_text("---\ntitle: 手工篡改标题\n---\n", encoding="utf-8")
+        projects = self.get_json("/api/projects")
+        self.assertEqual("测试作品", projects["items"][0]["title"])
+        character_path.write_text("不会成为数据源", encoding="utf-8")
+        project_data = self.get_json("/api/project-data?project=novel")
+        self.assertIn("保存后的完整档案", project_data["documents"][created["path"]])
+        self.assertNotIn("不会成为数据源", project_data["documents"][created["path"]])
+        preview = self.post_json("/api/refactor/preview", {
+            "project": "novel", "type": "character", "id": created["id"], "newName": "顾澜",
+        })
+        self.assertTrue(preview["ok"])
+        self.assertIn("保存后的完整档案", character_path.read_text(encoding="utf-8"))
+        storage = self.get_json("/api/storage?project=novel")
+        self.assertEqual(1, storage["schemaVersion"])
+        self.assertEqual("/api/characters/update", storage["lastOperation"])
+        self.assertEqual(1, storage["counts"]["characters"])
 
 
 if __name__ == "__main__":

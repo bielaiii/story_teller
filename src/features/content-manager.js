@@ -7,7 +7,7 @@ const CONTENT_KIND_LABELS = {
   fragment: "灵感碎片",
 };
 
-const CONTENT_MANAGER_FEATURE = "content-management-v2";
+const CONTENT_MANAGER_FEATURE = "content-management-v3";
 
 function contentManagerWritable() {
   return Boolean(

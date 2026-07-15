@@ -6,12 +6,15 @@ import math
 import os
 import re
 import secrets
+import sqlite3
 import tempfile
 import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
+
+from sqlite_store import SQLiteContentManager
 
 
 ROOT = Path(__file__).resolve().parent
@@ -730,6 +733,8 @@ class StoryTellerServer(ThreadingHTTPServer):
         super().__init__(server_address, handler_class)
         self.api_token = secrets.token_urlsafe(24)
         self.previews = {}
+        self.sqlite = SQLiteContentManager(self.content_root)
+        self.sqlite.initialize_existing_projects()
 
     def prune_previews(self):
         cutoff = time.time() - PREVIEW_TTL_SECONDS
@@ -762,12 +767,23 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def send_json(self, payload, status=HTTPStatus.OK):
+        if getattr(self, "_defer_json_response", False):
+            self._pending_json_response = (payload, status)
+            return
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def flush_deferred_json(self):
+        pending = getattr(self, "_pending_json_response", None)
+        self._defer_json_response = False
+        self._pending_json_response = None
+        if not pending:
+            raise RuntimeError("写入接口没有返回结果")
+        self.send_json(*pending)
 
     def send_api_error(self, message, status=HTTPStatus.BAD_REQUEST):
         self.send_json({"ok": False, "error": message}, status)
@@ -810,6 +826,23 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if content_root not in root.parents or not root.is_dir():
             raise ValueError("找不到当前内容包")
         return root
+
+    def prepare_project_exports(self, project, purge_trash=False):
+        project_id = self.project_id(project)
+        project_root = self.project_root(project_id)
+        if not hasattr(self.server, "sqlite"):
+            if purge_trash:
+                purge_expired_plot_trash(project_root)
+                purge_expired_record_trash(project_root)
+            return project_id, project_root
+        with self.server.sqlite.write_lock:
+            store = self.server.sqlite.store(project_id)
+            store.materialize_exports(clean=True)
+            if purge_trash:
+                purged = purge_expired_plot_trash(project_root) + purge_expired_record_trash(project_root)
+                if purged:
+                    store.capture_from_exports("trash-retention-purge")
+        return project_id, project_root
 
     def undo_metadata(self):
         if not UNDO_PATH.is_file():
@@ -880,6 +913,10 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/project-data":
+            return self.project_data(parsed)
+        if parsed.path == "/api/storage":
+            return self.storage_info(parsed)
         if parsed.path == "/api/content-index":
             return self.content_index(parsed)
         if parsed.path == "/api/projects":
@@ -898,21 +935,19 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.send_api_error("只允许从本机访问写入服务", HTTPStatus.FORBIDDEN)
         project = parse_qs(parsed.query).get("project", [""])[0]
         try:
-            project_root = self.project_root(project)
-            purge_expired_plot_trash(project_root)
-            purge_expired_record_trash(project_root)
+            project, project_root = self.prepare_project_exports(project, purge_trash=True)
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
         except OSError as error:
             return self.send_api_error(f"回收站清理失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
-        project = self.project_id(project)
         undo = self.valid_undo_metadata(project_root, project)
         trash_count = len(plot_trash_records(project_root)) + len(record_trash_records(project_root))
         self.send_json(
             {
                 "ok": True,
                 "writable": True,
-                "features": ["content-management-v2"],
+                "features": ["content-management-v3", "sqlite-storage-v1"],
+                "storage": "sqlite",
                 "token": self.server.api_token,
                 "trashCount": trash_count,
                 "canUndo": bool(undo),
@@ -929,8 +964,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.send_api_error("只允许从本机读取回收站", HTTPStatus.FORBIDDEN)
         requested_project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
         try:
-            project_root = self.project_root(requested_project)
-            purge_expired_plot_trash(project_root)
+            _, project_root = self.prepare_project_exports(requested_project, purge_trash=True)
             records = plot_trash_records(project_root)
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -951,8 +985,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if not trash_id or Path(trash_id).name != trash_id:
             return self.send_api_error("请选择有效的回收站剧情")
         try:
-            project_root = self.project_root(requested_project)
-            purge_expired_plot_trash(project_root)
+            _, project_root = self.prepare_project_exports(requested_project, purge_trash=True)
             record = next(
                 (item for item in plot_trash_records(project_root) if item["trashId"] == trash_id),
                 None,
@@ -987,8 +1020,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         for path in sorted(self.server.content_root.iterdir()):
             if not path.is_dir() or not PROJECT_PATTERN.fullmatch(path.name):
                 continue
-            manifest = path / "manifest.md"
-            fields = parse_frontmatter(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
+            manifest = self.server.sqlite.store(path.name).snapshot()["documents"].get("manifest.md", "")
+            fields = parse_frontmatter(manifest) if manifest else {}
             projects.append({"id": path.name, "title": str(fields.get("title", path.name)).strip("\"'")})
         self.send_json({"ok": True, "items": projects})
 
@@ -997,8 +1030,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             return self.send_api_error("只允许从本机读取回收站", HTTPStatus.FORBIDDEN)
         project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
         try:
-            project_root = self.project_root(project)
-            purge_expired_record_trash(project_root)
+            _, project_root = self.prepare_project_exports(project, purge_trash=True)
             items = []
             for record in sorted(record_trash_records(project_root), key=lambda item: item["deletedAt"], reverse=True):
                 item = {key: value for key, value in record.items() if not key.startswith("_")}
@@ -1018,7 +1050,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         if not trash_id or Path(trash_id).name != trash_id:
             return self.send_api_error("请选择有效的回收站档案")
         try:
-            project_root = self.project_root(project)
+            _, project_root = self.prepare_project_exports(project, purge_trash=True)
             record = next((item for item in record_trash_records(project_root) if item["trashId"] == trash_id), None)
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -1051,13 +1083,72 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
         except ValueError as error:
             return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
 
-        collections = build_content_index(project_root)
-        write_content_index(project_root, collections)
+        collections = self.server.sqlite.store(project).snapshot()["collections"]
         self.send_json({"ok": True, "project": project, "collections": collections})
+
+    def project_data(self, parsed):
+        if not self.local_host():
+            return self.send_api_error("只允许从本机读取项目数据库", HTTPStatus.FORBIDDEN)
+        requested_project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
+        try:
+            project = self.project_id(requested_project)
+            self.project_root(project)
+            snapshot = self.server.sqlite.store(project).snapshot()
+        except ValueError as error:
+            return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
+        self.send_json({"ok": True, "project": project, "storage": "sqlite", **snapshot})
+
+    def storage_info(self, parsed):
+        if not self.local_host():
+            return self.send_api_error("只允许从本机读取存储状态", HTTPStatus.FORBIDDEN)
+        requested_project = parse_qs(parsed.query, keep_blank_values=True).get("project", [""])[0]
+        try:
+            project = self.project_id(requested_project)
+            self.project_root(project)
+            info = self.server.sqlite.store(project).info()
+        except ValueError as error:
+            return self.send_api_error(str(error), HTTPStatus.NOT_FOUND)
+        self.send_json({"ok": True, "project": project, "storage": "sqlite", **info})
+
+    def dispatch_post(self, path, payload):
+        routes = {
+            "/api/refactor/preview": self.preview_refactor,
+            "/api/refactor/apply": self.apply_refactor,
+            "/api/refactor/undo": self.undo_refactor,
+            "/api/relationships/create": self.create_relationship,
+            "/api/relationships/update": self.update_relationship,
+            "/api/characters/create": self.create_character,
+            "/api/characters/update": self.update_character,
+            "/api/characters/scope": self.update_character_scope,
+            "/api/entries/save": self.save_entry,
+            "/api/fragments/save": self.save_fragment,
+            "/api/records/delete": self.delete_record,
+            "/api/records/trash/restore": self.restore_record,
+            "/api/plots/create": self.create_plot,
+            "/api/plots/update": self.update_plot,
+            "/api/plots/delete": self.delete_plot,
+            "/api/plots/trash/restore": self.restore_plot,
+            "/api/timeline/update": self.update_timeline,
+            "/api/project/update": self.update_project,
+            "/api/projects/create": self.create_project,
+            "/api/graph-layout/update": self.update_graph_layout,
+            "/api/diagnostics/repair": self.repair_diagnostics,
+        }
+        return routes[path](payload)
+
+    def mutation_project_id(self, path, payload):
+        if path == "/api/projects/create":
+            return clean_text(payload.get("id"), "项目 ID", 60, required=True)
+        if path == "/api/refactor/apply":
+            operation = self.server.previews.get(str(payload.get("operationId", "")))
+            if not operation:
+                raise ValueError("预览已失效，请重新生成")
+            return self.project_id(operation.get("project"))
+        return self.project_id(payload.get("project", ""))
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path not in {
+        allowed_paths = {
             "/api/refactor/preview",
             "/api/refactor/apply",
             "/api/refactor/undo",
@@ -1079,59 +1170,60 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "/api/projects/create",
             "/api/graph-layout/update",
             "/api/diagnostics/repair",
-        }:
+        }
+        if parsed.path not in allowed_paths:
             return self.send_api_error("未知接口", HTTPStatus.NOT_FOUND)
         if not self.local_host():
             return self.send_api_error("只允许从本机访问写入服务", HTTPStatus.FORBIDDEN)
         if not self.authorized():
             return self.send_api_error("本地写入授权已失效，正在重新连接本地服务", HTTPStatus.FORBIDDEN)
+        store = None
         try:
             payload = self.read_json()
             if parsed.path == "/api/refactor/preview":
-                return self.preview_refactor(payload)
-            if parsed.path == "/api/refactor/apply":
-                return self.apply_refactor(payload)
-            if parsed.path == "/api/relationships/create":
-                return self.create_relationship(payload)
-            if parsed.path == "/api/relationships/update":
-                return self.update_relationship(payload)
-            if parsed.path == "/api/characters/create":
-                return self.create_character(payload)
-            if parsed.path == "/api/characters/update":
-                return self.update_character(payload)
-            if parsed.path == "/api/characters/scope":
-                return self.update_character_scope(payload)
-            if parsed.path == "/api/entries/save":
-                return self.save_entry(payload)
-            if parsed.path == "/api/fragments/save":
-                return self.save_fragment(payload)
-            if parsed.path == "/api/records/delete":
-                return self.delete_record(payload)
-            if parsed.path == "/api/records/trash/restore":
-                return self.restore_record(payload)
-            if parsed.path == "/api/plots/create":
-                return self.create_plot(payload)
-            if parsed.path == "/api/plots/update":
-                return self.update_plot(payload)
-            if parsed.path == "/api/plots/delete":
-                return self.delete_plot(payload)
-            if parsed.path == "/api/plots/trash/restore":
-                return self.restore_plot(payload)
-            if parsed.path == "/api/timeline/update":
-                return self.update_timeline(payload)
-            if parsed.path == "/api/project/update":
-                return self.update_project(payload)
-            if parsed.path == "/api/projects/create":
-                return self.create_project(payload)
-            if parsed.path == "/api/graph-layout/update":
-                return self.update_graph_layout(payload)
-            if parsed.path == "/api/diagnostics/repair":
-                return self.repair_diagnostics(payload)
-            return self.undo_refactor(payload)
+                project = self.project_id(payload.get("project", ""))
+                self.project_root(project)
+                with self.server.sqlite.write_lock:
+                    self.server.sqlite.store(project).materialize_exports(clean=True)
+                    return self.dispatch_post(parsed.path, payload)
+            project = self.mutation_project_id(parsed.path, payload)
+            with self.server.sqlite.write_lock:
+                if parsed.path != "/api/projects/create":
+                    store = self.server.sqlite.store(project)
+                    store.materialize_exports(clean=True)
+                self._defer_json_response = True
+                self._pending_json_response = None
+                self.dispatch_post(parsed.path, payload)
+                if parsed.path == "/api/projects/create":
+                    store = self.server.sqlite.initialize_project(project)
+                else:
+                    store.capture_from_exports(parsed.path)
+                    store.materialize_exports(clean=True)
+                self.flush_deferred_json()
         except ValueError as error:
+            self._defer_json_response = False
+            self._pending_json_response = None
+            if store:
+                store.materialize_exports(clean=True)
             return self.send_api_error(str(error))
         except OSError as error:
+            self._defer_json_response = False
+            self._pending_json_response = None
+            if store:
+                store.materialize_exports(clean=True)
             return self.send_api_error(f"文件操作失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+        except sqlite3.Error as error:
+            self._defer_json_response = False
+            self._pending_json_response = None
+            if store:
+                store.materialize_exports(clean=True)
+            return self.send_api_error(f"数据库事务失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+        except RuntimeError:
+            self._defer_json_response = False
+            self._pending_json_response = None
+            if store:
+                store.materialize_exports(clean=True)
+            return self.send_api_error("写入没有完成，数据库内容未改变", HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def locate_target(self, project_root, target_type, target_id):
         project_root = project_root.resolve()

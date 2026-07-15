@@ -136,7 +136,7 @@ Treat hidden work as work that should not exist yet.
 
 Prefer asynchronous, cancellable work whenever an operation crosses an I/O, rendering, or expensive-computation boundary.
 
-* Load independent Markdown collections and configuration files concurrently.
+* Load independent SQLite collections and configuration records concurrently. Keep the same concurrency behavior in static mode when generated Markdown exports are used.
 * Yield to the main thread between expensive model-building phases so navigation and input remain responsive.
 * Batch scroll and resize rendering through `requestAnimationFrame`; do not render directly for every event.
 * Cancel or invalidate pending work when the user switches pages, reverses the timeline, or starts a newer render.
@@ -147,19 +147,25 @@ Prefer asynchronous, cancellable work whenever an operation crosses an I/O, rend
 
 Treat novel content as user data rather than application source.
 
-* Markdown files are persistence only. Do not require the user to open or edit local source files for routine content or configuration changes; provide the corresponding interface and localhost write API instead.
-* When a persisted structure needs migration, perform it through the application's validated write path and keep the UI as the ongoing source of operations.
+* SQLite (`content/<project>/story.db`) is the canonical local data source. Markdown and JSON files under a content package are deterministic generated exports, not writable sources of truth.
+* Do not require the user to open or edit local source files for routine content or configuration changes; provide the corresponding interface and localhost write API instead.
+* Local reads must come from SQLite. Static deployments may read the generated exports in read-only mode.
+* Never import generated exports over an existing database during normal startup. Import Markdown only for the one-time initial migration or an explicit recovery operation requested by the user.
+* Every mutation must validate first, commit the complete result to SQLite transactionally, regenerate affected exports, then return success. If the database transaction fails, restore exports from the database and return an error.
+* Preserve flexible Markdown article bodies as text values inside SQLite. Structured identity, ordering, collection, transaction, and retention data must remain queryable and validated by the storage layer.
+* Keep `story.db` eligible for Git tracking. It contains the full backup, including data whose generated export is ignored, such as the seven-day trash. Never commit SQLite journal, WAL, or shared-memory sidecar files.
+* When a persisted structure needs migration, version the SQLite schema, migrate it through tested application code, and keep the UI as the ongoing source of operations. Reject databases created by a newer unsupported schema instead of silently rewriting them.
 * Treat edits as partial updates. Preserve fields that the current form does not own, including unknown extension fields, stable IDs, article order, graph coordinates, event references, and other relationships.
 * Add round-trip tests for write APIs: seed a record with managed and unmanaged metadata, save through the API, reload it, and assert that only intended fields changed.
 
 * Serve the frontend and local mutation APIs from the same loopback-only process and port.
 * Never expose content mutation endpoints beyond `127.0.0.1` or `localhost`.
-* Restrict every write to the selected `content/<project>/` directory and Markdown files within it.
+* Restrict every write to the selected `content/<project>/` directory, its `story.db`, and its generated exports.
 * Require a preview before applying a bulk rename. Show affected files, lines, and replacement counts.
 * Keep stable IDs unchanged when renaming a display name. Character files use `ID-姓名.md`, and relationship files use `ID-姓名__ID-姓名.md`; rename these files in the same operation so filenames remain readable without changing relationship IDs.
 * Include file moves in the preview. Check that contents and source paths still match the preview, reject destination conflicts, use atomic replacement and moves, and retain one safe undo operation that restores both contents and filenames.
 * Public or static deployments must remain read-only without presenting failed write controls as available.
-* Use the generated `content-index.json` as the shared discovery format for localhost and static deployment. Local scanning refreshes this file; `manifest.md` contains project metadata rather than a second hand-maintained file list.
+* Use SQLite discovery for localhost. Keep the generated `content-index.json` only as the discovery format for static read-only deployment; `manifest.md` contains exported project metadata rather than a second hand-maintained file list.
 
 ## After finishing
 

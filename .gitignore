@@ -13,3 +13,6 @@ content/*
 test-results/
 playwright-report/
 tests/e2e/.runtime-content/
+story.db-journal
+story.db-wal
+story.db-shm
