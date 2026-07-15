@@ -1515,6 +1515,7 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
 
         aliases = clean_list("aliases", "人物别名")
         markers = clean_list("markers", "人物标识")
+        supplements = clean_values(payload.get("supplements"), "人物补充设定", 60, 600)
         avatar = clean_text(payload.get("avatar"), "头像路径", 500)
         facts = payload.get("facts", {})
         if not isinstance(facts, dict) or len(facts) > 30:
@@ -1568,6 +1569,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             for label, value in facts.items():
                 clean_label = clean_text(label, "档案字段名", 60, required=True)
                 fields.append(f"  {clean_label}: {json.dumps(str(value), ensure_ascii=False)}")
+        if supplements:
+            fields.append(f"supplements: {json.dumps(supplements, ensure_ascii=False)}")
         content = "\n".join((*fields, "---", intro, ""))
 
         characters_root.mkdir(parents=True, exist_ok=True)
@@ -1626,6 +1629,8 @@ class StoryTellerHandler(SimpleHTTPRequestHandler):
             "graphVisible": False if payload.get("graphVisible") is False else None,
             "facts": {clean_text(label, "档案字段名", 60, True): clean_text(value, "档案字段值", 300) for label, value in facts.items()},
         }
+        if "supplements" in payload:
+            managed_values["supplements"] = clean_values(payload.get("supplements"), "人物补充设定", 60, 600)
         updated = original
         for key, value in managed_values.items():
             if value is None or value == "" or value == [] or value == {}:

@@ -7,6 +7,7 @@ function characterSearchValues(person) {
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
+    ...(person.supplements || []),
     ...characterRelationshipSearchValues(person),
   ];
 }
@@ -493,6 +494,7 @@ async function createCharacterFromDialog(event) {
       color: characterCreateColor?.value || "#3f7fc1",
       aliases: commaSeparatedValues(characterCreateAliases?.value),
       markers: commaSeparatedValues(characterCreateMarkers?.value),
+      supplements: bulletNoteLines(characterCreateSupplements?.value),
       intro: characterCreateIntro?.value.trim() || "",
     });
     setCharacterCreateStatus(`已创建 ${result.name}（ID ${result.id}）`, "success");
@@ -720,6 +722,23 @@ function renderCharacterDetail() {
             </div>
           `).join("")}
         </dl>
+      </section>
+    ` : ""}
+
+    ${person.supplements.length ? `
+      <section class="character-section character-supplement-section" style="--accent:${escapeHtml(person.color)}">
+        <div class="section-title">
+          <p class="label">补充设定</p>
+          <h3>${person.supplements.length} 条</h3>
+        </div>
+        <ol class="character-supplement-list" aria-label="${escapeHtml(person.name)}的补充设定">
+          ${person.supplements.map((note, index) => `
+            <li class="character-supplement-item">
+              <span aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>
+              <p>${escapeHtml(note)}</p>
+            </li>
+          `).join("")}
+        </ol>
       </section>
     ` : ""}
 

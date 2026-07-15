@@ -5956,6 +5956,42 @@ button.plot-place-item:focus-visible {
   line-height: 1.5;
 }
 
+.character-supplement-list {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
+  padding: 0;
+  list-style: none;
+}
+
+.character-supplement-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
+  padding: 11px 4px;
+}
+
+.character-supplement-item > span {
+  padding-top: 2px;
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.character-supplement-item p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #354256;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.7;
+}
+
 .character-avatar {
   width: 108px;
   height: 108px;

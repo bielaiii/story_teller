@@ -176,6 +176,7 @@ const characterCreateColor = document.querySelector("#characterCreateColor");
 const characterCreateAliases = document.querySelector("#characterCreateAliases");
 const characterCreateMarkers = document.querySelector("#characterCreateMarkers");
 const characterCreateIntro = document.querySelector("#characterCreateIntro");
+const characterCreateSupplements = document.querySelector("#characterCreateSupplements");
 const characterGroupSuggestions = document.querySelector("#characterGroupSuggestions");
 const placeList = document.querySelector("#placeList");
 const placeDetail = document.querySelector("#placeDetail");

@@ -841,6 +841,9 @@ async function loadMarkdownData() {
         aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
         markers: Array.isArray(meta.markers) ? meta.markers : (meta.marker ? [meta.marker] : []),
         facts: normalizeFacts(meta.facts),
+        supplements: Array.isArray(meta.supplements)
+          ? meta.supplements.map((item) => String(item || "").trim()).filter(Boolean)
+          : [],
         mainPlotImpact: normalizeMainPlotImpact(meta.mainPlotImpact),
         side: String(meta.side || "中立").trim(),
         characterScope: normalizeCharacterScope(meta.characterScope, meta.graphVisible),

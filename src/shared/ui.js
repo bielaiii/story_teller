@@ -631,6 +631,7 @@ function personMatchesSearch(person) {
     person.intro,
     ...characterMarkers(person),
     ...characterFactSearchValues(person),
+    ...(person.supplements || []),
     ...characterRelationshipSearchValues(person),
     ...relatedPlots.map((plot) => `${plot.title} ${plot.text}`),
   ]

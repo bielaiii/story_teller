@@ -38,6 +38,18 @@ class FrontendNavigationTests(unittest.TestCase):
         self.assertTrue(mobile_rules)
         self.assertRegex(mobile_rules[0], re.compile(r"\.character-facts\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)", re.S))
 
+    def test_character_supplements_have_edit_create_search_and_detail_surfaces(self):
+        markup = (ROOT / "index.html").read_text(encoding="utf-8")
+        model = (ROOT / "src" / "core" / "model.js").read_text(encoding="utf-8")
+        characters = (ROOT / "src" / "views" / "characters.js").read_text(encoding="utf-8")
+        editor = (ROOT / "src" / "features" / "content-manager.js").read_text(encoding="utf-8")
+        server = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn('id="characterCreateSupplements"', markup)
+        self.assertIn("supplements: Array.isArray(meta.supplements)", model)
+        self.assertIn('class="character-section character-supplement-section"', characters)
+        self.assertIn('contentEditorField("ceSupplements"', editor)
+        self.assertIn('managed_values["supplements"]', server)
+
     def test_editing_ui_does_not_reload_or_replace_the_page(self):
         forbidden = {
             "location.reload": re.compile(r"\blocation\.reload\s*\("),

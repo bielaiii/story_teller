@@ -238,7 +238,8 @@ async function openContentEditor(kind, record = null, options = {}) {
       ${contentEditorField("ceAliases", "别名", editorListValue(record?.aliases))}
       ${contentEditorField("ceMarkers", "人物标识", editorListValue(record?.markers))}
       ${contentEditorField("ceFacts", "档案信息（每行一个“名称：内容”）", editorFactsValue(record?.facts), { type: "textarea", wide: true, rows: 4 })}
-      ${contentEditorField("ceIntro", "人物设定（每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 8 })}
+      ${contentEditorField("ceIntro", "核心设定（大方向，每行一条）", record?.intro || "", { type: "textarea", wide: true, rows: 7 })}
+      ${contentEditorField("ceSupplements", "补充设定（每行一条）", (record?.supplements || []).join("\n"), { type: "textarea", wide: true, rows: 8 })}
       <label class="content-editor-check is-wide"><input id="ceGraphVisible" type="checkbox" ${record?.graphVisible === false ? "" : "checked"} /><span>在人物图谱中显示</span></label>
       ${!creating ? '<p class="content-editor-note is-wide">修改人物姓名时，系统会先列出所有受影响的文件、引用和文件改名；确认后再批量重构。</p><section class="content-editor-rename-preview is-wide is-hidden" id="contentEditorRenamePreview" aria-live="polite"></section>' : ""}
     `;
@@ -368,7 +369,7 @@ async function saveContentEditor(event) {
         status.textContent = "正在原子保存档案、姓名和已确认引用…";
       }
       path = creating ? "/api/characters/create" : "/api/characters/update";
-      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
+      payload = { ...payload, id: form.dataset.recordId, name: currentName, narrativeRole: value("ceRole"), characterScope: value("ceScope"), side: value("ceSide"), group: value("ceGroup"), mainPlotImpact: Number(value("ceImpact") || 50), color: value("ceColor"), avatar: value("ceAvatar"), aliases: commaSeparatedValues(value("ceAliases")), markers: commaSeparatedValues(value("ceMarkers")), facts: editorFactsObject(value("ceFacts")), intro: value("ceIntro"), supplements: bulletNoteLines(value("ceSupplements")), graphVisible: Boolean(document.querySelector("#ceGraphVisible")?.checked), renameOperationId: form.dataset.renameOperationId || "", referenceIds: [...form.querySelectorAll("[data-reference-id]:checked")].map((input) => input.dataset.referenceId) };
     } else if (kind === "relationship") {
       path = "/api/relationships/update";
       payload = { ...payload, id: form.dataset.recordId, firstRole: value("ceFirstRole"), secondRole: value("ceSecondRole"), label: value("ceLabel"), type: value("ceType"), color: value("ceColor") };

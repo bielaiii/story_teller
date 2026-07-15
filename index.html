@@ -439,7 +439,7 @@
               <div>
                 <p class="eyebrow">New Character</p>
                 <h3 id="characterCreateTitle">新建人物档案</h3>
-                <p>保存后自动分配稳定 ID，并生成独立的人物 Markdown 文件。</p>
+                <p>保存后自动分配稳定 ID，并写入本地内容库。</p>
               </div>
               <button class="character-create-close icon-action" id="characterCreateClose" type="button" aria-label="关闭新建人物窗口" title="关闭"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
             </div>
@@ -494,8 +494,12 @@
                 <input id="characterCreateMarkers" type="text" placeholder="例如：记者，知情者" />
               </label>
               <label class="character-create-wide">
-                <span>人物简介</span>
-                <textarea id="characterCreateIntro" rows="5" maxlength="20000" placeholder="写下人物身份、目标和当前设定。"></textarea>
+                <span>核心设定 <small>人物的大方向</small></span>
+                <textarea id="characterCreateIntro" rows="5" maxlength="20000" placeholder="每行一条，例如人物目标、核心矛盾和成长方向。"></textarea>
+              </label>
+              <label class="character-create-wide">
+                <span>补充设定 <small>每行一条</small></span>
+                <textarea id="characterCreateSupplements" rows="5" placeholder="例如习惯、反应方式、特殊经历等补充细节。"></textarea>
               </label>
             </div>
             <div class="character-create-actions">
