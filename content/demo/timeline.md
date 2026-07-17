@@ -1,13 +1,25 @@
 ---
+version: 3
 mainLine: 主线
 lineSpacing: 54
 topPadding: 54
 sidePadding: 34
-palette: ["#3f7fc1", "#d65f8f", "#3ba878", "#df8d35", "#7164c9", "#2c9fb3", "#d95b6b", "#6676c7"]
+pixelsPerStoryUnit: 760
 ---
+## Lines
 
-# Timeline Layout
-
-剧情节点的位置不在这里逐项配置。
-
-纵向顺序来自剧情文件的 `sequence`，横向剧情线来自 `lanes`；本文件只保留全局视觉参数。
+- name: 主线
+  color: '#3f7fc1'
+  side: center
+- name: 电台线
+  color: '#d65f8f'
+  side: right
+- name: 旧案线
+  color: '#3ba878'
+  side: left
+- name: 港区线
+  color: '#df8d35'
+  side: right
+- name: 手稿线
+  color: '#7164c9'
+  side: left

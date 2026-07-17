@@ -72,7 +72,9 @@ The visual direction is a light, interactive writing workspace for organizing a 
 Core style:
 
 * Use a light, soft, semi-transparent workspace style with subtle shadows and restrained glass-like panels.
+* Clean white is the default fill for content-bearing surfaces, including page backgrounds, graph and timeline canvases, reading areas, ordinary cards, lists, dialogs, editor panes, toolbars, and form fields. Use restrained mint, blue, rose, or gold for identity, status, selection, metadata, borders, and other meaningful accents. Never recolor an established white surface merely to avoid a neutral fill; avoid flat black and neutral gray when an accent is actually needed.
 * Keep the interface calm and mature. It can feel alive, but avoid childish bounce, excessive glow, loud decoration, or over-animated effects.
+* Animation direction, spatial layout, and interaction logic must follow ordinary human intuition. Motion should agree with the direction and cause of the user's action, related controls and content should be placed according to their visible relationship, and every action should produce the result a person would naturally expect without requiring implementation knowledge.
 * Do not style ordinary actions as tags, chips, badges, or pill buttons. Reserve those compact forms for metadata and filter states.
 * Never synthesize a visible `全部` tag/chip inside tag or status filters. Multi-select filters default to all real values selected; single-select filters use an internal no-filter state or an ordinary select control, without rendering that state as a fake tag.
 * When an internal no-filter state is represented by all real filter chips being active, clicking one chip narrows to that value and clicking the active chip again returns to the all-real-values state.

@@ -61,9 +61,21 @@ for pid in $(listener_pids); do
 done
 
 cd "$ROOT"
+"$ROOT/scripts/build_frontend.sh"
+
+PROJECT=${DEFAULT_PROJECT:-demo}
+PROJECT_ROOT="$CONTENT_ROOT/$PROJECT"
+if [ ! -f "$PROJECT_ROOT/story.db" ]; then
+  printf '找不到内容包数据库：%s\n' "$PROJECT_ROOT/story.db" >&2
+  exit 1
+fi
+printf '正在检查内容包 %s…\n' "$PROJECT"
+"$ROOT/scripts/python.sh" -m storyteller.bootstrap "$PROJECT_ROOT"
+
 printf '正在启动 Story Teller：http://127.0.0.1:%s/\n' "$PORT"
-exec python3 server.py \
+exec "$ROOT/scripts/python.sh" -m storyteller \
   --bind 127.0.0.1 \
   --port "$PORT" \
   --content-root "$CONTENT_ROOT" \
+  --frontend-root "$ROOT/dist" \
   --default-project "$DEFAULT_PROJECT"

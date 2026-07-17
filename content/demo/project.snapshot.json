@@ -1,0 +1,1213 @@
+{
+  "chapters": [
+    {
+      "entityId": "chapter:act1",
+      "id": "act1",
+      "label": "旧港篇",
+      "revision": 1,
+      "sortKey": "000000000001000000000000"
+    },
+    {
+      "entityId": "chapter:act2",
+      "id": "act2",
+      "label": "电台篇",
+      "revision": 1,
+      "sortKey": "000000000002000000000000"
+    },
+    {
+      "entityId": "chapter:act3",
+      "id": "act3",
+      "label": "水闸篇",
+      "revision": 1,
+      "sortKey": "000000000003000000000000"
+    }
+  ],
+  "characters": [
+    {
+      "aliases": [
+        "阿秋"
+      ],
+      "characterScope": "常驻人物",
+      "color": "#2aa79b",
+      "entityId": "character:1",
+      "extra": {},
+      "facts": {
+        "关系": "乔弥的旧友",
+        "职业": "档案修复师"
+      },
+      "gradient": "linear-gradient(135deg, #2aa79b, #3867b7)",
+      "graphVisible": null,
+      "group": "主角团",
+      "id": "1",
+      "intro": "旧港档案馆修复师，负责整理一批被火烧过的航海日记。",
+      "introPreview": "旧港档案馆修复师，负责整理一批被火烧过的航海日记。",
+      "mainPlotImpact": 100,
+      "markers": [
+        "男主",
+        "主角团"
+      ],
+      "name": "林秋",
+      "narrativeRole": "主角",
+      "references": [
+        "plot:1",
+        "plot:3",
+        "plot:6"
+      ],
+      "revision": 1,
+      "side": "主角方",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "常驻人物",
+      "color": "#df7655",
+      "entityId": "character:2",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #df7655, #8e63d8)",
+      "graphVisible": null,
+      "group": "旧案相关",
+      "id": "2",
+      "intro": "沉默的海事律师，正在追查十五年前失踪船队的赔偿案。",
+      "introPreview": "沉默的海事律师，正在追查十五年前失踪船队的赔偿案。",
+      "mainPlotImpact": 85,
+      "markers": [
+        "主角",
+        "中立"
+      ],
+      "name": "沈砚",
+      "narrativeRole": "主角",
+      "references": [
+        "plot:2",
+        "plot:4",
+        "plot:7"
+      ],
+      "revision": 1,
+      "side": "主角方",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "常驻人物",
+      "color": "#3f7fc1",
+      "entityId": "character:3",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #3f7fc1, #435fb8)",
+      "graphVisible": null,
+      "group": "主角团",
+      "id": "3",
+      "intro": "夜航电台主持人，能收到不属于当前时间的求救信号。",
+      "introPreview": "夜航电台主持人，能收到不属于当前时间的求救信号。",
+      "mainPlotImpact": 75,
+      "markers": [
+        "女主",
+        "主角团"
+      ],
+      "name": "苏眠",
+      "narrativeRole": "主角",
+      "references": [
+        "plot:1",
+        "plot:5",
+        "plot:8"
+      ],
+      "revision": 1,
+      "side": "主角方",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "常驻人物",
+      "color": "#d65f8f",
+      "entityId": "character:4",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #d65f8f, #d99a2e)",
+      "graphVisible": null,
+      "group": "港区相关",
+      "id": "4",
+      "intro": "码头修船厂老板，掌握港区地下仓库的钥匙。",
+      "introPreview": "码头修船厂老板，掌握港区地下仓库的钥匙。",
+      "mainPlotImpact": 75,
+      "markers": [
+        "主角",
+        "主角团"
+      ],
+      "name": "乔鸢",
+      "narrativeRole": "主角",
+      "references": [
+        "plot:3",
+        "plot:5",
+        "plot:9"
+      ],
+      "revision": 1,
+      "side": "主角方",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "常驻人物",
+      "color": "#68aa5b",
+      "entityId": "character:5",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #68aa5b, #d8782e)",
+      "graphVisible": null,
+      "group": "旧案相关",
+      "id": "5",
+      "intro": "失踪船长的儿子，表面经营咖啡馆，暗中收集潮汐记录。",
+      "introPreview": "失踪船长的儿子，表面经营咖啡馆，暗中收集潮汐记录。",
+      "mainPlotImpact": 60,
+      "markers": [
+        "中立"
+      ],
+      "name": "韩溯",
+      "narrativeRole": "配角",
+      "references": [
+        "plot:2",
+        "plot:6",
+        "plot:9"
+      ],
+      "revision": 1,
+      "side": "中立",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "常驻人物",
+      "color": "#d8b64a",
+      "entityId": "character:6",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #d8b64a, #f77f00)",
+      "graphVisible": null,
+      "group": "神秘人物",
+      "id": "6",
+      "intro": "城市传说作家，小说内容常常提前写出现实中的事故。",
+      "introPreview": "城市传说作家，小说内容常常提前写出现实中的事故。",
+      "mainPlotImpact": 55,
+      "markers": [
+        "反派"
+      ],
+      "name": "严白",
+      "narrativeRole": "配角",
+      "references": [
+        "plot:4",
+        "plot:7",
+        "plot:8"
+      ],
+      "revision": 1,
+      "side": "反派方",
+      "supplements": []
+    },
+    {
+      "aliases": [],
+      "characterScope": "一次性角色",
+      "color": "#7d6bd6",
+      "entityId": "character:7",
+      "extra": {},
+      "facts": {},
+      "gradient": "linear-gradient(135deg, #7d6bd6, #6752c9)",
+      "graphVisible": null,
+      "group": "港区相关",
+      "id": "7",
+      "intro": "只在旧港仓库短暂出现的钥匙保管人，目前只和乔鸢有明确关系。",
+      "introPreview": "只在旧港仓库短暂出现的钥匙保管人，目前只和乔鸢有明确关系。",
+      "mainPlotImpact": 40,
+      "markers": [
+        "中立"
+      ],
+      "name": "莫岚",
+      "narrativeRole": "配角",
+      "references": [
+        "plot:3"
+      ],
+      "revision": 1,
+      "side": "中立",
+      "supplements": []
+    }
+  ],
+  "entries": [
+    {
+      "accent": "#68aa5b",
+      "aliases": [
+        "赔偿案",
+        "空白证人案"
+      ],
+      "area": "旧港",
+      "body": "围绕失踪船队展开的旧案，官方记录中证人名单被抹去，赔偿流程也被刻意拖延。它不是单一章节，而是持续影响沈砚调查方向的背景事件。",
+      "bodyPreview": "围绕失踪船队展开的旧案，官方记录中证人名单被抹去，赔偿流程也被刻意拖延。它不是单一章节，而是持续影响沈砚调查方向的背景事件。",
+      "entityId": "entry:compensation-case",
+      "extra": {},
+      "id": "compensation-case",
+      "name": "失踪船队赔偿案",
+      "people": [
+        "character:2",
+        "character:5"
+      ],
+      "references": [
+        "character:2",
+        "character:5",
+        "plot:2",
+        "plot:6"
+      ],
+      "revision": 1,
+      "status": "已接入",
+      "subtype": "旧案",
+      "tags": [
+        "旧案",
+        "证人",
+        "赔偿"
+      ],
+      "type": "事件背景"
+    },
+    {
+      "accent": "#d65f8f",
+      "aliases": [
+        "修船厂圈子",
+        "港区人脉"
+      ],
+      "area": "修船厂后街",
+      "body": "围绕修船厂、仓库和旧码头形成的松散人脉网络。它不像公司那样有明确章程，也不是公开组织，但能影响谁能进入仓库、谁能拿到钥匙、谁会在水闸开启前收到消息。",
+      "bodyPreview": "围绕修船厂、仓库和旧码头形成的松散人脉网络。它不像公司那样有明确章程，也不是公开组织，但能影响谁能进入仓库、谁能拿到钥匙、谁会在水闸开启前收到消息。",
+      "entityId": "entry:harbor-repair-network",
+      "extra": {},
+      "id": "harbor-repair-network",
+      "name": "港区修船人脉",
+      "people": [
+        "character:4",
+        "character:7"
+      ],
+      "references": [
+        "character:4",
+        "character:7",
+        "plot:3",
+        "plot:5",
+        "plot:9"
+      ],
+      "revision": 1,
+      "status": "待展开",
+      "subtype": "地方人脉",
+      "tags": [
+        "港区",
+        "修船厂",
+        "人脉"
+      ],
+      "type": "势力"
+    },
+    {
+      "accent": "#2aa79b",
+      "aliases": [
+        "档案馆",
+        "海事档案室"
+      ],
+      "area": "旧港",
+      "body": "旧港边缘的海事档案馆，收藏着大量受潮、烧焦、编号错乱的航海记录。林秋在这里修复残页，也第一次发现失踪船队的编号被人为抹去。",
+      "bodyPreview": "旧港边缘的海事档案馆，收藏着大量受潮、烧焦、编号错乱的航海记录。林秋在这里修复残页，也第一次发现失踪船队的编号被人为抹去。",
+      "entityId": "entry:archive",
+      "extra": {},
+      "id": "archive",
+      "name": "旧港档案馆",
+      "people": [
+        "character:1",
+        "character:3"
+      ],
+      "references": [
+        "character:1",
+        "character:3",
+        "plot:1",
+        "plot:6"
+      ],
+      "revision": 1,
+      "status": "已接入",
+      "subtype": "公共建筑",
+      "tags": [
+        "旧港",
+        "档案",
+        "船队"
+      ],
+      "type": "地点"
+    },
+    {
+      "accent": "#df7655",
+      "aliases": [
+        "后街餐厅",
+        "半潮"
+      ],
+      "area": "修船厂后街",
+      "body": "只在夜里营业的小餐厅，靠窗的位置能看见旧码头的灯。很多匿名包裹、旧照片和不该被听见的谈话都曾在这里短暂停留。",
+      "bodyPreview": "只在夜里营业的小餐厅，靠窗的位置能看见旧码头的灯。很多匿名包裹、旧照片和不该被听见的谈话都曾在这里短暂停留。",
+      "entityId": "entry:night-restaurant",
+      "extra": {},
+      "id": "night-restaurant",
+      "name": "半潮餐厅",
+      "people": [
+        "character:2",
+        "character:6"
+      ],
+      "references": [
+        "character:2",
+        "character:6",
+        "plot:4",
+        "plot:7"
+      ],
+      "revision": 1,
+      "status": "草稿",
+      "subtype": "餐厅",
+      "tags": [
+        "修船厂",
+        "夜间",
+        "匿名包裹"
+      ],
+      "type": "地点"
+    },
+    {
+      "accent": "#3f7fc1",
+      "aliases": [
+        "午夜电台",
+        "北岸发射塔"
+      ],
+      "area": "旧港北岸",
+      "body": "一座早已停播的旧电台，夜里仍会收到短波回声。它像是整座雾港的耳朵，记录尚未发生的求救、集合地点和错误时间。",
+      "bodyPreview": "一座早已停播的旧电台，夜里仍会收到短波回声。它像是整座雾港的耳朵，记录尚未发生的求救、集合地点和错误时间。",
+      "entityId": "entry:radio-station",
+      "extra": {},
+      "id": "radio-station",
+      "name": "海雾电台",
+      "people": [
+        "character:3",
+        "character:4"
+      ],
+      "references": [
+        "character:3",
+        "character:4",
+        "plot:1",
+        "plot:5",
+        "plot:8"
+      ],
+      "revision": 1,
+      "status": "已接入",
+      "subtype": "设施",
+      "tags": [
+        "电台",
+        "短波",
+        "时间异常"
+      ],
+      "type": "地点"
+    },
+    {
+      "accent": "#d65f8f",
+      "aliases": [
+        "盐渍钥匙",
+        "仓库钥匙"
+      ],
+      "area": "旧港",
+      "body": "一把编号与航海日记残页相互对应的旧钥匙，表面残留盐渍符号。它不是普通开门工具，而是把旧港仓库、水闸工程和失踪船队串起来的关键物品。",
+      "bodyPreview": "一把编号与航海日记残页相互对应的旧钥匙，表面残留盐渍符号。它不是普通开门工具，而是把旧港仓库、水闸工程和失踪船队串起来的关键物品。",
+      "entityId": "entry:second-key",
+      "extra": {},
+      "id": "second-key",
+      "name": "第二把钥匙",
+      "people": [
+        "character:1",
+        "character:4",
+        "character:7"
+      ],
+      "references": [
+        "character:4",
+        "character:1",
+        "character:7",
+        "plot:1",
+        "plot:3"
+      ],
+      "revision": 1,
+      "status": "关键",
+      "subtype": "钥匙",
+      "tags": [
+        "钥匙",
+        "盐渍符号",
+        "主线道具"
+      ],
+      "type": "物品"
+    },
+    {
+      "accent": "#df8d35",
+      "aliases": [
+        "恒闸",
+        "水闸公司"
+      ],
+      "area": "水闸区",
+      "body": "负责维护旧港水闸和地下排水系统的公司，表面上只是承包商，暗中保存着通往地下城市的工程图和事故赔偿档案。",
+      "bodyPreview": "负责维护旧港水闸和地下排水系统的公司，表面上只是承包商，暗中保存着通往地下城市的工程图和事故赔偿档案。",
+      "entityId": "entry:harbor-gate-company",
+      "extra": {},
+      "id": "harbor-gate-company",
+      "name": "恒闸建设",
+      "people": [
+        "character:4",
+        "character:5"
+      ],
+      "references": [
+        "character:4",
+        "character:5",
+        "plot:3",
+        "plot:9"
+      ],
+      "revision": 1,
+      "status": "待展开",
+      "subtype": "公司",
+      "tags": [
+        "水闸",
+        "公司背景",
+        "地下工程"
+      ],
+      "type": "组织"
+    },
+    {
+      "accent": "#3f7fc1",
+      "aliases": [
+        "七分钟",
+        "潮汐延迟"
+      ],
+      "area": "雾港",
+      "body": "雾港部分记录与现实之间稳定错开七分钟。它像一条隐藏规则，让航海日记、广播和潮汐表都出现了相同偏差，也是判断预言是否真实发生的重要依据。",
+      "bodyPreview": "雾港部分记录与现实之间稳定错开七分钟。它像一条隐藏规则，让航海日记、广播和潮汐表都出现了相同偏差，也是判断预言是否真实发生的重要依据。",
+      "entityId": "entry:seven-minute-delay",
+      "extra": {},
+      "id": "seven-minute-delay",
+      "name": "七分钟时间差",
+      "people": [
+        "character:1",
+        "character:3",
+        "character:5"
+      ],
+      "references": [
+        "character:1",
+        "character:5",
+        "character:3",
+        "plot:6",
+        "plot:8"
+      ],
+      "revision": 1,
+      "status": "待解释",
+      "subtype": "时间异常",
+      "tags": [
+        "时间异常",
+        "潮汐",
+        "预言"
+      ],
+      "type": "规则"
+    }
+  ],
+  "fragments": [
+    {
+      "accent": "#3f7fc1",
+      "body": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
+      "bodyPreview": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
+      "entityId": "fragment:future-broadcast",
+      "extra": {},
+      "id": "future-broadcast",
+      "references": [],
+      "revision": 1,
+      "status": "灵感",
+      "tags": [
+        "电台",
+        "时间异常",
+        "开场画面"
+      ],
+      "title": "来自未来的整点报时"
+    },
+    {
+      "accent": "#d65f8f",
+      "body": "水闸打开后，地下暗河露出一截船艏。船身没有腐烂，像是刚刚停靠在城市下面。",
+      "bodyPreview": "水闸打开后，地下暗河露出一截船艏。船身没有腐烂，像是刚刚停靠在城市下面。",
+      "entityId": "fragment:hidden-ship",
+      "extra": {},
+      "id": "hidden-ship",
+      "references": [],
+      "revision": 1,
+      "status": "待发展",
+      "tags": [
+        "水闸",
+        "地下城市",
+        "失踪船队"
+      ],
+      "title": "城市下方的船"
+    },
+    {
+      "accent": "#68aa5b",
+      "body": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
+      "bodyPreview": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
+      "entityId": "fragment:rain-knocking",
+      "extra": {},
+      "id": "rain-knocking",
+      "references": [],
+      "revision": 1,
+      "status": "草稿",
+      "tags": [
+        "雨夜",
+        "恐怖感",
+        "独居"
+      ],
+      "title": "雨夜敲门声"
+    }
+  ],
+  "graph": {
+    "clusters": [],
+    "distances": [],
+    "nodes": [],
+    "settings": {
+      "center_strength": 1.0,
+      "extra_json": "{}",
+      "group_strength": 1.0,
+      "initial_jitter": 38.0,
+      "leaf_distance_extra": 48.0,
+      "leaf_strength": 1.0,
+      "node_spacing": 116.0,
+      "project_id": "demo",
+      "relationship_distance": 250.0
+    }
+  },
+  "plots": [
+    {
+      "accent": "#2aa79b",
+      "body": "## 档案馆残页\n\n林秋在档案馆复原出一页船名，烧焦边缘只留下半个船队编号。\n\n## 午夜求救\n\n苏眠的午夜电台同时收到同名船只的求救声，声音却像是从尚未发生的夜晚传来。",
+      "bodyPreview": "## 档案馆残页 林秋在档案馆复原出一页船名，烧焦边缘只留下半个船队编号。 ## 午夜求救 苏眠的午夜电台同时收到同名船只的求救声，声音却像是从尚未发生的夜晚传来。",
+      "chapterId": "chapter:act1",
+      "climax": false,
+      "entityId": "plot:1",
+      "entries": [
+        "entry:archive",
+        "entry:radio-station",
+        "entry:second-key"
+      ],
+      "extra": {},
+      "id": "1",
+      "key": false,
+      "lanes": [
+        "timeline_line:主线",
+        "timeline_line:电台线"
+      ],
+      "people": [
+        "character:1",
+        "character:3"
+      ],
+      "references": [],
+      "revision": 1,
+      "sequence": 1,
+      "sortKey": "000000000001000000000000",
+      "status": "已接入",
+      "summary": "",
+      "tags": [
+        "旧港",
+        "档案",
+        "电台",
+        "悬疑"
+      ],
+      "title": "烧焦的航海日记"
+    },
+    {
+      "accent": "#df7655",
+      "body": "沈砚发现旧案证人名单被抹去，韩溯提供的潮汐表证明船队不该在那晚出港。",
+      "bodyPreview": "沈砚发现旧案证人名单被抹去，韩溯提供的潮汐表证明船队不该在那晚出港。",
+      "chapterId": "chapter:act1",
+      "climax": false,
+      "entityId": "plot:2",
+      "entries": [
+        "entry:compensation-case",
+        "entry:night-restaurant"
+      ],
+      "extra": {},
+      "id": "2",
+      "key": false,
+      "lanes": [
+        "timeline_line:旧案线"
+      ],
+      "people": [
+        "character:2",
+        "character:5"
+      ],
+      "references": [
+        "character:2",
+        "character:5",
+        "entry:night-restaurant",
+        "entry:compensation-case"
+      ],
+      "revision": 1,
+      "sequence": 2,
+      "sortKey": "000000000002000000000000",
+      "status": "已接入",
+      "summary": "",
+      "tags": [
+        "旧案",
+        "证人",
+        "赔偿案"
+      ],
+      "title": "赔偿案的空白证人"
+    },
+    {
+      "accent": "#d65f8f",
+      "body": "乔鸢带林秋进入废弃仓库，墙上留下与日记相同的盐渍符号；莫岚只留下第二把钥匙的编号。",
+      "bodyPreview": "乔鸢带林秋进入废弃仓库，墙上留下与日记相同的盐渍符号；莫岚只留下第二把钥匙的编号。",
+      "chapterId": "chapter:act1",
+      "climax": false,
+      "entityId": "plot:3",
+      "entries": [
+        "entry:archive",
+        "entry:harbor-gate-company",
+        "entry:harbor-repair-network",
+        "entry:second-key"
+      ],
+      "extra": {},
+      "id": "3",
+      "key": false,
+      "lanes": [
+        "timeline_line:主线",
+        "timeline_line:港区线"
+      ],
+      "people": [
+        "character:1",
+        "character:4",
+        "character:7"
+      ],
+      "references": [
+        "character:4",
+        "character:1",
+        "character:7",
+        "entry:harbor-gate-company",
+        "entry:archive",
+        "entry:second-key",
+        "entry:harbor-repair-network"
+      ],
+      "revision": 1,
+      "sequence": 3,
+      "sortKey": "000000000003000000000000",
+      "status": "已接入",
+      "summary": "",
+      "tags": [
+        "仓库",
+        "钥匙",
+        "盐渍符号"
+      ],
+      "title": "仓库里的第二把钥匙"
+    },
+    {
+      "accent": "#d8b64a",
+      "body": "严白的新稿写中沈砚将收到匿名包裹，而包裹在清晨准时抵达事务所。",
+      "bodyPreview": "严白的新稿写中沈砚将收到匿名包裹，而包裹在清晨准时抵达事务所。",
+      "chapterId": "chapter:act2",
+      "climax": false,
+      "entityId": "plot:4",
+      "entries": [
+        "entry:night-restaurant"
+      ],
+      "extra": {},
+      "id": "4",
+      "key": true,
+      "lanes": [
+        "timeline_line:手稿线",
+        "timeline_line:旧案线"
+      ],
+      "people": [
+        "character:2",
+        "character:6"
+      ],
+      "references": [
+        "character:6",
+        "character:2",
+        "entry:night-restaurant"
+      ],
+      "revision": 1,
+      "sequence": 4,
+      "sortKey": "000000000004000000000000",
+      "status": "待串联",
+      "summary": "",
+      "tags": [
+        "手稿",
+        "预言",
+        "匿名包裹"
+      ],
+      "title": "提前出版的死亡章节"
+    },
+    {
+      "accent": "#3f7fc1",
+      "body": "苏眠调高旧电台频率，乔鸢听出求救声来自修船厂早已报废的短波设备。",
+      "bodyPreview": "苏眠调高旧电台频率，乔鸢听出求救声来自修船厂早已报废的短波设备。",
+      "chapterId": "chapter:act2",
+      "climax": false,
+      "entityId": "plot:5",
+      "entries": [
+        "entry:harbor-repair-network",
+        "entry:radio-station"
+      ],
+      "extra": {},
+      "id": "5",
+      "key": false,
+      "lanes": [
+        "timeline_line:港区线",
+        "timeline_line:电台线"
+      ],
+      "people": [
+        "character:3",
+        "character:4"
+      ],
+      "references": [
+        "character:3",
+        "character:4",
+        "entry:radio-station",
+        "entry:harbor-repair-network"
+      ],
+      "revision": 1,
+      "sequence": 5,
+      "sortKey": "000000000005000000000000",
+      "status": "待串联",
+      "summary": "",
+      "tags": [
+        "电台",
+        "短波",
+        "修船厂"
+      ],
+      "title": "午夜频率"
+    },
+    {
+      "accent": "#68aa5b",
+      "body": "韩溯和林秋比对日记墨迹，确认船队记录的时间比现实晚了七分钟。",
+      "bodyPreview": "韩溯和林秋比对日记墨迹，确认船队记录的时间比现实晚了七分钟。",
+      "chapterId": "chapter:act2",
+      "climax": false,
+      "entityId": "plot:6",
+      "entries": [
+        "entry:archive",
+        "entry:compensation-case",
+        "entry:seven-minute-delay"
+      ],
+      "extra": {},
+      "id": "6",
+      "key": false,
+      "lanes": [
+        "timeline_line:主线",
+        "timeline_line:旧案线"
+      ],
+      "people": [
+        "character:1",
+        "character:5"
+      ],
+      "references": [
+        "character:5",
+        "character:1",
+        "entry:archive",
+        "entry:seven-minute-delay"
+      ],
+      "revision": 1,
+      "sequence": 6,
+      "sortKey": "000000000006000000000000",
+      "status": "已接入",
+      "summary": "",
+      "tags": [
+        "潮汐",
+        "时间差",
+        "日记"
+      ],
+      "title": "潮汐逆流"
+    },
+    {
+      "accent": "#df7655",
+      "body": "沈砚在严白的手稿夹层里找到父辈合影，照片背面写着同一个坐标。",
+      "bodyPreview": "沈砚在严白的手稿夹层里找到父辈合影，照片背面写着同一个坐标。",
+      "chapterId": "chapter:act3",
+      "climax": false,
+      "entityId": "plot:7",
+      "entries": [
+        "entry:night-restaurant"
+      ],
+      "extra": {},
+      "id": "7",
+      "key": false,
+      "lanes": [
+        "timeline_line:手稿线",
+        "timeline_line:旧案线"
+      ],
+      "people": [
+        "character:2",
+        "character:6"
+      ],
+      "references": [
+        "character:2",
+        "character:6",
+        "entry:night-restaurant"
+      ],
+      "revision": 1,
+      "sequence": 7,
+      "sortKey": "000000000007000000000000",
+      "status": "草稿",
+      "summary": "",
+      "tags": [
+        "旧照片",
+        "坐标",
+        "父辈"
+      ],
+      "title": "律师的旧照片"
+    },
+    {
+      "accent": "#3f7fc1",
+      "body": "苏眠播放严白未完成的结尾，广播中出现所有人的名字和最后的集合地点。",
+      "bodyPreview": "苏眠播放严白未完成的结尾，广播中出现所有人的名字和最后的集合地点。",
+      "chapterId": "chapter:act3",
+      "climax": false,
+      "entityId": "plot:8",
+      "entries": [
+        "entry:radio-station",
+        "entry:seven-minute-delay"
+      ],
+      "extra": {},
+      "id": "8",
+      "key": true,
+      "lanes": [
+        "timeline_line:主线",
+        "timeline_line:手稿线",
+        "timeline_line:电台线"
+      ],
+      "people": [
+        "character:3",
+        "character:6"
+      ],
+      "references": [
+        "character:3",
+        "character:6",
+        "entry:radio-station",
+        "entry:seven-minute-delay"
+      ],
+      "revision": 1,
+      "sequence": 8,
+      "sortKey": "000000000008000000000000",
+      "status": "待串联",
+      "summary": "",
+      "tags": [
+        "广播",
+        "集合地点",
+        "预言"
+      ],
+      "title": "尚未发生的广播"
+    },
+    {
+      "accent": "#d65f8f",
+      "body": "乔鸢打开地下水闸，韩溯发现失踪船队并非沉没，而是被藏在城市下方。",
+      "bodyPreview": "乔鸢打开地下水闸，韩溯发现失踪船队并非沉没，而是被藏在城市下方。",
+      "chapterId": "chapter:act3",
+      "climax": true,
+      "entityId": "plot:9",
+      "entries": [
+        "entry:harbor-gate-company",
+        "entry:harbor-repair-network"
+      ],
+      "extra": {},
+      "id": "9",
+      "key": false,
+      "lanes": [
+        "timeline_line:主线",
+        "timeline_line:旧案线",
+        "timeline_line:港区线"
+      ],
+      "people": [
+        "character:4",
+        "character:5"
+      ],
+      "references": [
+        "character:4",
+        "character:5",
+        "entry:harbor-gate-company",
+        "entry:harbor-repair-network"
+      ],
+      "revision": 1,
+      "sequence": 9,
+      "sortKey": "000000000009000000000000",
+      "status": "已接入",
+      "summary": "",
+      "tags": [
+        "水闸",
+        "地下城市",
+        "失踪船队"
+      ],
+      "title": "雾港开闸"
+    }
+  ],
+  "project": {
+    "extra": {},
+    "eyebrow": "Story Teller",
+    "id": "demo",
+    "revision": 0,
+    "title": "雾港纪事"
+  },
+  "readonly": true,
+  "relationships": [
+    {
+      "color": "#df7655",
+      "entityId": "relationship:1__2",
+      "from": "character:1",
+      "fromRole": "试探者",
+      "id": "1__2",
+      "label": "互相试探",
+      "revision": 1,
+      "to": "character:2",
+      "toRole": "试探者",
+      "type": "试探"
+    },
+    {
+      "color": "#2aa79b",
+      "entityId": "relationship:1__3",
+      "from": "character:1",
+      "fromRole": "盟友",
+      "id": "1__3",
+      "label": "线索共振",
+      "revision": 1,
+      "to": "character:3",
+      "toRole": "盟友",
+      "type": "同盟"
+    },
+    {
+      "color": "#d65f8f",
+      "entityId": "relationship:1__4",
+      "from": "character:1",
+      "fromRole": "盟友",
+      "id": "1__4",
+      "label": "仓库同盟",
+      "revision": 1,
+      "to": "character:4",
+      "toRole": "盟友",
+      "type": "同盟"
+    },
+    {
+      "color": "#68aa5b",
+      "entityId": "relationship:2__5",
+      "from": "character:2",
+      "fromRole": "旧案关联人",
+      "id": "2__5",
+      "label": "旧案关联",
+      "revision": 1,
+      "to": "character:5",
+      "toRole": "旧案关联人",
+      "type": "旧案"
+    },
+    {
+      "color": "#d8b64a",
+      "entityId": "relationship:2__6",
+      "from": "character:2",
+      "fromRole": "手稿调查者",
+      "id": "2__6",
+      "label": "手稿疑云",
+      "revision": 1,
+      "to": "character:6",
+      "toRole": "手稿持有者",
+      "type": "疑云"
+    },
+    {
+      "color": "#3f7fc1",
+      "entityId": "relationship:3__4",
+      "from": "character:3",
+      "fromRole": "线索提供者",
+      "id": "3__4",
+      "label": "电台线索",
+      "revision": 1,
+      "to": "character:4",
+      "toRole": "调查者",
+      "type": "线索"
+    },
+    {
+      "color": "#d8b64a",
+      "entityId": "relationship:3__6",
+      "from": "character:3",
+      "fromRole": "解读者",
+      "id": "3__6",
+      "label": "预言文本",
+      "revision": 1,
+      "to": "character:6",
+      "toRole": "预言者",
+      "type": "预言"
+    },
+    {
+      "color": "#d65f8f",
+      "entityId": "relationship:4__5",
+      "from": "character:4",
+      "fromRole": "知情人",
+      "id": "4__5",
+      "label": "港区秘密",
+      "revision": 1,
+      "to": "character:5",
+      "toRole": "知情人",
+      "type": "秘密"
+    },
+    {
+      "color": "#7d6bd6",
+      "entityId": "relationship:7__4",
+      "from": "character:7",
+      "fromRole": "秘密关联人",
+      "id": "7__4",
+      "label": "单线钥匙",
+      "revision": 1,
+      "to": "character:4",
+      "toRole": "秘密关联人",
+      "type": "秘密"
+    }
+  ],
+  "timeline": {
+    "lineSpacing": 54,
+    "lines": [
+      {
+        "color": "#3f7fc1",
+        "endPlotId": null,
+        "entityId": "timeline_line:主线",
+        "id": "主线",
+        "name": "主线",
+        "revision": 1,
+        "side": "center",
+        "sortKey": "000000000001000000000000",
+        "startPlotId": null
+      },
+      {
+        "color": "#d65f8f",
+        "endPlotId": null,
+        "entityId": "timeline_line:电台线",
+        "id": "电台线",
+        "name": "电台线",
+        "revision": 1,
+        "side": "right",
+        "sortKey": "000000000002000000000000",
+        "startPlotId": null
+      },
+      {
+        "color": "#3ba878",
+        "endPlotId": null,
+        "entityId": "timeline_line:旧案线",
+        "id": "旧案线",
+        "name": "旧案线",
+        "revision": 1,
+        "side": "left",
+        "sortKey": "000000000003000000000000",
+        "startPlotId": null
+      },
+      {
+        "color": "#df8d35",
+        "endPlotId": null,
+        "entityId": "timeline_line:港区线",
+        "id": "港区线",
+        "name": "港区线",
+        "revision": 1,
+        "side": "right",
+        "sortKey": "000000000004000000000000",
+        "startPlotId": null
+      },
+      {
+        "color": "#7164c9",
+        "endPlotId": null,
+        "entityId": "timeline_line:手稿线",
+        "id": "手稿线",
+        "name": "手稿线",
+        "revision": 1,
+        "side": "left",
+        "sortKey": "000000000005000000000000",
+        "startPlotId": null
+      }
+    ],
+    "mainLineId": "timeline_line:主线",
+    "nodes": [
+      {
+        "lineId": "timeline_line:主线",
+        "plotId": "plot:1",
+        "storySortKey": "000000000001000000000000"
+      },
+      {
+        "lineId": "timeline_line:主线",
+        "plotId": "plot:3",
+        "storySortKey": "000000000003000000000000"
+      },
+      {
+        "lineId": "timeline_line:主线",
+        "plotId": "plot:6",
+        "storySortKey": "000000000006000000000000"
+      },
+      {
+        "lineId": "timeline_line:主线",
+        "plotId": "plot:8",
+        "storySortKey": "000000000008000000000000"
+      },
+      {
+        "lineId": "timeline_line:主线",
+        "plotId": "plot:9",
+        "storySortKey": "000000000009000000000000"
+      },
+      {
+        "lineId": "timeline_line:手稿线",
+        "plotId": "plot:4",
+        "storySortKey": "000000000004000000000000"
+      },
+      {
+        "lineId": "timeline_line:手稿线",
+        "plotId": "plot:7",
+        "storySortKey": "000000000007000000000000"
+      },
+      {
+        "lineId": "timeline_line:手稿线",
+        "plotId": "plot:8",
+        "storySortKey": "000000000008000000000000"
+      },
+      {
+        "lineId": "timeline_line:旧案线",
+        "plotId": "plot:2",
+        "storySortKey": "000000000002000000000000"
+      },
+      {
+        "lineId": "timeline_line:旧案线",
+        "plotId": "plot:4",
+        "storySortKey": "000000000004000000000000"
+      },
+      {
+        "lineId": "timeline_line:旧案线",
+        "plotId": "plot:6",
+        "storySortKey": "000000000006000000000000"
+      },
+      {
+        "lineId": "timeline_line:旧案线",
+        "plotId": "plot:7",
+        "storySortKey": "000000000007000000000000"
+      },
+      {
+        "lineId": "timeline_line:旧案线",
+        "plotId": "plot:9",
+        "storySortKey": "000000000009000000000000"
+      },
+      {
+        "lineId": "timeline_line:港区线",
+        "plotId": "plot:3",
+        "storySortKey": "000000000003000000000000"
+      },
+      {
+        "lineId": "timeline_line:港区线",
+        "plotId": "plot:5",
+        "storySortKey": "000000000005000000000000"
+      },
+      {
+        "lineId": "timeline_line:港区线",
+        "plotId": "plot:9",
+        "storySortKey": "000000000009000000000000"
+      },
+      {
+        "lineId": "timeline_line:电台线",
+        "plotId": "plot:1",
+        "storySortKey": "000000000001000000000000"
+      },
+      {
+        "lineId": "timeline_line:电台线",
+        "plotId": "plot:5",
+        "storySortKey": "000000000005000000000000"
+      },
+      {
+        "lineId": "timeline_line:电台线",
+        "plotId": "plot:8",
+        "storySortKey": "000000000008000000000000"
+      }
+    ],
+    "pixelsPerStoryUnit": 760,
+    "sidePadding": 34,
+    "topPadding": 54
+  }
+}

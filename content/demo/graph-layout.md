@@ -1,10 +1,10 @@
 ---
-description: 人物图谱默认根据主线影响、关系网络和人物分组自动布局；这里仅调整全局松紧程度。
-nodeSpacing: 116
-initialJitter: 38
-relationshipDistance: 250
-leafDistanceExtra: 48
-centerStrength: 1
-groupStrength: 1
-leafStrength: 1
+description: 人物图谱由 Schema V3 结构化数据生成。
+nodeSpacing: 116.0
+initialJitter: 38.0
+relationshipDistance: 250.0
+leafDistanceExtra: 48.0
+centerStrength: 1.0
+groupStrength: 1.0
+leafStrength: 1.0
 ---
