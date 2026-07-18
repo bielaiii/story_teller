@@ -209,6 +209,11 @@ export default function CharactersPage() {
   const [relationshipEditor, setRelationshipEditor] = useState<string | "new" | null>(null);
   const [query, setQuery] = useState("");
   const [minorOpen, setMinorOpen] = useState(false);
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of snapshot.characters) counts.set(item.name, (counts.get(item.name) || 0) + 1);
+    return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [snapshot.characters]);
   const major = snapshot.characters.filter((item) => !["一次性角色", "待定角色"].includes(item.characterScope));
   const minor = snapshot.characters.filter((item) => ["一次性角色", "待定角色"].includes(item.characterScope));
   const source = minorOpen ? minor : major;
@@ -222,9 +227,9 @@ export default function CharactersPage() {
   return <section className="workspace-page character-page-new">
     <header className="page-header"><div><small>Character Workspace</small><h1>人物管理中心</h1><p>集中查看人物定位、剧情参与和关系；临时角色仍收在次级抽屉中。</p></div><div className="page-actions"><button className={`minor-toggle${minorOpen ? " is-active" : ""}`} aria-pressed={minorOpen} title={minorOpen ? "返回主要角色" : "查看临时角色"} onClick={() => setMinorOpen((value) => !value)}>{minorOpen ? "主要角色" : "临时角色"} <strong>{minorOpen ? major.length : minor.length}</strong></button>{writable && <button className="icon-button is-primary" aria-label="新建人物" title="新建人物" onClick={() => setEditor("new")}><Icon name="plus" /></button>}</div></header>
     <div className="two-column-workspace">
-      <aside className="sticky-rail character-library"><label className="rail-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、别名或分组" /></label><div className="character-list-new">{characters.map((item) => <button key={item.entityId} className={current?.entityId === item.entityId ? "is-active" : ""} onClick={() => select(item.entityId)}><span className="avatar" style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><span><strong>{item.name}</strong><small>{item.narrativeRole} · {item.characterScope}</small></span></button>)}</div></aside>
+      <aside className="sticky-rail character-library"><label className="rail-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、别名或分组" /></label><div className="character-list-new">{characters.map((item) => <button key={item.entityId} className={current?.entityId === item.entityId ? "is-active" : ""} onClick={() => select(item.entityId)}><span className="avatar" style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><span><strong>{item.name}</strong><small>{item.narrativeRole} · {item.characterScope}{duplicateNames.has(item.name) ? ` · ID ${item.id}` : ""}</small></span></button>)}</div></aside>
       <article className="sticky-detail profile-detail-panel">{current ? <>
-        <header><span className="large-avatar" style={{ background: current.gradient || current.color }}>{current.name.slice(0, 1)}</span><div><small>{current.group || "未分组"}</small><h2>{current.name}</h2><p>{current.narrativeRole} · {current.characterScope} · {current.side}</p></div>{writable && <button className="icon-button" aria-label="编辑人物档案" title="编辑档案" onClick={() => setEditor(current.entityId)}><Icon name="edit" /></button>}</header>
+        <header><span className="large-avatar" style={{ background: current.gradient || current.color }}>{current.name.slice(0, 1)}</span><div><small>{current.group || "未分组"}{duplicateNames.has(current.name) ? ` · ID ${current.id}` : ""}</small><h2>{current.name}</h2><p>{current.narrativeRole} · {current.characterScope} · {current.side}</p></div>{writable && <button className="icon-button" aria-label="编辑人物档案" title="编辑档案" onClick={() => setEditor(current.entityId)}><Icon name="edit" /></button>}</header>
         <div className="profile-kv-grid"><div><span>主线影响</span><strong>{current.mainPlotImpact}</strong></div>{Object.entries(current.facts).map(([key, value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div>
         <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item) => <div key={item.key}><dt>{item.key}</dt><dd>{item.value}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
         {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item) => <div key={item.key}><dt>{item.key}</dt><dd>{item.value}</dd></div>)}</dl></section>}

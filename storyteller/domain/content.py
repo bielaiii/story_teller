@@ -319,8 +319,6 @@ class ContentService:
         validate_character_classification(values)
 
         def mutation(connection: sqlite3.Connection):
-            if connection.execute("SELECT 1 FROM characters WHERE name=?", (name,)).fetchone():
-                raise ConflictError(f"人物名称“{name}”已经存在或在回收站中")
             stable = clean_text(payload.get("stable_id"), "人物 ID", 60) or self._next_numeric_id(connection, self.project_id, "character")
             identifier = self._create_entity(connection, "character", stable, name, now)
             impact = int(payload.get("main_plot_impact", 0))
@@ -384,11 +382,6 @@ class ContentService:
             if "main_plot_impact" in updates and not 0 <= updates["main_plot_impact"] <= 100:
                 raise DomainError("主线影响必须在 0 到 100 之间")
             if "name" in updates and str(updates["name"]) != str(row["name"]):
-                duplicate = connection.execute(
-                    "SELECT 1 FROM characters WHERE name=? AND entity_id<>?", (updates["name"], identifier)
-                ).fetchone()
-                if duplicate:
-                    raise ConflictError(f"人物名称“{updates['name']}”已经存在或在回收站中")
                 self._replace_reference_display_text(
                     connection, identifier, str(row["name"]), str(updates["name"]), now
                 )

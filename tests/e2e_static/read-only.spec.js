@@ -28,9 +28,8 @@ test("静态快照可以完整阅读且不会调用本地写入接口", async ({
   await expect(page.locator(".reader-dialog .reader-prose")).toContainText(staticSnapshot.fragments[0].body.slice(0, 20));
   await page.getByRole("button", { name: "关闭阅读" }).click();
 
-  await page.getByRole("button", { name: "检查" }).click();
-  await expect(page.getByRole("heading", { name: "快照内容" })).toBeVisible();
-  await expect(page.locator(".static-summary")).toContainText("本地 SQLite 服务");
+  await expect(page.getByRole("button", { name: "检查" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "打开回收站与撤销记录" })).toHaveCount(0);
   expect(projectRequests).toEqual([]);
   expect(writes).toEqual([]);
 });

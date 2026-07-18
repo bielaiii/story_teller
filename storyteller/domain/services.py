@@ -95,16 +95,6 @@ class EntityService:
                 raise NotFoundError("回收站中没有这项内容")
             if int(entity["purge_at"] or 0) <= timestamp:
                 raise ConflictError("这项内容已经超过七天保留期")
-            if entity["kind"] == "character":
-                name = connection.execute("SELECT name FROM characters WHERE entity_id=?", (entity_id,)).fetchone()[0]
-                duplicate = connection.execute(
-                    """
-                    SELECT 1 FROM active_characters WHERE name=? AND entity_id<>?
-                    """,
-                    (name, entity_id),
-                ).fetchone()
-                if duplicate:
-                    raise ConflictError(f"已有同名人物“{name}”，请先处理名称冲突")
             if entity["kind"] == "entry":
                 name = connection.execute("SELECT name FROM entries WHERE entity_id=?", (entity_id,)).fetchone()[0]
                 duplicate = connection.execute(

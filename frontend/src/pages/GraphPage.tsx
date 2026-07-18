@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { Character, GraphData, Relationship } from "../api/types";
-import { useRuntime } from "../api/runtime";
+import { useProjectMutation, useRuntime } from "../api/runtime";
 import { CollapsibleList } from "../components/CollapsibleList";
-import { GraphEditor } from "../components/GraphEditor";
 import { Icon } from "../components/Icon";
 import { useUiStore } from "../state/ui";
+
+const GraphEditor = lazy(async () => ({ default: (await import("../components/GraphEditor")).GraphEditor }));
 
 export interface Point { x: number; y: number }
 
@@ -54,6 +55,13 @@ function noise(value: string): number {
   return (hash >>> 0) / 4294967295;
 }
 
+function graphUsesPercentCoordinates(graph: GraphData): boolean {
+  const clusterCoordinates = graph.clusters.flatMap((item) => [item.centerX, item.centerY]).filter((value) => value != null).map(Number);
+  const anchorCoordinates = graph.nodes.flatMap((item) => [item.anchor_x, item.anchor_y]).filter((value) => value != null).map(Number);
+  const looksLikePercent = (values: number[]) => values.length > 0 && values.every((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  return looksLikePercent(clusterCoordinates) || (anchorCoordinates.length >= 6 && looksLikePercent(anchorCoordinates));
+}
+
 export function graphLayout(
   width: number,
   height: number,
@@ -69,10 +77,7 @@ export function graphLayout(
   const centerStrength = finite(graph.settings.center_strength, 1);
   const groupStrength = finite(graph.settings.group_strength, 1);
   const nodeRules = new Map(graph.nodes.map((item) => [item.character_id, item]));
-  const clusterCoordinates = graph.clusters.flatMap((item) => [item.centerX, item.centerY]).filter((value) => value != null).map(Number);
-  const anchorCoordinates = graph.nodes.flatMap((item) => [item.anchor_x, item.anchor_y]).filter((value) => value != null).map(Number);
-  const looksLikePercent = (values: number[]) => values.length > 0 && values.every((value) => Number.isFinite(value) && value >= 0 && value <= 100);
-  const percentCoordinates = looksLikePercent(clusterCoordinates) || (anchorCoordinates.length >= 6 && looksLikePercent(anchorCoordinates));
+  const percentCoordinates = graphUsesPercentCoordinates(graph);
   const coordinate = (value: unknown, extent: number, fallback: number) => {
     if (value == null || value === "") return fallback;
     const number = Number(value);
@@ -180,6 +185,7 @@ export function graphLayout(
 
 export default function GraphPage() {
   const { snapshot, writable } = useRuntime();
+  const mutation = useProjectMutation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -194,11 +200,13 @@ export default function GraphPage() {
   const followerTargetsRef = useRef(new Map<string, Point>());
   const followerPointsRef = useRef(new Map<string, Point>());
   const followerVelocityRef = useRef(new Map<string, Point>());
+  const nodeMotionActiveRef = useRef(true);
   const suppressClickRef = useRef<{ id: string; until: number } | null>(null);
   const focusViewportRef = useRef<{ x: number; y: number; scale: number } | null>(null);
   const [size, setSize] = useState({ width: 1000, height: 680 });
   const [editing, setEditing] = useState(false);
   const [manualPoints, setManualPoints] = useState<Map<string, Point>>(() => new Map());
+  const [saveMessage, setSaveMessage] = useState("");
   const selected = useUiStore((state) => state.selectedGraphCharacterId);
   const select = useUiStore((state) => state.selectGraphCharacter);
   const viewport = useUiStore((state) => state.graphViewport);
@@ -215,10 +223,6 @@ export default function GraphPage() {
   const visible = useMemo(() => snapshot.characters.filter((item) => points.has(item.entityId)), [points, snapshot.characters]);
   const motionProfiles = useMemo(() => new Map(visible.map((item) => [item.entityId, {
     phase: noise(`${item.entityId}:motion`) * Math.PI * 2,
-    speed: 1450 + noise(`${item.entityId}:speed`) * 700,
-    pace: 1720 + noise(`${item.entityId}:pace`) * 760,
-    amplitudeX: 4 + noise(`${item.entityId}:x`) * 3,
-    amplitudeY: 3 + noise(`${item.entityId}:y`) * 3,
   }])), [visible]);
   const relationships = useMemo(() => {
     const visibleIds = new Set(visible.map((item) => item.entityId));
@@ -229,6 +233,11 @@ export default function GraphPage() {
     phase: noise(`${relation.entityId}:particle-phase`),
   }])), [relationships]);
   const selectedPerson = snapshot.characters.find((item) => item.entityId === selected);
+  const duplicateCharacterNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of snapshot.characters) counts.set(item.name, (counts.get(item.name) || 0) + 1);
+    return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [snapshot.characters]);
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -245,12 +254,13 @@ export default function GraphPage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    nodeMotionActiveRef.current = true;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0;
     let lastPaint = 0;
     const draw = (now: number) => {
       frame = 0;
-      if (!reducedMotion && lastPaint && now - lastPaint < 32) {
+      if (!reducedMotion && lastPaint && now - lastPaint < 50) {
         frame = requestAnimationFrame(draw);
         return;
       }
@@ -266,17 +276,23 @@ export default function GraphPage() {
       const dragAge = Math.max(0, now - dragMotion.updatedAt);
       const dragEnergy = reducedMotion ? 0 : dragMotion.energy * Math.exp(-dragAge / 560);
       const animated = animatedPointsRef.current;
-      animated.clear();
-      for (const item of visible) {
+      const shouldMoveNodes = !reducedMotion && (
+        elapsed < 4800 || Boolean(nodeDragRef.current) || dragEnergy > .025 || followerPointsRef.current.size > 0
+      );
+      if (shouldMoveNodes || nodeMotionActiveRef.current) {
+        animated.clear();
+        for (const item of visible) {
         const point = points.get(item.entityId);
         const profile = motionProfiles.get(item.entityId);
         if (!point || !profile) continue;
-        const followerTarget = followerTargetsRef.current.get(item.entityId);
+        const followerPoint = followerPointsRef.current.get(item.entityId);
         let physicalPoint = point;
         if (nodeDragRef.current?.id === item.entityId) {
           physicalPoint = nodeDragRef.current.lastPoint;
-        } else if (followerTarget) {
-          const followerPoint = followerPointsRef.current.get(item.entityId) || { ...point };
+        } else if (followerPoint) {
+          const followerTarget = nodeDragRef.current
+            ? (followerTargetsRef.current.get(item.entityId) || point)
+            : point;
           const velocity = followerVelocityRef.current.get(item.entityId) || { x: 0, y: 0 };
           const stiffness = nodeDragRef.current ? .115 : .085;
           const damping = nodeDragRef.current ? .76 : .8;
@@ -286,10 +302,14 @@ export default function GraphPage() {
           followerPoint.y = Math.max(64, Math.min(size.height - 64, followerPoint.y + velocity.y));
           followerPointsRef.current.set(item.entityId, followerPoint);
           followerVelocityRef.current.set(item.entityId, velocity);
-          physicalPoint = followerPoint;
+          if (!nodeDragRef.current && Math.hypot(followerTarget.x - followerPoint.x, followerTarget.y - followerPoint.y) < .2 && Math.hypot(velocity.x, velocity.y) < .08) {
+            followerTargetsRef.current.delete(item.entityId);
+            followerPointsRef.current.delete(item.entityId);
+            followerVelocityRef.current.delete(item.entityId);
+          } else {
+            physicalPoint = followerPoint;
+          }
         }
-        const driftX = reducedMotion ? 0 : Math.sin(now / profile.speed + profile.phase) * profile.amplitudeX;
-        const driftY = reducedMotion ? 0 : Math.cos(now / profile.pace + profile.phase) * profile.amplitudeY;
         const follow = dragInfluenceRef.current.get(item.entityId) || 0;
         const swayAmount = nodeDragRef.current?.id === item.entityId ? 0 : dragEnergy * (.45 + Math.sqrt(follow) * 2.6);
         const swayTime = Math.max(0, now - dragMotion.startedAt);
@@ -301,10 +321,14 @@ export default function GraphPage() {
         const initialSwayY = initialSway * Math.cos(now / 420 + profile.phase * .4);
         const swayX = perpendicularX * swayWave * swayAmount + dragMotion.directionX * returnWave * swayAmount * .22;
         const swayY = perpendicularY * swayWave * swayAmount + dragMotion.directionY * returnWave * swayAmount * .22;
-        const animatedPoint = { x: physicalPoint.x + driftX + initialSwayX + swayX, y: physicalPoint.y + driftY + initialSwayY + swayY };
+        const animatedPoint = shouldMoveNodes
+          ? { x: physicalPoint.x + initialSwayX + swayX, y: physicalPoint.y + initialSwayY + swayY }
+          : point;
         animated.set(item.entityId, animatedPoint);
         const element = nodeRefs.current.get(item.entityId);
         if (element) element.style.transform = `translate(-50%, -50%) translate(${animatedPoint.x - point.x}px, ${animatedPoint.y - point.y}px)`;
+        }
+        nodeMotionActiveRef.current = shouldMoveNodes;
       }
       const context = canvas.getContext("2d");
       if (!context) return;
@@ -324,12 +348,14 @@ export default function GraphPage() {
         context.beginPath(); context.moveTo(from.x, from.y);
         context.quadraticCurveTo(control.x, control.y, to.x, to.y);
         context.strokeStyle = relation.color; context.globalAlpha = related ? .72 : .09; context.lineWidth = related ? 2.8 : 1.4; context.stroke();
-        const motion = relationshipMotion.get(relation.entityId);
-        const progress = reducedMotion ? .5 : (now / (motion?.duration || 2400) + (motion?.phase || 0)) % 1;
-        const particle = quadraticPoint(from, control, to, progress);
-        context.globalAlpha = related ? .94 : .08;
-        context.beginPath(); context.arc(particle.x, particle.y, 4.2, 0, Math.PI * 2); context.fillStyle = "rgba(255,253,247,.94)"; context.fill();
-        context.beginPath(); context.arc(particle.x, particle.y, 2.55, 0, Math.PI * 2); context.fillStyle = relation.color; context.fill();
+        if (related) {
+          const motion = relationshipMotion.get(relation.entityId);
+          const progress = reducedMotion ? .5 : (now / (motion?.duration || 2400) + (motion?.phase || 0)) % 1;
+          const particle = quadraticPoint(from, control, to, progress);
+          context.globalAlpha = .94;
+          context.beginPath(); context.arc(particle.x, particle.y, 4.2, 0, Math.PI * 2); context.fillStyle = "rgba(255,253,247,.94)"; context.fill();
+          context.beginPath(); context.arc(particle.x, particle.y, 2.55, 0, Math.PI * 2); context.fillStyle = relation.color; context.fill();
+        }
       }
       context.restore(); context.globalAlpha = 1;
       if (!reducedMotion && !document.hidden) frame = requestAnimationFrame(draw);
@@ -409,6 +435,49 @@ export default function GraphPage() {
     dragFrameRef.current = 0;
     commitDraggedPoint();
   };
+  const persistDraggedPoint = async (id: string, point: Point) => {
+    if (!writable) return;
+    setSaveMessage("正在保存位置…");
+    const percentCoordinates = graphUsesPercentCoordinates(snapshot.graph);
+    const anchorX = percentCoordinates ? point.x / Math.max(1, size.width) * 100 : point.x;
+    const anchorY = percentCoordinates ? point.y / Math.max(1, size.height) * 100 : point.y;
+    const nodes = new Map(snapshot.graph.nodes.map((item) => [item.character_id, item]));
+    const current = nodes.get(id);
+    nodes.set(id, {
+      character_id: id,
+      orbit_of: null,
+      orbit_distance: current?.orbit_distance ?? null,
+      orbit_angle: current?.orbit_angle ?? null,
+      strength: current?.strength ?? null,
+      anchor_x: anchorX,
+      anchor_y: anchorY,
+    });
+    try {
+      await mutation.mutateAsync({
+        path: "/graph",
+        method: "PUT",
+        payload: {
+          nodes: [...nodes.values()].map((item) => ({
+            characterId: item.character_id,
+            orbitOf: item.orbit_of,
+            orbitDistance: item.orbit_distance,
+            orbitAngle: item.orbit_angle,
+            strength: item.strength,
+            anchorX: item.anchor_x,
+            anchorY: item.anchor_y,
+          })),
+        },
+      });
+      setManualPoints((currentPoints) => {
+        const next = new Map(currentPoints);
+        next.delete(id);
+        return next;
+      });
+      setSaveMessage("位置已保存");
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : "位置保存失败");
+    }
+  };
   const onWheel: React.WheelEventHandler = (event) => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -418,7 +487,7 @@ export default function GraphPage() {
     setViewport({ scale, x: pointerX - worldX * scale, y: pointerY - worldY * scale });
   };
   const relatedPlots = selected ? snapshot.plots.filter((plot) => plot.people.includes(selected)) : [];
-  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div
+  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{saveMessage && <span className="graph-save-message" role="status">{saveMessage}</span>}{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div
     className="graph-canvas"
     ref={wrapRef}
     onWheel={onWheel}
@@ -443,6 +512,7 @@ export default function GraphPage() {
   ><canvas ref={canvasRef} /><div className="graph-node-layer" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}>{visible.map((item) => { const point = points.get(item.entityId)!; const related = !selected || item.entityId === selected || relationships.some((link) => (link.from === selected && link.to === item.entityId) || (link.to === selected && link.from === item.entityId)); return <button key={item.entityId} data-entity-id={item.entityId} ref={(element) => { if (element) nodeRefs.current.set(item.entityId, element); else nodeRefs.current.delete(item.entityId); }} className={`graph-node${selected === item.entityId ? " is-selected" : ""}${related ? "" : " is-muted"}`} style={{ left: point.x, top: point.y, "--node-color": item.color } as React.CSSProperties} onPointerDown={(event) => {
     if (event.button !== 0) return;
     event.stopPropagation();
+    if (mutation.isPending) return;
     const pointer = pointFromClient(event.clientX, event.clientY);
     const current = followerPointsRef.current.get(item.entityId) || points.get(item.entityId);
     if (!pointer || !current) return;
@@ -486,12 +556,16 @@ export default function GraphPage() {
     flushDraggedPoint();
     nodeDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (drag.moved) suppressClickRef.current = { id: item.entityId, until: Date.now() + 300 };
+    if (drag.moved) {
+      suppressClickRef.current = { id: item.entityId, until: Date.now() + 300 };
+      void persistDraggedPoint(item.entityId, drag.lastPoint);
+    }
   }} onPointerCancel={(event) => {
     const drag = nodeDragRef.current;
     if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
     flushDraggedPoint();
     nodeDragRef.current = null;
+    if (drag.moved) void persistDraggedPoint(item.entityId, drag.lastPoint);
   }} onClick={() => {
     const suppressed = suppressClickRef.current;
     if (suppressed?.id === item.entityId && Date.now() < suppressed.until) {
@@ -500,5 +574,5 @@ export default function GraphPage() {
     }
     suppressClickRef.current = null;
     center(item.entityId);
-  }}><span style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><strong>{item.name}</strong></button>; })}</div>{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: selectedPerson.gradient || selectedPerson.color }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}</div>{editing && <GraphEditor onClose={() => setEditing(false)} />}</section>;
+  }}><span style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><strong>{item.name}</strong></button>; })}</div>{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: selectedPerson.gradient || selectedPerson.color }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案{duplicateCharacterNames.has(selectedPerson.name) ? ` · ID ${selectedPerson.id}` : ""}</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}</div>{editing && <Suspense fallback={<div className="dialog-backdrop"><section className="recovery-loading">正在准备图谱编辑器…</section></div>}><GraphEditor onClose={() => setEditing(false)} /></Suspense>}</section>;
 }

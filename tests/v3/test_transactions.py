@@ -85,11 +85,21 @@ class V3TransactionTests(unittest.TestCase):
     def test_hard_purge_uses_foreign_key_cascade_and_vacuum(self):
         deleted = self.service.delete("character:7", self.revision(), now=4_000_000)
         result = MaintenanceService(self.database, "demo").purge_expired(now=4_000_000 + 8 * 24 * 60 * 60)
-        self.assertEqual(1, result["purgedEntities"])
+        self.assertEqual(2, result["purgedEntities"])
+        self.assertEqual(1, result["purgedRelationships"])
+        self.assertEqual(4_000_000 + 8 * 24 * 60 * 60, result["checkedAt"])
+        with self.database.read() as connection:
+            self.assertEqual(
+                str(result["checkedAt"]),
+                connection.execute(
+                    "SELECT value FROM metadata WHERE key='maintenance_last_checked_at'"
+                ).fetchone()[0],
+            )
         self.assertTrue(result["vacuumed"])
         with self.database.read() as connection:
             self.assertFalse(connection.execute("SELECT 1 FROM characters WHERE entity_id='character:7'").fetchone())
             self.assertFalse(connection.execute("SELECT 1 FROM relationships WHERE from_character_id='character:7' OR to_character_id='character:7'").fetchone())
+            self.assertFalse(connection.execute("SELECT 1 FROM entities WHERE id='relationship:7__4'").fetchone())
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
 
 

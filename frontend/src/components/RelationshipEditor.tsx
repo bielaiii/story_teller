@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { PickedReference } from "../editor/MarkdownEditor";
-import { MarkdownEditor } from "../editor/MarkdownEditor";
+import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";

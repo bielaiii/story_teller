@@ -120,14 +120,8 @@ class V3ApiTests(unittest.TestCase):
 
         database = Database(self.project_root)
         with database.write() as connection:
-            connection.execute(
-                "UPDATE characters SET name=? WHERE entity_id='character:7'",
-                (character["name"],),
-            )
-            connection.execute(
-                "UPDATE entities SET title=? WHERE id='character:7'",
-                (character["name"],),
-            )
+            connection.execute("UPDATE characters SET name=? WHERE entity_id='character:7'", (character["name"],))
+            connection.execute("UPDATE entities SET title=? WHERE id='character:7'", (character["name"],))
 
         saved = self.client.patch(
             "/api/v1/projects/demo/characters/character:1",
@@ -142,20 +136,6 @@ class V3ApiTests(unittest.TestCase):
         detail = self.client.get("/api/v1/projects/demo/entities/character:1").json()["data"]
         self.assertEqual(character["name"], detail["name"])
         self.assertEqual("姓名未变化时仍可保存", detail["facts"]["测试字段"])
-
-        with database.write() as connection:
-            connection.execute(
-                "UPDATE characters SET name='回收站占用名' WHERE entity_id='character:7'"
-            )
-        conflict = self.client.patch(
-            "/api/v1/projects/demo/characters/character:1",
-            headers=self.headers,
-            json={
-                "baseRevision": saved.json()["projectRevision"],
-                "name": "回收站占用名",
-            },
-        )
-        self.assertEqual(409, conflict.status_code, conflict.text)
 
         entry = next(item for item in snapshot["entries"] if item["entityId"] == "entry:archive")
         deleted_entry = self.client.request(
@@ -172,7 +152,6 @@ class V3ApiTests(unittest.TestCase):
                 "UPDATE entities SET title=? WHERE id='entry:compensation-case'",
                 (entry["name"],),
             )
-
         saved_entry = self.client.patch(
             "/api/v1/projects/demo/entries/entry:archive",
             headers=self.headers,
@@ -183,25 +162,44 @@ class V3ApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(200, saved_entry.status_code, saved_entry.text)
-        entry_detail = self.client.get(
-            "/api/v1/projects/demo/entities/entry:archive"
-        ).json()["data"]
+        entry_detail = self.client.get("/api/v1/projects/demo/entities/entry:archive").json()["data"]
         self.assertEqual(entry["name"], entry_detail["name"])
         self.assertEqual("名称未变化时仍可保存设定正文", entry_detail["body"])
 
-        with database.write() as connection:
-            connection.execute(
-                "UPDATE entries SET name='回收站设定占用名' WHERE entity_id='entry:compensation-case'"
-            )
-        entry_conflict = self.client.patch(
-            "/api/v1/projects/demo/entries/entry:archive",
+    def test_character_display_names_may_repeat_while_ids_remain_distinct(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        existing = snapshot["characters"][0]
+        created = self.client.post(
+            "/api/v1/projects/demo/characters",
             headers=self.headers,
             json={
-                "baseRevision": saved_entry.json()["projectRevision"],
-                "name": "回收站设定占用名",
+                "baseRevision": snapshot["project"]["revision"],
+                "name": existing["name"],
+                "narrativeRole": "配角",
+                "characterScope": "常驻人物",
+                "side": "中立",
             },
         )
-        self.assertEqual(409, entry_conflict.status_code, entry_conflict.text)
+        self.assertEqual(200, created.status_code, created.text)
+        matches = [item for item in created.json()["changed"]["characters"] if item["name"] == existing["name"]]
+        self.assertEqual(1, len(matches))
+        self.assertNotEqual(existing["entityId"], matches[0]["entityId"])
+
+        deleted = self.client.request(
+            "DELETE", f"/api/v1/projects/demo/entities/{matches[0]['entityId']}",
+            headers=self.headers,
+            json={"baseRevision": created.json()["projectRevision"]},
+        )
+        restored = self.client.post(
+            f"/api/v1/projects/demo/entities/{matches[0]['entityId']}/restore",
+            headers=self.headers,
+            json={"baseRevision": deleted.json()["projectRevision"]},
+        )
+        self.assertEqual(200, restored.status_code, restored.text)
+
+    def test_creative_diagnostics_endpoint_is_not_exposed(self):
+        response = self.client.get("/api/v1/projects/demo/diagnostics")
+        self.assertEqual(404, response.status_code)
 
     def test_editor_mutations_preserve_unowned_metadata_and_read_back_without_snapshot_reload(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
@@ -346,50 +344,6 @@ class V3ApiTests(unittest.TestCase):
             "character:1" in item["people"]
             for item in restored_payload["changed"]["plots"]
         ))
-
-    def test_diagnostics_report_deleted_references_and_ignored_reason_is_undoable(self):
-        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
-        deleted = self.client.request(
-            "DELETE", "/api/v1/projects/demo/entities/character:7",
-            headers=self.headers, json={"baseRevision": snapshot["project"]["revision"]},
-        )
-        self.assertEqual(200, deleted.status_code, deleted.text)
-        diagnostics = self.client.get("/api/v1/projects/demo/diagnostics")
-        self.assertEqual(200, diagnostics.status_code, diagnostics.text)
-        issue = next(
-            item for item in diagnostics.json()["items"]
-            if item["level"] == "warning" and "回收站" in item["detail"]
-        )
-        ignored = self.client.put(
-            f"/api/v1/projects/demo/diagnostics/{issue['id']}/ignore",
-            headers=self.headers,
-            json={
-                "baseRevision": deleted.json()["projectRevision"],
-                "reason": "等待人物设定确认",
-            },
-        )
-        self.assertEqual(200, ignored.status_code, ignored.text)
-        ignored_issue = next(
-            item for item in self.client.get("/api/v1/projects/demo/diagnostics").json()["items"]
-            if item["id"] == issue["id"]
-        )
-        self.assertTrue(ignored_issue["ignored"])
-        self.assertEqual("等待人物设定确认", ignored_issue["ignoreReason"])
-
-        undone = self.client.post(
-            "/api/v1/projects/demo/operations/undo",
-            headers=self.headers,
-            json={
-                "baseRevision": ignored.json()["projectRevision"],
-                "operationId": ignored.json()["operation"]["id"],
-            },
-        )
-        self.assertEqual(200, undone.status_code, undone.text)
-        restored_issue = next(
-            item for item in self.client.get("/api/v1/projects/demo/diagnostics").json()["items"]
-            if item["id"] == issue["id"]
-        )
-        self.assertFalse(restored_issue["ignored"])
 
     def test_structural_mutations_return_in_place_timeline_and_graph_deltas(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()

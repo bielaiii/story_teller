@@ -44,12 +44,23 @@ class BootstrapTests(unittest.TestCase):
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
             ).fetchone())
             self.assertEqual(list(connection.execute("PRAGMA foreign_key_check")), [])
+            first_revision = connection.execute("SELECT revision FROM projects WHERE id='demo'").fetchone()[0]
+            first_checked_at = int(connection.execute(
+                "SELECT value FROM metadata WHERE key='maintenance_last_checked_at'"
+            ).fetchone()[0])
 
-        migrated_digest = digest(self.project_root / "story.db")
         second = prepare_project(self.project_root)
         self.assertFalse(second["migrated"])
         self.assertTrue(second["export"]["skipped"])
-        self.assertEqual(digest(self.project_root / "story.db"), migrated_digest)
+        with sqlite3.connect(self.project_root / "story.db") as connection:
+            self.assertEqual(first_revision, connection.execute(
+                "SELECT revision FROM projects WHERE id='demo'"
+            ).fetchone()[0])
+            second_checked_at = int(connection.execute(
+                "SELECT value FROM metadata WHERE key='maintenance_last_checked_at'"
+            ).fetchone()[0])
+        self.assertEqual(second["maintenance"]["checkedAt"], second_checked_at)
+        self.assertGreaterEqual(second_checked_at, first_checked_at)
 
     def test_prepare_rejects_a_newer_database_without_replacing_it(self) -> None:
         database = self.project_root / "story.db"

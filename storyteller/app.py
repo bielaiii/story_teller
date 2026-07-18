@@ -12,7 +12,6 @@ from storyteller.api.models import (
     CharacterCreate,
     CharacterPatch,
     ChaptersUpdate,
-    DiagnosticIgnoreRequest,
     EntryCreate,
     EntryPatch,
     FragmentCreate,
@@ -30,7 +29,6 @@ from storyteller.api.models import (
     mutation_payload,
 )
 from storyteller.domain.content import ContentService
-from storyteller.domain.diagnostics import DiagnosticService
 from storyteller.domain.errors import ConflictError, DomainError, NotFoundError
 from storyteller.domain.services import EntityService
 from storyteller.domain.structure import StructureService
@@ -44,7 +42,7 @@ from storyteller.storage.repositories import ProjectRepository
 FEATURES = [
     "snapshot-v1", "delta-v1", "entity-detail-v1", "history-v2", "trash-v2",
     "soft-delete-v1", "row-undo-v1", "static-snapshot-v1", "content-mutations-v1",
-    "story-structure-v1", "graph-layout-v1", "diagnostics-v1",
+    "story-structure-v1", "graph-layout-v1",
 ]
 
 
@@ -259,18 +257,6 @@ def create_app(settings: Settings) -> FastAPI:
     def trash(project: str, limit: int = Query(default=100, ge=1, le=300)):
         repository = ProjectRepository(database_for(project), project)
         return {"items": repository.trash(limit)}
-
-    @app.get("/api/v1/projects/{project}/diagnostics")
-    def diagnostics(project: str):
-        return DiagnosticService(database_for(project), project).list()
-
-    @app.put("/api/v1/projects/{project}/diagnostics/{diagnostic_id}/ignore", dependencies=[Depends(require_write_token)])
-    def ignore_diagnostic(project: str, diagnostic_id: str, payload: DiagnosticIgnoreRequest):
-        database = database_for(project)
-        result = DiagnosticService(database, project).set_ignore(
-            diagnostic_id, payload.reason, payload.base_revision
-        )
-        return finish_mutation(database, project, result)
 
     @app.get("/api/v1/projects/{project}/trash/{entity_id:path}")
     def trash_detail(project: str, entity_id: str):

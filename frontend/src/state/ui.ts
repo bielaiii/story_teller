@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type PageId = "graph" | "story" | "timeline" | "characters" | "entries" | "fragments" | "checks";
+export type PageId = "graph" | "story" | "timeline" | "characters" | "entries" | "fragments";
 
 interface UiState {
   page: PageId;
@@ -22,7 +22,7 @@ interface UiState {
 }
 
 const hashPage = window.location.hash.replace(/^#\/?/, "").split("/")[0] as PageId;
-const initialPage: PageId = ["graph", "story", "timeline", "characters", "entries", "fragments", "checks"].includes(hashPage)
+const initialPage: PageId = ["graph", "story", "timeline", "characters", "entries", "fragments"].includes(hashPage)
   ? hashPage
   : "graph";
 
@@ -50,7 +50,7 @@ export const useUiStore = create<UiState>((set) => ({
 
 window.addEventListener("popstate", () => {
   const page = window.location.hash.replace(/^#\/?/, "").split("/")[0] as PageId;
-  if (["graph", "story", "timeline", "characters", "entries", "fragments", "checks"].includes(page)) {
+  if (["graph", "story", "timeline", "characters", "entries", "fragments"].includes(page)) {
     useUiStore.setState({ page });
   }
 });

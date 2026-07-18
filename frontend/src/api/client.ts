@@ -1,6 +1,5 @@
 import type {
   EntityDetail,
-  DiagnosticResponse,
   MetaResponse,
   MutationDelta,
   OperationItem,
@@ -71,11 +70,6 @@ export class StoryApi {
   operations(): Promise<{ items: OperationItem[] }> {
     return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/operations`, { cache: "no-store" })
       .then(parseResponse<{ items: OperationItem[] }>);
-  }
-
-  diagnostics(): Promise<DiagnosticResponse> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/diagnostics`, { cache: "no-store" })
-      .then(parseResponse<DiagnosticResponse>);
   }
 
   mutate(path: string, method: "POST" | "PATCH" | "PUT" | "DELETE", payload: Record<string, unknown>): Promise<MutationDelta> {

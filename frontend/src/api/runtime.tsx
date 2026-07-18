@@ -73,7 +73,6 @@ export function useProjectMutation() {
       queryClient.setQueryData<ProjectSnapshot>(["snapshot", project], (current) => current ? applyDelta(current, delta) : current);
       void queryClient.invalidateQueries({ queryKey: ["trash", project] });
       void queryClient.invalidateQueries({ queryKey: ["operations", project] });
-      void queryClient.invalidateQueries({ queryKey: ["diagnostics", project] });
     },
   });
 }

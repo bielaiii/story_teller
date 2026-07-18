@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PickedReference } from "../editor/MarkdownEditor";
-import { MarkdownEditor } from "../editor/MarkdownEditor";
+import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { EntityDetail, Plot } from "../api/types";

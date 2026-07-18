@@ -274,21 +274,3 @@ export interface OperationItem {
   undoBlockedReason: string;
   undone: boolean;
 }
-
-export interface DiagnosticItem {
-  id: string;
-  level: "error" | "warning" | "info";
-  title: string;
-  detail: string;
-  suggestion: string;
-  entityId: string;
-  kind: string;
-  ignored: boolean;
-  ignoreReason: string;
-}
-
-export interface DiagnosticResponse {
-  projectRevision: number;
-  items: DiagnosticItem[];
-  summary: { errors: number; warnings: number; info: number; ignored: number };
-}

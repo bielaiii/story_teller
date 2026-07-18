@@ -21,14 +21,45 @@ class MaintenanceService:
             try:
                 self.database.require_v3(connection)
                 connection.execute("BEGIN IMMEDIATE")
-                entity_count = int(connection.execute(
-                    "SELECT COUNT(*) FROM entities WHERE project_id=? AND deleted_at IS NOT NULL AND purge_at<=?",
-                    (self.project_id, timestamp),
-                ).fetchone()[0])
+                expired = {
+                    str(row["id"]): str(row["kind"])
+                    for row in connection.execute(
+                        "SELECT id, kind FROM entities WHERE project_id=? AND deleted_at IS NOT NULL AND purge_at<=?",
+                        (self.project_id, timestamp),
+                    )
+                }
+                expired_characters = [identifier for identifier, kind in expired.items() if kind == "character"]
+                relationship_entities: set[str] = set()
+                if expired_characters:
+                    placeholders = ",".join("?" for _ in expired_characters)
+                    relationship_entities.update(str(row[0]) for row in connection.execute(
+                        f"""
+                        SELECT entity_id FROM relationships
+                        WHERE from_character_id IN ({placeholders}) OR to_character_id IN ({placeholders})
+                        """,
+                        tuple(expired_characters) * 2,
+                    ))
+                # Repair databases created by older versions where a character purge
+                # cascaded the relationship row but left its generic entity behind.
+                relationship_entities.update(str(row[0]) for row in connection.execute(
+                    """
+                    SELECT entity.id FROM entities entity
+                    LEFT JOIN relationships relationship ON relationship.entity_id=entity.id
+                    WHERE entity.project_id=? AND entity.kind='relationship' AND relationship.entity_id IS NULL
+                    """,
+                    (self.project_id,),
+                ))
+                purge_ids = set(expired) | relationship_entities
+                entity_count = len(purge_ids)
                 operation_count = int(connection.execute(
                     "SELECT COUNT(*) FROM operations WHERE project_id=? AND expires_at<=?",
                     (self.project_id, timestamp),
                 ).fetchone()[0])
+                if relationship_entities:
+                    connection.executemany(
+                        "DELETE FROM entities WHERE id=? AND project_id=?",
+                        [(identifier, self.project_id) for identifier in sorted(relationship_entities)],
+                    )
                 connection.execute(
                     "DELETE FROM entities WHERE project_id=? AND deleted_at IS NOT NULL AND purge_at<=?",
                     (self.project_id, timestamp),
@@ -37,7 +68,11 @@ class MaintenanceService:
                     "DELETE FROM operations WHERE project_id=? AND expires_at<=?",
                     (self.project_id, timestamp),
                 )
-                if entity_count:
+                connection.execute(
+                    "INSERT OR REPLACE INTO metadata(key, value) VALUES('maintenance_last_checked_at', ?)",
+                    (str(timestamp),),
+                )
+                if purge_ids:
                     revision = int(connection.execute(
                         "SELECT revision FROM projects WHERE id=?", (self.project_id,)
                     ).fetchone()[0])
@@ -53,12 +88,14 @@ class MaintenanceService:
             finally:
                 connection.close()
             vacuumed = False
-            if entity_count or operation_count:
+            if purge_ids or operation_count:
                 self._vacuum_replace()
                 vacuumed = True
         return {
             "ok": True,
+            "checkedAt": timestamp,
             "purgedEntities": entity_count,
+            "purgedRelationships": len(relationship_entities),
             "purgedOperations": operation_count,
             "vacuumed": vacuumed,
         }

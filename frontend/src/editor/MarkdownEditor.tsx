@@ -298,7 +298,7 @@ export function MarkdownEditor({
       entityId: item.entityId,
       kind: "character" as const,
       label: item.name,
-      detail: `人物 · ${item.characterScope}`,
+      detail: `人物 · ${item.characterScope} · ID ${item.id}`,
       terms: [item.name, ...item.aliases],
     })),
     ...entries.map((item) => ({
@@ -405,7 +405,7 @@ export function MarkdownEditor({
         { key: "Mod-Shift-7", preventDefault: true, run: (view) => { toggleLinePrefix(view, /^(\s*)\d+[.)、]\s+/, (line, index) => line.replace(/^(\s*)/, `$1${index + 1}. `)); return true; } },
         { key: "Mod-Shift-q", preventDefault: true, run: (view) => { toggleLinePrefix(view, /^(\s*)>\s?/, (line) => line.replace(/^(\s*)/, "$1> ")); return true; } },
         { key: "Mod-Shift-p", preventDefault: true, run: () => { setShowPreview((current) => !current); return true; } },
-        { key: "Mod-Shift-f", preventDefault: true, run: () => { setImmersive((current) => !current); return true; } },
+        { key: "Mod-Shift-m", preventDefault: true, run: () => { setImmersive((current) => !current); return true; } },
         { key: "Alt-m", preventDefault: true, run: () => { openReferenceCommand("@"); return true; } },
         { key: "Alt-/", preventDefault: true, run: () => { openReferenceCommand("/"); return true; } },
         { key: "Alt-ArrowUp", preventDefault: true, run: (view) => jumpHeading(view, -1) },
@@ -458,12 +458,19 @@ export function MarkdownEditor({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        event.stopPropagation();
+        setImmersive((current) => !current);
+        return;
+      }
       if (event.key !== "Escape") return;
       if (showMoreTools) setShowMoreTools(false);
       else if (immersive && !showHelp) setImmersive(false);
     };
-    // CodeMirror consumes Escape while closing completion/search UI. Listen in
-    // capture phase so the same key can always leave the editor's immersive shell.
+    // Browser and editor search bindings vary by platform. Capture the immersive
+    // shortcut at the workspace boundary so Ctrl/Command+Shift+M behaves the same
+    // on Linux, Windows, and macOS. Escape is captured for the same reason.
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [immersive, showHelp, showMoreTools]);
@@ -548,7 +555,7 @@ export function MarkdownEditor({
           <span className="editor-tool-group" aria-label="视图与保存">
             <ToolButton label="切换正文目录" icon="sidebar" pressed={showOutline} action={() => setShowOutline((current) => !current)} />
             <ToolButton label={`切换预览（${primaryKey}+Shift+P）`} icon="preview" pressed={showPreview} action={() => setShowPreview((current) => !current)} />
-            <ToolButton label={immersive ? `退出沉浸模式（Esc / ${primaryKey}+Shift+F）` : `进入沉浸模式（${primaryKey}+Shift+F）`} icon={immersive ? "collapse" : "expand"} pressed={immersive} action={() => setImmersive((current) => !current)} />
+            <ToolButton label={immersive ? `退出沉浸模式（Esc / ${primaryKey}+Shift+M）` : `进入沉浸模式（${primaryKey}+Shift+M）`} icon={immersive ? "collapse" : "expand"} pressed={immersive} action={() => setImmersive((current) => !current)} />
             <span className="editor-more-tools" ref={moreToolsRef}>
               <ToolButton label="更多编辑工具" icon="more" pressed={showMoreTools} action={() => setShowMoreTools((current) => !current)} />
               {showMoreTools && <span className="editor-more-popover" role="toolbar" aria-label="更多编辑工具">
@@ -654,7 +661,7 @@ export function MarkdownEditor({
             <kbd>{primaryKey}+F / H</kbd><span>查找 / 查找替换</span>
             <kbd>@ /</kbd><span>正文内人物 / 设定智能引用，支持中文、全拼和首字母</span>
             <kbd>Alt+M / Alt+/</kbd><span>人物 / 设定物理拼音检索，不改变正文输入状态</span>
-            <kbd>{primaryKey}+Shift+P / F</kbd><span>切换预览 / 进入沉浸模式</span>
+            <kbd>{primaryKey}+Shift+P / M</kbd><span>切换预览 / 进入沉浸模式</span>
             <kbd>{primaryKey}+S</kbd><span>原位保存，不关闭编辑器</span>
             <kbd>Enter / Tab / 空格</kbd><span>插入当前智能提示</span>
             <kbd>Esc</kbd><span>关闭提示或退出沉浸模式</span>

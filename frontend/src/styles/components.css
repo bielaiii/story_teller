@@ -19,6 +19,7 @@
 .main-nav button:hover { color: var(--ink); transform: translateY(-2px); }
 .main-nav button.is-active { color: white; background: var(--nav-accent); box-shadow: 0 8px 20px rgba(48,116,148,.2), inset 0 1px 0 rgba(255,235,190,.28); }
 .header-actions { pointer-events: auto; display: flex; align-items: center; gap: 8px; }
+.header-recovery-button { border-color: color-mix(in srgb, var(--blue) 40%, var(--line)); color: var(--blue); background: var(--surface-blue); }
 .mode-indicator { display: none; }
 .mode-indicator.is-writable { color: var(--success); }
 .icon-button {
@@ -41,7 +42,7 @@
 .page-host { padding: 76px 0 0; }
 .workspace-page { max-width: none; min-height: calc(100vh - 94px); margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 26px; background: var(--paper); box-shadow: var(--shadow); }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 22px; }
-.page-header small, .dialog-header small, .check-panel header small { color: var(--primary); font-weight: 700; text-transform: uppercase; letter-spacing: .13em; font-size: 10px; }
+.page-header small, .dialog-header small { color: var(--primary); font-weight: 700; text-transform: uppercase; letter-spacing: .13em; font-size: 10px; }
 .page-header h1 { font-size: clamp(30px, 3.1vw, 48px); margin: 4px 0 0; }
 .page-header p { color: var(--muted); margin: 0; max-width: 700px; line-height: 1.65; }
 .page-actions { display: flex; align-items: center; gap: 9px; }
@@ -75,6 +76,25 @@
 .primary-action.is-danger { background: var(--danger); }
 .text-action { background: transparent; color: var(--muted); }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 22px; background: rgba(39, 83, 91, .28); backdrop-filter: blur(9px); }
+.page-preparing { min-height: calc(100dvh - 72px); display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--primary); background: var(--surface-solid); }
+.page-preparing p, .editor-loading-region p { margin: 0; }
+.editor-loading-region { min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--primary); background: var(--surface-solid); }
+.recovery-loading { min-width: 240px; padding: 28px; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface-solid); color: var(--primary); text-align: center; box-shadow: var(--shadow); }
+.recovery-center-dialog { width: min(1080px, calc(100vw - 44px)); height: min(720px, calc(100dvh - 44px)); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface-solid); box-shadow: var(--shadow); }
+.recovery-center-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.recovery-center-dialog > header small, .recovery-panel > header small { color: var(--primary); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.recovery-center-dialog h2, .recovery-center-dialog h3 { margin: 4px 0; }
+.recovery-center-dialog > header p { margin: 0; color: var(--muted); }
+.recovery-center-grid { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; }
+.recovery-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-solid); }
+.recovery-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-blue); }
+.recovery-panel > header > strong { color: var(--blue); font-size: 24px; }
+.recovery-panel .trash-list-new, .recovery-panel .operation-list-new { max-height: none; min-height: 0; }
+.recovery-center-backdrop > .trash-preview-dialog { position: fixed; z-index: 3; inset: 50% auto auto 50%; width: min(820px, calc(100vw - 72px)); max-height: calc(100dvh - 72px); transform: translate(-50%, -50%); }
+@media (max-width: 760px) {
+  .recovery-center-grid { grid-template-columns: 1fr; overflow: auto; }
+  .recovery-panel { min-height: 280px; }
+}
 .confirm-dialog { width: min(460px, 92vw); border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-solid); box-shadow: var(--shadow); padding: 20px; }
 .confirm-dialog header, .dialog-header, .trash-preview-dialog header, .timeline-editor-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
 .confirm-dialog p { color: var(--muted); line-height: 1.65; }

@@ -35,6 +35,21 @@ test("根地址采用本地服务配置的默认项目", async ({ page }) => {
   expect((await response.json()).project).toBe("novel");
 });
 
+test("按需加载目标页时保留当前页面直到模块可用", async ({ page }) => {
+  await page.route(/\/assets\/GraphPage-.*\.js$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    await route.continue();
+  });
+  await page.goto("/?project=novel#/story");
+  const currentCard = page.locator(".plot-card").first();
+  await expect(currentCard).toBeVisible();
+  await page.getByRole("button", { name: "图谱", exact: true }).click();
+  await page.waitForTimeout(100);
+  await expect(currentCard).toBeVisible();
+  await expect(page.locator(".page-preparing")).toHaveCount(0);
+  await expect(page.locator(".graph-canvas")).toBeVisible();
+});
+
 test("内容承载面保持白底且状态和强调保留主题色", async ({ page }) => {
   await page.goto("/?project=novel#/story");
   const themeColors = Object.fromEntries(await page.locator(":root").evaluate((root) => {
@@ -57,7 +72,6 @@ test("内容承载面保持白底且状态和强调保留主题色", async ({ pa
     ["/?project=novel#/characters", ".profile-kv-grid > div"],
     ["/?project=novel#/entries", ".sticky-detail"],
     ["/?project=novel#/fragments", ".fragment-card-new"],
-    ["/?project=novel#/checks", ".check-panel"],
     ["/?project=novel#/graph", ".graph-canvas"],
     ["/?project=novel#/timeline", ".timeline-canvas-new"],
   ];
@@ -178,6 +192,12 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   await page.mouse.move(dragX + dragDx, dragY + dragDy, { steps: 8 });
   await page.mouse.up();
   await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("位置已保存");
+  const draggedId = await node.getAttribute("data-entity-id");
+  const persistedGraph = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const persistedNode = persistedGraph.graph.nodes.find((item) => item.character_id === draggedId);
+  expect(persistedNode.anchor_x).not.toBeNull();
+  expect(persistedNode.anchor_y).not.toBeNull();
   await expect.poll(async () => {
     const box = await node.boundingBox();
     return box ? Math.hypot(box.x - dragStart.x, box.y - dragStart.y) : 0;
@@ -385,7 +405,9 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   await expect(dialog.locator(".markdown-workspace")).toHaveClass(/preview-hidden/);
   await editor.press(`${primaryKey}+Shift+p`);
   await expect(dialog.locator(".markdown-workspace")).not.toHaveClass(/preview-hidden/);
-  await editor.press(`${primaryKey}+Shift+f`);
+  // Exercise the Linux/Windows modifier even when this suite runs on macOS.
+  // The workspace owns this shortcut before browser/editor search bindings.
+  await editor.press("Control+Shift+m");
   await expect(dialog.locator(".markdown-workspace")).toHaveClass(/is-immersive/);
   await editor.press("Escape");
   await expect(dialog.locator(".markdown-workspace")).not.toHaveClass(/is-immersive/);
@@ -501,7 +523,7 @@ test("人物关系可新增、编辑并进入统一回收站", async ({ page }) 
   await dialog.getByRole("button", { name: "删除人物关系" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "移入回收站" }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole("button", { name: "检查" }).click();
+  await page.getByRole("button", { name: "打开回收站与撤销记录" }).click();
   await expect(page.locator(".trash-list-new")).toContainText("浏览器协作");
   await expect(page.locator(".trash-list-new")).toContainText("关系");
   await page.locator(".trash-list-new article").filter({ hasText: "浏览器协作" }).locator(".trash-preview-main").click();
@@ -509,6 +531,9 @@ test("人物关系可新增、编辑并进入统一回收站", async ({ page }) 
   await expect(preview).toContainText("两人在档案室建立了临时协作");
   await expect(preview.locator(".trash-preview-prose")).toBeVisible();
   await preview.getByRole("button", { name: "关闭预览" }).click();
+  await page.locator(".trash-list-new article").filter({ hasText: "浏览器协作" }).getByRole("button", { name: "恢复浏览器协作" }).click();
+  await expect(page.locator(".trash-list-new")).not.toContainText("浏览器协作");
+  await page.getByRole("button", { name: "关闭恢复中心" }).click();
 });
 
 test("图谱布局参数、人物锚点、距离与分组都可以在网页保存", async ({ page }) => {
@@ -647,7 +672,7 @@ test("人物档案内的重命名会确认影响并可整体撤销", async ({ pa
 
   const renamed = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   expect(renamed.characters.find((item) => item.entityId === character.entityId).name).toBe(`${character.name}·浏览器`);
-  await page.getByRole("button", { name: "检查" }).click();
+  await page.getByRole("button", { name: "打开回收站与撤销记录" }).click();
   const operation = page.locator(".operation-list-new article").filter({ hasText: "重命名人物" }).first();
   await operation.getByRole("button", { name: /撤销重命名人物/ }).click();
   const undoDialog = page.getByRole("alertdialog", { name: "撤销这项操作？" });
@@ -657,20 +682,23 @@ test("人物档案内的重命名会确认影响并可整体撤销", async ({ pa
   expect(restored.characters.find((item) => item.entityId === character.entityId).name).toBe(character.name);
 });
 
-test("检查页报告可证明的问题并记录可撤销的忽略原因", async ({ page }) => {
+test("全局恢复中心可以预览并恢复被删除的人物", async ({ page }) => {
   await page.goto("/?project=novel#/characters");
+  const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const character = before.characters[0];
+  await page.locator(".character-list-new > button").filter({ hasText: character.name }).first().click();
   await page.getByRole("button", { name: "编辑人物档案" }).click();
   const editor = page.getByRole("dialog", { name: "编辑人物档案" });
   await editor.getByRole("button", { name: "删除人物" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "移入回收站" }).click();
-  await page.getByRole("button", { name: "检查" }).click();
-  const diagnostic = page.locator(".diagnostic-list-new article.is-warning").first();
-  await expect(diagnostic).toBeVisible();
-  const title = await diagnostic.locator("strong").textContent();
-  await diagnostic.getByRole("button", { name: /^忽略/ }).click();
-  const confirm = page.getByRole("alertdialog", { name: "暂时忽略这条提醒？" });
-  await confirm.getByRole("textbox", { name: "忽略原因" }).fill("浏览器回归：等待角色线确认");
-  await confirm.getByRole("button", { name: "记录并忽略" }).click();
-  await expect(page.locator(".ignored-diagnostics")).toContainText(title || "");
-  await expect(page.locator(".ignored-diagnostics")).toContainText("等待角色线确认");
+  await page.getByRole("button", { name: "打开回收站与撤销记录" }).click();
+  const item = page.locator(".trash-list-new article").filter({ hasText: character.name }).first();
+  await expect(item).toContainText("人物");
+  await item.locator(".trash-preview-main").click();
+  await expect(page.getByRole("dialog", { name: `预览${character.name}` })).toBeVisible();
+  await page.getByRole("button", { name: `恢复${character.name}` }).last().click();
+  await expect(page.getByRole("dialog", { name: `预览${character.name}` })).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "回收站与撤销记录" })).toContainText(`已恢复${character.name}`);
+  const restored = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  expect(restored.characters.some((entry) => entry.entityId === character.entityId)).toBeTruthy();
 });

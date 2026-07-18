@@ -12,10 +12,6 @@ class UndoRequest(MutationRequest):
     operation_id: int = Field(alias="operationId", gt=0)
 
 
-class DiagnosticIgnoreRequest(MutationRequest):
-    reason: str = ""
-
-
 class CharacterPersonaItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: str
