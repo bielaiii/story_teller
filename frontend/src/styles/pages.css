@@ -139,10 +139,10 @@
 .graph-page-header { margin-bottom: 12px; }
 .graph-page-header .rail-search { width: 280px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .graph-header-actions { display: flex; align-items: center; gap: 7px; }
-.graph-canvas { height: calc(100vh - 190px); min-height: 620px; position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface-solid); box-shadow: var(--shadow-soft); }
+.graph-canvas { height: calc(100vh - 190px); min-height: 620px; position: relative; overflow: hidden; contain: layout paint; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface-solid); box-shadow: var(--shadow-soft); }
 .graph-canvas canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.graph-node-layer { position: absolute; inset: 0; transform-origin: 0 0; }
-.graph-node { position: absolute; box-sizing: border-box; width: 64px; height: 64px; padding: 0; border: 2px solid var(--node-color); border-radius: 50%; appearance: none; -webkit-appearance: none; background: transparent; box-shadow: 0 8px 22px rgba(61,91,145,.16); outline: none; transform: translate(-50%, -50%); display: grid; place-items: center; cursor: grab; touch-action: none; user-select: none; transition: opacity .18s ease, box-shadow .18s ease; }
+.graph-node-layer { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+.graph-node { position: absolute; box-sizing: border-box; width: 64px; height: 64px; padding: 0; border: 2px solid var(--node-color); border-radius: 50%; appearance: none; -webkit-appearance: none; background: transparent; box-shadow: 0 8px 22px rgba(61,91,145,.16); outline: none; transform: translate(-50%, -50%); will-change: transform; display: grid; place-items: center; cursor: grab; touch-action: none; user-select: none; transition: opacity .18s ease, box-shadow .18s ease; }
 .graph-node:active { cursor: grabbing; }
 .graph-node > span { width: 48px; height: 48px; overflow: hidden; display: grid; place-content: center; border: 0; border-radius: 50%; background-clip: padding-box; color: white; font-weight: 700; font-size: 17px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.28); }
 .graph-node > strong { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); min-width: max-content; padding: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 12px; line-height: 1.3; }
