@@ -25,6 +25,7 @@ export interface Character {
   supplements: string[];
   corePersona?: Array<{ key: string; value: string }>;
   supplementPersona?: Array<{ key: string; value: string }>;
+  destinyOutline?: string;
   narrativeRole: "主角" | "配角";
   characterScope: "主线人物" | "常驻人物" | "待定角色" | "一次性角色";
   side: "主角方" | "中立" | "反派方";

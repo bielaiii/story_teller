@@ -154,6 +154,8 @@ class UnitOfWork:
         action: str,
         entity_kind: str,
         callback: Callable[[sqlite3.Connection], Any],
+        expected_entity_id: str | None = None,
+        expected_entity_revision: int | None = None,
         details: dict[str, Any] | None = None,
         after_operation: Callable[[sqlite3.Connection, int], None] | None = None,
         now: int | None = None,
@@ -171,9 +173,21 @@ class UnitOfWork:
                     raise NotFoundError("项目不存在")
                 current_revision = int(project[0])
                 if int(base_revision) != current_revision:
-                    raise ConflictError(
-                        f"内容已在别处更新；当前版本为 {current_revision}，请合并后重试"
-                    )
+                    entity_is_unchanged = False
+                    if expected_entity_id is not None and expected_entity_revision is not None:
+                        entity_row = connection.execute(
+                            "SELECT revision FROM entities WHERE id=? AND project_id=? AND deleted_at IS NULL",
+                            (expected_entity_id, self.project_id),
+                        ).fetchone()
+                        entity_is_unchanged = bool(
+                            entity_row and int(entity_row[0]) == int(expected_entity_revision)
+                        )
+                    if not entity_is_unchanged:
+                        if expected_entity_id is not None:
+                            raise ConflictError("当前内容已被修改，请合并后重试")
+                        raise ConflictError(
+                            f"内容已在别处更新；当前版本为 {current_revision}，请合并后重试"
+                        )
                 tables = self._tables(connection)
                 before = self._snapshot(connection, tables)
                 callback_result = callback(connection)

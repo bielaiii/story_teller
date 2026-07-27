@@ -66,6 +66,7 @@ class MarkdownExporter:
                 "markers": detail["markers"], "mainPlotImpact": detail["mainPlotImpact"],
                 "side": detail["side"], "facts": detail["facts"], "supplements": detail["supplements"],
                 "corePersona": detail["corePersona"], "supplementPersona": detail["supplementPersona"],
+                "destinyOutline": detail["destinyOutline"],
                 "characterScope": detail["characterScope"], "narrativeRole": detail["narrativeRole"],
                 "graphVisible": detail["graphVisible"],
                 "references": detail.get("references", []),

@@ -383,7 +383,7 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   const dialog = page.locator(".editor-dialog").filter({ has: page.locator(".markdown-workspace") });
   const settings = dialog.getByRole("button", { name: /剧情设置/ });
   await settings.click();
-  await dialog.getByRole("textbox", { name: "标题", exact: true }).fill("连续保存回归剧情");
+  await dialog.getByRole("spinbutton", { name: "章号" }).fill("901");
   const editor = dialog.locator(".cm-content");
   await editor.fill("## 第一次保存\n\n这段正文不会让编辑器重建。");
   await dialog.getByRole("button", { name: /人物拼音检索/ }).click();
@@ -426,17 +426,17 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   await expect(dialog.locator(".editor-footer")).toContainText("已保存");
   expect(await editor.evaluate((element) => window.__createdEditorNode === element)).toBe(true);
 
-  const titleInput = dialog.getByRole("textbox", { name: "标题", exact: true });
-  await titleInput.fill("连续保存回归剧情·字段快捷保存");
+  const chapterNumberInput = dialog.getByRole("spinbutton", { name: "章号" });
+  await chapterNumberInput.fill("902");
   const metadataSave = page.waitForResponse((response) =>
     response.request().method() === "PATCH" && response.url().includes("/plots/plot%3A"),
   );
-  await titleInput.press(`${primaryKey}+s`);
+  await chapterNumberInput.press(`${primaryKey}+s`);
   await metadataSave;
   expect(await editor.evaluate((element) => window.__createdEditorNode === element)).toBe(true);
 
   const snapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-  const matches = snapshot.plots.filter((item) => item.title === "连续保存回归剧情·字段快捷保存");
+  const matches = snapshot.plots.filter((item) => item.title === "第 902 章");
   expect(matches).toHaveLength(1);
   const detail = await (await page.request.get(`/api/v1/projects/novel/entities/${encodeURIComponent(matches[0].entityId)}`)).json();
   expect(detail.data.body).toContain("第二次保存");
@@ -488,6 +488,7 @@ test("篇章与阅读顺序在一个事务中保存且不改写故事时间", as
   await firstChapterName.fill("浏览器改名篇");
   const secondPlot = dialog.locator(".plot-order-list article").nth(1);
   const movedTitle = await secondPlot.locator("strong").textContent();
+  await secondPlot.getByRole("combobox").selectOption("");
   await secondPlot.getByRole("button", { name: /^上移/ }).click();
   await dialog.getByRole("button", { name: "保存结构" }).click();
   await expect(dialog.locator("footer")).toContainText("篇章与阅读顺序已保存");
@@ -497,6 +498,7 @@ test("篇章与阅读顺序在一个事务中保存且不改写故事时间", as
   const after = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   expect(after.chapters[0].label).toBe("浏览器改名篇");
   expect(after.plots[0].title).toBe(movedTitle);
+  expect(after.plots[0].chapterId).toBe("");
   expect(new Map(after.timeline.nodes.map((item) => [`${item.plotId}\0${item.lineId}`, item.storySortKey]))).toEqual(storyTime);
 });
 

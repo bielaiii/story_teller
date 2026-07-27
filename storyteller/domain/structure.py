@@ -109,7 +109,10 @@ class StructureService:
                 )
             for index, identifier in enumerate(plot_ids, start=1):
                 connection.execute("UPDATE plots SET sort_key=? WHERE entity_id=?", (rank(index), identifier))
-                connection.execute("UPDATE entities SET revision=revision+1, updated_at=? WHERE id=?", (now, identifier))
+                connection.execute(
+                    "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
+                    (f"第 {index} 章", now, identifier),
+                )
 
         return self.uow.mutate(
             base_revision=base_revision, label="调整剧情阅读顺序", action="reorder",
@@ -193,19 +196,27 @@ class StructureService:
             for index, item in enumerate(plots, start=1):
                 identifier = str(item.get("entity_id") or "")
                 chapter_id = str(item.get("chapter_id") or "")
-                if chapter_id not in retained_set:
+                if chapter_id and chapter_id not in retained_set:
                     raise DomainError("剧情引用了不存在或待删除的篇章")
                 row = active_plots[identifier]
                 next_rank = rank(index)
-                changed = str(row["chapter_id"] or "") != chapter_id or str(row["sort_key"]) != next_rank
+                next_title = f"第 {index} 章"
+                current_title = connection.execute(
+                    "SELECT title FROM active_entities WHERE id=?", (identifier,)
+                ).fetchone()[0]
+                changed = (
+                    str(row["chapter_id"] or "") != chapter_id
+                    or str(row["sort_key"]) != next_rank
+                    or str(current_title) != next_title
+                )
                 connection.execute(
                     "UPDATE plots SET chapter_id=?, sort_key=? WHERE entity_id=?",
-                    (chapter_id, next_rank, identifier),
+                    (chapter_id or None, next_rank, identifier),
                 )
                 if changed:
                     connection.execute(
-                        "UPDATE entities SET revision=revision+1, updated_at=? WHERE id=?",
-                        (now, identifier),
+                        "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
+                        (next_title, now, identifier),
                     )
 
             for identifier in set(existing_chapters) - retained_set:

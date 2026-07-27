@@ -1,8 +1,10 @@
 import { createContext, useContext, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { applyDelta } from "./delta";
-import { loadStaticSnapshot, projectFromLocation, StoryApi } from "./client";
+import { ApiError, loadStaticSnapshot, projectFromLocation, StoryApi } from "./client";
+import { canRetryAgainstLatest, entityRevision, mutationTargetId } from "./mutationConflict";
 import type { MetaResponse, MutationDelta, ProjectSnapshot } from "./types";
+import { useUiStore } from "../state/ui";
 
 interface RuntimeValue {
   project: string;
@@ -64,15 +66,36 @@ export function useProjectMutation() {
   const { api, project, snapshot } = useRuntime();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ path, method, payload }: {
+    mutationFn: async ({ path, method, payload }: {
       path: string;
       method: "POST" | "PATCH" | "PUT" | "DELETE";
       payload: Record<string, unknown>;
-    }) => api.mutate(path, method, { ...payload, baseRevision: snapshot.project.revision }),
-    onSuccess: (delta: MutationDelta) => {
+    }) => {
+      if (method !== "DELETE") useUiStore.getState().showNotice("正在保存…", "progress");
+      const submitted = queryClient.getQueryData<ProjectSnapshot>(["snapshot", project]) || snapshot;
+      const targetId = mutationTargetId(path);
+      const targetRevision = targetId ? entityRevision(submitted, targetId) : null;
+      const requestPayload = targetRevision === null ? payload : { ...payload, entityRevision: targetRevision };
+      try {
+        return await api.mutate(path, method, { ...requestPayload, baseRevision: submitted.project.revision });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409) throw error;
+        const latest = await api.snapshot();
+        if (!canRetryAgainstLatest(path, submitted, latest)) throw error;
+        queryClient.setQueryData(["snapshot", project], latest);
+        return api.mutate(path, method, { ...requestPayload, baseRevision: latest.project.revision });
+      }
+    },
+    onSuccess: (delta: MutationDelta, variables) => {
       queryClient.setQueryData<ProjectSnapshot>(["snapshot", project], (current) => current ? applyDelta(current, delta) : current);
       void queryClient.invalidateQueries({ queryKey: ["trash", project] });
       void queryClient.invalidateQueries({ queryKey: ["operations", project] });
+      if (variables.method !== "DELETE") useUiStore.getState().showNotice("保存成功", "success");
+    },
+    onError: (error, variables) => {
+      if (variables.method !== "DELETE") {
+        useUiStore.getState().showNotice(error instanceof Error ? `保存失败：${error.message}` : "保存失败，请重试", "error");
+      }
     },
   });
 }

@@ -6,6 +6,7 @@ import { useUiStore } from "../state/ui";
 const pages: Array<[PageId, string]> = [
   ["story", "剧情"], ["graph", "图谱"], ["timeline", "时间线"],
     ["characters", "人物"], ["entries", "设定"], ["fragments", "碎片"],
+    ["management", "管理"],
 ];
 
 export function Navigation() {

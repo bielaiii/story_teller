@@ -4,6 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
+from storyteller.domain.content import ContentService
 from storyteller.domain.errors import ConflictError
 from storyteller.domain.maintenance import MaintenanceService
 from storyteller.domain.services import EntityService
@@ -26,6 +27,7 @@ class V3TransactionTests(unittest.TestCase):
         self.database = Database(self.root)
         self.repository = ProjectRepository(self.database, "demo")
         self.service = EntityService(self.database, "demo")
+        self.content = ContentService(self.database, "demo")
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -47,6 +49,19 @@ class V3TransactionTests(unittest.TestCase):
         self.assertEqual(len(before["relationships"]), len(after["relationships"]))
         self.assertEqual([], self.repository.trash())
         self.assertEqual(result.project_revision + 1, restored.project_revision)
+
+    def test_save_discards_reference_to_soft_deleted_target(self):
+        deleted = self.service.delete("character:7", self.revision(), now=2_000_000)
+        result = self.content.update_plot(
+            "plot:1",
+            deleted.project_revision,
+            {"body": "保留正文修改", "references": ["character:7"]},
+        )
+
+        self.assertEqual(deleted.project_revision + 1, result.project_revision)
+        detail = self.repository.entity_detail("plot:1")
+        self.assertEqual("保留正文修改", detail["data"]["body"])
+        self.assertEqual([], detail["data"]["references"])
 
     def test_plot_delete_keeps_other_sort_keys_and_display_sequence_is_contiguous(self):
         before = {item["entityId"]: item["sortKey"] for item in self.repository.snapshot()["plots"]}
@@ -101,6 +116,168 @@ class V3TransactionTests(unittest.TestCase):
             self.assertFalse(connection.execute("SELECT 1 FROM relationships WHERE from_character_id='character:7' OR to_character_id='character:7'").fetchone())
             self.assertFalse(connection.execute("SELECT 1 FROM entities WHERE id='relationship:7__4'").fetchone())
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
+    def test_plot_save_archives_unknown_named_speaker_as_one_time_character(self):
+        body = "\n".join((
+            "**方启年：**",
+            "我会处理。",
+            "",
+            "**旁白：**",
+            "会议结束。",
+        ))
+        saved = self.content.update_plot(
+            "plot:3",
+            self.revision(),
+            {"body": body, "chapter_number": 63},
+        )
+        snapshot = self.repository.snapshot()
+        archived = [item for item in snapshot["characters"] if item["name"] == "方启年"]
+        self.assertEqual(1, len(archived))
+        self.assertFalse(any(item["name"] == "旁白" for item in snapshot["characters"]))
+        character = archived[0]
+        self.assertEqual("一次性角色", character["characterScope"])
+        self.assertEqual("一次性角色", character["group"])
+        self.assertFalse(character["graphVisible"])
+        self.assertIn(character["entityId"], saved.changed_entity_ids)
+        plot = next(item for item in snapshot["plots"] if item["entityId"] == "plot:3")
+        self.assertIn(character["entityId"], plot["people"])
+        detail = self.repository.entity_detail(character["entityId"])["data"]
+        self.assertEqual("第 63 章", detail["facts"]["首次出场"])
+        self.assertIn("自动归档", detail["intro"])
+
+        self.content.update_plot(
+            "plot:3",
+            saved.project_revision,
+            {"body": body, "chapter_number": 63},
+        )
+        self.assertEqual(
+            1,
+            sum(item["name"] == "方启年" for item in self.repository.snapshot()["characters"]),
+        )
+
+    def test_removing_character_from_plot_body_removes_related_plot_without_touching_character(self):
+        character_before = self.repository.entity_detail("character:1")["data"]
+        mentioned = self.content.update_plot(
+            "plot:3",
+            self.revision(),
+            {
+                "body": "林秋走进会议室。",
+                "references": ["character:1"],
+            },
+        )
+        plot = next(item for item in self.repository.snapshot()["plots"] if item["entityId"] == "plot:3")
+        self.assertIn("character:1", plot["people"])
+
+        removed = self.content.update_plot(
+            "plot:3",
+            mentioned.project_revision,
+            {
+                "body": "会议室里已经没有其他人。",
+                "references": ["character:1"],
+            },
+        )
+        plot = next(item for item in self.repository.snapshot()["plots"] if item["entityId"] == "plot:3")
+        self.assertNotIn("character:1", plot["people"])
+        character_after = self.repository.entity_detail("character:1")["data"]
+        self.assertEqual(character_before["revision"], character_after["revision"])
+        self.assertIsNotNone(removed.operation_id)
+
+    def test_generic_villain_text_never_maps_to_a_character(self):
+        created = self.content.create_character(
+            self.revision(),
+            {
+                "name": "反派",
+                "narrative_role": "配角",
+                "character_scope": "一次性角色",
+                "side": "反派方",
+            },
+        )
+        saved = self.content.update_plot(
+            "plot:3",
+            created.project_revision,
+            {"body": "反派离开房间。\n\n**反派：**\n他没有回头。"},
+        )
+        plot = next(
+            item for item in self.repository.snapshot()["plots"]
+            if item["entityId"] == "plot:3"
+        )
+        villain = next(
+            item for item in self.repository.snapshot()["characters"]
+            if item["name"] == "反派"
+        )
+        self.assertNotIn(villain["entityId"], plot["people"])
+        self.assertFalse(any(
+            item["name"] == "反派" and item["entityId"] != villain["entityId"]
+            for item in self.repository.snapshot()["characters"]
+        ))
+        self.assertIsNotNone(saved.operation_id)
+
+    def test_plot_can_move_to_fragment_in_one_undoable_transaction(self):
+        updated = self.content.update_plot(
+            "plot:3",
+            self.revision(),
+            {
+                "body": "林秋把尚未采用的场景放回灵感箱。",
+                "summary": "待重新构思的场景",
+                "tags": ["待重写"],
+                "references": ["character:1"],
+            },
+        )
+        converted = self.content.move_plot_to_fragment(
+            "plot:3", updated.project_revision
+        )
+        target_id = converted.callback_result["entityId"]
+        snapshot = self.repository.snapshot()
+        self.assertNotIn("plot:3", {item["entityId"] for item in snapshot["plots"]})
+        fragment = next(
+            item for item in snapshot["fragments"] if item["entityId"] == target_id
+        )
+        self.assertEqual(["待重写"], fragment["tags"])
+        detail = self.repository.entity_detail(target_id)["data"]
+        self.assertEqual("林秋把尚未采用的场景放回灵感箱。", detail["body"])
+        self.assertIn("character:1", detail["references"])
+        self.assertTrue(any(item["entityId"] == "plot:3" for item in self.repository.trash()))
+
+        UnitOfWork(self.database, "demo").undo(
+            converted.operation_id, converted.project_revision
+        )
+        restored = self.repository.snapshot()
+        self.assertIn("plot:3", {item["entityId"] for item in restored["plots"]})
+        self.assertNotIn(target_id, {item["entityId"] for item in restored["fragments"]})
+
+    def test_fragment_can_move_to_next_mainline_plot(self):
+        created = self.content.create_fragment(
+            self.revision(),
+            {
+                "title": "雨夜追踪",
+                "body": "**林秋：**\n先去码头。",
+                "tags": ["待采用"],
+                "references": ["character:1"],
+                "accent": "#445566",
+            },
+        )
+        fragment_id = created.callback_result["entityId"]
+        converted = self.content.move_fragment_to_plot(
+            fragment_id, created.project_revision
+        )
+        target_id = converted.callback_result["entityId"]
+        snapshot = self.repository.snapshot()
+        self.assertNotIn(
+            fragment_id, {item["entityId"] for item in snapshot["fragments"]}
+        )
+        plot = next(item for item in snapshot["plots"] if item["entityId"] == target_id)
+        self.assertEqual("", plot["chapterId"])
+        self.assertEqual("雨夜追踪", plot["summary"])
+        self.assertEqual("#445566", plot["accent"])
+        self.assertEqual(["待采用"], plot["tags"])
+        self.assertIn("character:1", plot["people"])
+        self.assertEqual(
+            "**林秋：**\n先去码头。",
+            self.repository.entity_detail(target_id)["data"]["body"],
+        )
+        self.assertTrue(
+            any(item["entityId"] == fragment_id for item in self.repository.trash())
+        )
 
 
 if __name__ == "__main__":
