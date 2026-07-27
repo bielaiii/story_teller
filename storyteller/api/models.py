@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class MutationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     base_revision: int = Field(alias="baseRevision", ge=0)
+    entity_revision: int | None = Field(default=None, alias="entityRevision", ge=0)
 
 
 class UndoRequest(MutationRequest):
@@ -28,6 +29,7 @@ class CharacterCreate(MutationRequest):
     supplements: list[str] = []
     core_persona: list[CharacterPersonaItem] = Field(default=[], alias="corePersona")
     supplement_persona: list[CharacterPersonaItem] = Field(default=[], alias="supplementPersona")
+    destiny_outline: str = Field(default="", alias="destinyOutline")
     narrative_role: str = Field(default="配角", alias="narrativeRole")
     character_scope: str = Field(default="常驻人物", alias="characterScope")
     side: str = "中立"
@@ -48,6 +50,7 @@ class CharacterPatch(MutationRequest):
     supplements: list[str] | None = None
     core_persona: list[CharacterPersonaItem] | None = Field(default=None, alias="corePersona")
     supplement_persona: list[CharacterPersonaItem] | None = Field(default=None, alias="supplementPersona")
+    destiny_outline: str | None = Field(default=None, alias="destinyOutline")
     narrative_role: str | None = Field(default=None, alias="narrativeRole")
     character_scope: str | None = Field(default=None, alias="characterScope")
     side: str | None = None
@@ -62,6 +65,8 @@ class CharacterPatch(MutationRequest):
 class PlotCreate(MutationRequest):
     stable_id: str = Field(default="", alias="stableId")
     title: str
+    chapter_number: int | None = Field(default=None, alias="chapterNumber", ge=1, le=99999)
+    shift_following: bool = Field(default=False, alias="shiftFollowing")
     chapter_id: str | None = Field(default=None, alias="chapterId")
     after_entity_id: str | None = Field(default=None, alias="afterEntityId")
     summary: str = ""
@@ -79,6 +84,8 @@ class PlotCreate(MutationRequest):
 
 class PlotPatch(MutationRequest):
     title: str | None = None
+    chapter_number: int | None = Field(default=None, alias="chapterNumber", ge=1, le=99999)
+    shift_following: bool = Field(default=False, alias="shiftFollowing")
     chapter_id: str | None = Field(default=None, alias="chapterId")
     summary: str | None = None
     body: str | None = None

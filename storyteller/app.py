@@ -42,7 +42,7 @@ from storyteller.storage.repositories import ProjectRepository
 FEATURES = [
     "snapshot-v1", "delta-v1", "entity-detail-v1", "history-v2", "trash-v2",
     "soft-delete-v1", "row-undo-v1", "static-snapshot-v1", "content-mutations-v1",
-    "story-structure-v1", "graph-layout-v1",
+    "story-structure-v1", "graph-layout-v1", "content-conversion-v1",
 ]
 
 
@@ -123,7 +123,7 @@ def create_app(settings: Settings) -> FastAPI:
                 "operations": True, "undo": True, "characters": True,
                 "plots": True, "entries": True, "fragments": True, "relationships": True,
                 "chapters": True, "timeline": True, "graph": True, "plotOrder": True,
-                "storyStructure": True,
+                "storyStructure": True, "contentConversion": True,
             },
         }
 
@@ -178,6 +178,14 @@ def create_app(settings: Settings) -> FastAPI:
         result = ContentService(database, project).update_plot(entity_id, payload.base_revision, mutation_payload(payload))
         return finish_mutation(database, project, result)
 
+    @app.post("/api/v1/projects/{project}/plots/{entity_id}/to-fragment", dependencies=[Depends(require_write_token)])
+    def move_plot_to_fragment(project: str, entity_id: str, payload: MutationRequest):
+        database = database_for(project)
+        result = ContentService(database, project).move_plot_to_fragment(
+            entity_id, payload.base_revision
+        )
+        return finish_mutation(database, project, result)
+
     @app.post("/api/v1/projects/{project}/entries", dependencies=[Depends(require_write_token)])
     def create_entry(project: str, payload: EntryCreate):
         database = database_for(project)
@@ -200,6 +208,14 @@ def create_app(settings: Settings) -> FastAPI:
     def update_fragment(project: str, entity_id: str, payload: FragmentPatch):
         database = database_for(project)
         result = ContentService(database, project).update_fragment(entity_id, payload.base_revision, mutation_payload(payload))
+        return finish_mutation(database, project, result)
+
+    @app.post("/api/v1/projects/{project}/fragments/{entity_id}/to-plot", dependencies=[Depends(require_write_token)])
+    def move_fragment_to_plot(project: str, entity_id: str, payload: MutationRequest):
+        database = database_for(project)
+        result = ContentService(database, project).move_fragment_to_plot(
+            entity_id, payload.base_revision
+        )
         return finish_mutation(database, project, result)
 
     @app.post("/api/v1/projects/{project}/relationships", dependencies=[Depends(require_write_token)])

@@ -1,13 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RenderedMarkdown } from "./RenderedMarkdown";
 
-describe("RenderedMarkdown", () => {
-  it("renders preview markdown instead of exposing source markers", () => {
-    const { container } = render(<RenderedMarkdown source={"### 转折\n\n**线索**已经出现。"} />);
-    expect(screen.getByRole("heading", { name: "转折" })).toBeVisible();
-    expect(screen.getByText("线索").tagName).toBe("STRONG");
-    expect(container).not.toHaveTextContent("###");
-    expect(container).not.toHaveTextContent("**");
+describe("RenderedMarkdown tables", () => {
+  it("renders Markdown table headers and cells as a semantic table", () => {
+    render(<RenderedMarkdown source={"| 人物 | 关系 |\n| --- | --- |\n| 沈清妙 | 盟友 |"} />);
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "人物" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "关系" })).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "沈清妙" })).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "盟友" })).toBeInTheDocument();
   });
 });

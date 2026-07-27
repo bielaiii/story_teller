@@ -8,6 +8,7 @@ export const pageLoaders: Record<PageId, () => Promise<{ default: ComponentType 
   characters: () => import("./pages/CharactersPage"),
   entries: () => import("./pages/EntriesPage"),
   fragments: () => import("./pages/FragmentsPage"),
+  management: () => import("./components/RecoveryCenter"),
 };
 
 export function preloadPage(page: PageId) {

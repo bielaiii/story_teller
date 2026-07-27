@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
-import type { PickedReference } from "../editor/MarkdownEditor";
-import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -17,7 +15,6 @@ interface RelationshipDraft {
   type: string;
   color: string;
   body: string;
-  references: string[];
 }
 
 function emptyDraft(defaultCharacterId: string, characterIds: string[]): RelationshipDraft {
@@ -30,7 +27,6 @@ function emptyDraft(defaultCharacterId: string, characterIds: string[]): Relatio
     type: "",
     color: "#6f75c9",
     body: "",
-    references: [],
   };
 }
 
@@ -44,7 +40,6 @@ function fromRelationship(item: Relationship): RelationshipDraft {
     type: item.type,
     color: item.color,
     body: item.body || "",
-    references: [...(item.references || [])],
   };
 }
 
@@ -64,7 +59,6 @@ export function RelationshipEditor({
   const [currentId, setCurrentId] = useState<string | "new">(relationshipId);
   const [draft, setDraft] = useState<RelationshipDraft>(initial);
   const [baseline, setBaseline] = useState(JSON.stringify(initial));
-  const [settingsOpen, setSettingsOpen] = useState(relationshipId === "new");
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState(relationshipId === "new" ? "尚未保存" : "");
@@ -86,12 +80,6 @@ export function RelationshipEditor({
     setDraft((current) => ({ ...current, [key]: value }));
     setMessage("");
   };
-  const addReference = (reference: PickedReference) => setDraft((current) => ({
-    ...current,
-    references: current.references.includes(reference.entityId)
-      ? current.references
-      : [...current.references, reference.entityId],
-  }));
   const save = async () => {
     if (!writable || mutation.isPending) return;
     setMessage("");
@@ -145,11 +133,11 @@ export function RelationshipEditor({
         <div><small>Character Relationship</small><h2>{currentId === "new" ? "建立人物关系" : `${fromPerson?.name || "人物"} · ${toPerson?.name || "人物"}`}</h2></div>
         <div className="dialog-actions">
           {currentId !== "new" && <button className="icon-button is-danger" aria-label="删除人物关系" title="删除人物关系" onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>}
+          <button className="icon-button is-primary" aria-label="保存人物关系" title="保存" disabled={!dirty || mutation.isPending} onClick={() => void save()}><Icon name="save" /></button>
           <button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button>
         </div>
       </header>
-      <button className="settings-toggle" type="button" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Icon name="settings" /><span>关系设置</span><small>{settingsOpen ? "收起" : "展开"}</small></button>
-      {settingsOpen && <div className="editor-settings relationship-settings">
+      <div className="editor-settings relationship-settings">
         <label><span>起点人物</span><select disabled={currentId !== "new"} value={draft.fromCharacterId} onChange={(event) => change("fromCharacterId", event.target.value)}>{snapshot.characters.map((item) => <option key={item.entityId} value={item.entityId} disabled={item.entityId === draft.toCharacterId}>{item.name}</option>)}</select></label>
         <label><span>终点人物</span><select disabled={currentId !== "new"} value={draft.toCharacterId} onChange={(event) => change("toCharacterId", event.target.value)}>{snapshot.characters.map((item) => <option key={item.entityId} value={item.entityId} disabled={item.entityId === draft.fromCharacterId}>{item.name}</option>)}</select></label>
         <label><span>{fromPerson?.name || "起点"}的角色</span><input value={draft.fromRole} onChange={(event) => change("fromRole", event.target.value)} placeholder="例如：委托人" /></label>
@@ -157,9 +145,9 @@ export function RelationshipEditor({
         <label className="wide"><span>关系名称</span><input value={draft.label} onChange={(event) => change("label", event.target.value)} placeholder="例如：互相试探" /></label>
         <label><span>关系类型</span><input value={draft.type} onChange={(event) => change("type", event.target.value)} placeholder="盟友、对手、亲属…" /></label>
         <label><span>关系颜色</span><input type="color" value={draft.color} onChange={(event) => change("color", event.target.value)} /></label>
-      </div>}
-      <MarkdownEditor label="关系说明" value={draft.body} onChange={(value) => change("body", value)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} autoFocus />
-      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>保存、删除与引用都进入统一操作历史</small></footer>
+        <label className="wide"><span>关系说明</span><input value={draft.body} onChange={(event) => change("body", event.target.value)} placeholder="用一句话描述这段关系" autoFocus /></label>
+      </div>
+      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>保存和删除会进入统一操作历史</small></footer>
     </section>
     <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="关闭后，本次人物关系修改会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.label || "这条人物关系"}”？`} message="关系会进入统一回收站保留 7 天，可以恢复或撤销。" confirmLabel="移入回收站" danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />

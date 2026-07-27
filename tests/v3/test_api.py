@@ -77,6 +77,47 @@ class V3ApiTests(unittest.TestCase):
         )
         self.assertEqual(409, stale.status_code)
 
+    def test_character_and_plot_edits_use_independent_entity_revisions(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        character = snapshot["characters"][0]
+        plot = snapshot["plots"][0]
+        character_saved = self.client.patch(
+            f"/api/v1/projects/demo/characters/{character['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "entityRevision": character["revision"],
+                "group": "人物独立保存测试",
+            },
+        )
+        self.assertEqual(200, character_saved.status_code, character_saved.text)
+
+        plot_saved = self.client.patch(
+            f"/api/v1/projects/demo/plots/{plot['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "entityRevision": plot["revision"],
+                "summary": "剧情在人物保存后仍可独立保存",
+            },
+        )
+        self.assertEqual(200, plot_saved.status_code, plot_saved.text)
+        detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{plot['entityId']}"
+        ).json()["data"]
+        self.assertEqual("剧情在人物保存后仍可独立保存", detail["summary"])
+
+        conflicting = self.client.patch(
+            f"/api/v1/projects/demo/plots/{plot['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": character_saved.json()["projectRevision"],
+                "entityRevision": plot["revision"],
+                "summary": "不应覆盖同一篇剧情的新版本",
+            },
+        )
+        self.assertEqual(409, conflicting.status_code, conflicting.text)
+
     def test_character_persona_round_trips_as_structured_key_values(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         saved = self.client.patch(
@@ -201,6 +242,34 @@ class V3ApiTests(unittest.TestCase):
         response = self.client.get("/api/v1/projects/demo/diagnostics")
         self.assertEqual(404, response.status_code)
 
+    def test_character_destiny_outline_round_trips_and_can_be_cleared(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        saved = self.client.patch(
+            "/api/v1/projects/demo/characters/character:1",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "destinyOutline": "她最终识破家族安排，主动选择自己的归宿。",
+            },
+        )
+        self.assertEqual(200, saved.status_code, saved.text)
+        detail = self.client.get("/api/v1/projects/demo/entities/character:1").json()["data"]
+        self.assertEqual("她最终识破家族安排，主动选择自己的归宿。", detail["destinyOutline"])
+        exported = next((self.project_root / "characters").glob("1-*.md")).read_text(encoding="utf-8")
+        self.assertIn("她最终识破家族安排，主动选择自己的归宿。", exported)
+
+        cleared = self.client.patch(
+            "/api/v1/projects/demo/characters/character:1",
+            headers=self.headers,
+            json={
+                "baseRevision": saved.json()["projectRevision"],
+                "destinyOutline": "   ",
+            },
+        )
+        self.assertEqual(200, cleared.status_code, cleared.text)
+        detail = self.client.get("/api/v1/projects/demo/entities/character:1").json()["data"]
+        self.assertEqual("", detail["destinyOutline"])
+
     def test_editor_mutations_preserve_unowned_metadata_and_read_back_without_snapshot_reload(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         revision = snapshot["project"]["revision"]
@@ -243,7 +312,7 @@ class V3ApiTests(unittest.TestCase):
                 "title": "增量剧情",
                 "chapterId": "chapter:act1",
                 "afterEntityId": "plot:1",
-                "body": "只通过 V3 API 写入的正文",
+                "body": "林秋改只通过 V3 API 写入的正文",
                 "status": "草稿",
                 "people": ["character:1"],
                 "entries": ["entry:archive"],
@@ -255,11 +324,47 @@ class V3ApiTests(unittest.TestCase):
         plot_detail = self.client.get(
             f"/api/v1/projects/demo/entities/{changed['entityId']}"
         ).json()["data"]
-        self.assertEqual("只通过 V3 API 写入的正文", plot_detail["body"])
+        self.assertEqual("林秋改只通过 V3 API 写入的正文", plot_detail["body"])
         self.assertEqual(["character:1"], plot_detail["people"])
         self.assertEqual(["entry:archive"], plot_detail["entries"])
         self.assertEqual(["timeline_line:主线"], plot_detail["lanes"])
         self.assertTrue(any("增量剧情" in path.name for path in (self.project_root / "plots").glob("*.md")))
+
+    def test_duplicate_plot_chapter_number_can_shift_following_plots(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        duplicate = self.client.post(
+            "/api/v1/projects/demo/plots",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "第 1 章",
+                "chapterNumber": 1,
+                "shiftFollowing": False,
+                "chapterId": snapshot["chapters"][0]["entityId"],
+                "body": "重复章号测试",
+            },
+        )
+        self.assertEqual(422, duplicate.status_code, duplicate.text)
+        shifted = self.client.post(
+            "/api/v1/projects/demo/plots",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "第 1 章",
+                "chapterNumber": 1,
+                "shiftFollowing": True,
+                "chapterId": "",
+                "body": "顺延章号测试",
+            },
+        )
+        self.assertEqual(200, shifted.status_code, shifted.text)
+        updated = self.client.get("/api/v1/projects/demo/snapshot").json()
+        self.assertEqual("第 1 章", updated["plots"][0]["title"])
+        self.assertEqual("", updated["plots"][0]["chapterId"])
+        self.assertEqual(
+            [f"第 {index} 章" for index in range(1, len(updated["plots"]) + 1)],
+            [item["title"] for item in updated["plots"]],
+        )
 
     def test_entry_and_fragment_stable_ids_are_generated_and_remain_editable(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
@@ -693,6 +798,10 @@ class V3ApiTests(unittest.TestCase):
             [item["entityId"] for item in reversed_plots],
             [item["entityId"] for item in updated["plots"]],
         )
+        self.assertEqual(
+            [f"第 {index} 章" for index in range(1, len(updated["plots"]) + 1)],
+            [item["title"] for item in updated["plots"]],
+        )
         self.assertEqual("重新命名的开篇", updated["chapters"][0]["label"])
         self.assertTrue(all(
             item["chapterId"] != removed_chapter["entityId"]
@@ -721,6 +830,165 @@ class V3ApiTests(unittest.TestCase):
             item["entityId"] == removed_chapter["entityId"]
             for item in restored["chapters"]
         ))
+
+    def test_moving_existing_plot_shifts_only_the_conflicting_chapter_chain(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        original = snapshot["plots"]
+        target_index = min(30, len(original) - 1)
+        insertion_index = min(11, target_index - 1)
+        target = original[target_index]
+        original_numbers = {
+            item["entityId"]: index
+            for index, item in enumerate(original, start=1)
+        }
+        response = self.client.patch(
+            f"/api/v1/projects/demo/plots/{target['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "chapterNumber": insertion_index + 1,
+                "shiftFollowing": True,
+            },
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        updated = self.client.get("/api/v1/projects/demo/snapshot").json()["plots"]
+        self.assertEqual(
+            [
+                *[item["entityId"] for item in original[:insertion_index]],
+                target["entityId"],
+                *[item["entityId"] for item in original[insertion_index:] if item["entityId"] != target["entityId"]],
+            ],
+            [item["entityId"] for item in updated],
+        )
+        updated_numbers = {
+            item["entityId"]: int(item["title"].removeprefix("第 ").removesuffix(" 章"))
+            for item in updated
+        }
+        self.assertEqual(insertion_index + 1, updated_numbers[target["entityId"]])
+        for item in original:
+            if item["entityId"] == target["entityId"]:
+                continue
+            number = original_numbers[item["entityId"]]
+            expected = number + 1 if insertion_index + 1 <= number < original_numbers[target["entityId"]] else number
+            self.assertEqual(expected, updated_numbers[item["entityId"]])
+
+    def test_chapter_collision_shift_stops_at_the_first_number_gap(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        first, second, target = snapshot["plots"][:3]
+        gap = self.client.patch(
+            f"/api/v1/projects/demo/plots/{second['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "chapterNumber": 10,
+                "shiftFollowing": False,
+            },
+        )
+        self.assertEqual(200, gap.status_code, gap.text)
+        shifted = self.client.patch(
+            f"/api/v1/projects/demo/plots/{target['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": gap.json()["projectRevision"],
+                "chapterNumber": 1,
+                "shiftFollowing": True,
+            },
+        )
+        self.assertEqual(200, shifted.status_code, shifted.text)
+        updated = {
+            item["entityId"]: item["title"]
+            for item in self.client.get("/api/v1/projects/demo/snapshot").json()["plots"]
+        }
+        self.assertEqual("第 1 章", updated[target["entityId"]])
+        self.assertEqual("第 2 章", updated[first["entityId"]])
+        self.assertEqual("第 10 章", updated[second["entityId"]])
+
+    def test_moving_plot_to_unused_high_chapter_number_preserves_that_number(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        target = snapshot["plots"][-1]
+        response = self.client.patch(
+            f"/api/v1/projects/demo/plots/{target['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "chapterNumber": 999,
+                "shiftFollowing": False,
+            },
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        updated = self.client.get("/api/v1/projects/demo/snapshot").json()["plots"]
+        self.assertEqual(target["entityId"], updated[-1]["entityId"])
+        self.assertEqual("第 999 章", updated[-1]["title"])
+        detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{target['entityId']}"
+        ).json()["data"]
+        self.assertEqual("第 999 章", detail["title"])
+
+    def test_chapter_move_keeps_timeline_ranks_saveable(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        original = snapshot["plots"]
+        target = original[-1]
+        moved = self.client.patch(
+            f"/api/v1/projects/demo/plots/{target['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "chapterNumber": 1,
+                "shiftFollowing": True,
+            },
+        )
+        self.assertEqual(200, moved.status_code, moved.text)
+
+        detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{target['entityId']}"
+        ).json()["data"]
+        saved = self.client.patch(
+            f"/api/v1/projects/demo/plots/{target['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": moved.json()["projectRevision"],
+                "chapterNumber": 1,
+                "shiftFollowing": False,
+                "lanes": detail["lanes"],
+                "body": detail["body"],
+            },
+        )
+        self.assertEqual(200, saved.status_code, saved.text)
+        reloaded = self.client.get(
+            f"/api/v1/projects/demo/entities/{target['entityId']}"
+        ).json()["data"]
+        self.assertEqual("第 1 章", reloaded["title"])
+        self.assertEqual(detail["lanes"], reloaded["lanes"])
+
+    def test_story_structure_accepts_mainline_plot_without_chapter(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        target = snapshot["plots"][0]
+        response = self.client.put(
+            "/api/v1/projects/demo/story-structure",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "chapters": [
+                    {
+                        "entityId": item["entityId"],
+                        "stableId": item["id"],
+                        "label": f"第 {index} 章",
+                    }
+                    for index, item in enumerate(snapshot["chapters"], start=1)
+                ],
+                "plots": [
+                    {
+                        "entityId": item["entityId"],
+                        "chapterId": "" if item["entityId"] == target["entityId"] else item["chapterId"],
+                    }
+                    for item in snapshot["plots"]
+                ],
+            },
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        updated = self.client.get("/api/v1/projects/demo/snapshot").json()
+        saved = next(item for item in updated["plots"] if item["entityId"] == target["entityId"])
+        self.assertEqual("", saved["chapterId"])
 
     def test_deleted_plot_can_be_reordered_and_restored_without_rank_collision(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()

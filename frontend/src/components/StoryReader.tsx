@@ -5,6 +5,7 @@ import MarkdownIt from "markdown-it";
 import type { Plot } from "../api/types";
 import { useRuntime } from "../api/runtime";
 import { useUiStore } from "../state/ui";
+import { tagStyle } from "../storyOptions";
 import { Icon } from "./Icon";
 
 const renderer = new MarkdownIt({ html: false, linkify: true, breaks: false });
@@ -88,16 +89,16 @@ export function StoryReader({ plot, previous, next, onBack, onNavigate, onEdit }
 
     <article className="story-reader-article">
       <header>
-        <div><small>{chapter} · 第 {plot.sequence} 篇</small><h1>{plot.title}</h1>{plot.summary && <p>{plot.summary}</p>}</div>
+        <div><small>{chapter}</small><h1>{plot.title}</h1>{plot.summary && <p>{plot.summary}</p>}</div>
         {onEdit && <button className="icon-button" type="button" aria-label={`编辑${plot.title}`} title="编辑剧情" onClick={onEdit}><Icon name="edit" /></button>}
-        <div className="story-reader-badges"><span className="story-reader-status">{plot.status || "未标记状态"}</span>{plot.tags.map((tag) => <span key={tag} style={{ borderColor: plot.accent, color: plot.accent }}>{tag}</span>)}{plot.key && <span>重点剧情</span>}{plot.climax && <span>高潮剧情</span>}</div>
+        <div className="story-reader-badges"><span className="story-reader-status">{plot.status || "未标记状态"}</span>{plot.tags.map((tag) => <span key={tag} style={tagStyle(tag)}>{tag}</span>)}{plot.key && <span>重点剧情</span>}{plot.climax && <span>高潮剧情</span>}</div>
       </header>
       {detail.isPending && !plot.body && <p className="story-reader-loading">正在读取完整正文…</p>}
       <section ref={bodyRef} className="story-reader-prose prose" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
     </article>
 
     <aside className="story-reader-tools" aria-label="阅读导航">
-      <header><small>阅读导航</small><strong>{chapter} · 第 {plot.sequence} 篇</strong></header>
+      <header><small>阅读导航</small><strong>{chapter}</strong></header>
       <button className="story-reader-back" type="button" onClick={onBack}><Icon name="arrow" /><span>返回剧情列表</span></button>
       <div className="story-reader-chapter-nav">
         <button type="button" disabled={!previous} onClick={() => previous && onNavigate(previous.entityId)}><span>上一篇</span><strong>{previous?.title || "没有上一篇"}</strong></button>

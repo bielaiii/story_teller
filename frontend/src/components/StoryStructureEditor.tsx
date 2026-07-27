@@ -76,8 +76,9 @@ export function StoryStructureEditor({ onClose }: { onClose: () => void }) {
     if (affected && !replacementId) return;
     setChapters((current) => current.filter((item) => item.entityId !== removeId));
     if (affected) {
+      const nextChapterId = replacementId === "__mainline__" ? "" : replacementId;
       setPlots((current) => current.map((item) => item.chapterId === removeId
-        ? { ...item, chapterId: replacementId }
+        ? { ...item, chapterId: nextChapterId }
         : item));
     }
     setRemoveId(null);
@@ -138,7 +139,7 @@ export function StoryStructureEditor({ onClose }: { onClose: () => void }) {
           <div className="plot-order-list">{plots.map((item, index) => <article key={item.entityId}>
             <span className="order-number">{String(index + 1).padStart(2, "0")}</span>
             <strong>{item.title}</strong>
-            <select aria-label={`${item.title}所属篇章`} value={item.chapterId} onChange={(event) => { const chapterId = event.target.value; setPlots((current) => current.map((plot) => plot.entityId === item.entityId ? { ...plot, chapterId } : plot)); setMessage(""); }}>{chapters.map((chapter) => <option key={chapter.entityId} value={chapter.entityId}>{chapter.label}</option>)}</select>
+            <select aria-label={`${item.title}所属篇章`} value={item.chapterId} onChange={(event) => { const chapterId = event.target.value; setPlots((current) => current.map((plot) => plot.entityId === item.entityId ? { ...plot, chapterId } : plot)); setMessage(""); }}><option value="">主线</option>{chapters.map((chapter) => <option key={chapter.entityId} value={chapter.entityId}>{chapter.label}</option>)}</select>
             <div className="row-icon-actions">
               <button className="icon-button" disabled={index === 0} aria-label={`上移${item.title}`} title="阅读顺序上移" onClick={() => setPlots((current) => moveItem(current, index, -1))}><Icon name="up" /></button>
               <button className="icon-button" disabled={index === plots.length - 1} aria-label={`下移${item.title}`} title="阅读顺序下移" onClick={() => setPlots((current) => moveItem(current, index, 1))}><Icon name="down" /></button>
@@ -149,7 +150,7 @@ export function StoryStructureEditor({ onClose }: { onClose: () => void }) {
       <footer><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "没有待保存修改")}</span><button className="primary-action" disabled={!dirty || mutation.isPending} onClick={save}>{mutation.isPending ? "正在保存…" : "保存结构"}</button></footer>
     </section>
     <ConfirmDialog open={Boolean(removeId)} title={`删除“${removed?.label || "这个篇章"}”？`} message={affectedCount ? `其中 ${affectedCount} 篇剧情会在同一事务中移动到接收篇章，之后原篇章进入回收站。` : "篇章会进入统一回收站保留 7 天。"} confirmLabel={affectedCount ? "移动剧情并删除" : "移入回收站"} danger confirmDisabled={affectedCount > 0 && !replacementId} onCancel={() => setRemoveId(null)} onConfirm={removeChapter}>
-      {affectedCount > 0 && <label className="confirm-field"><span>接收篇章</span><select value={replacementId} onChange={(event) => setReplacementId(event.target.value)}>{chapters.filter((item) => item.entityId !== removeId).map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select></label>}
+      {affectedCount > 0 && <label className="confirm-field"><span>接收位置</span><select value={replacementId} onChange={(event) => setReplacementId(event.target.value)}><option value="__mainline__">主线</option>{chapters.filter((item) => item.entityId !== removeId).map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select></label>}
     </ConfirmDialog>
     <ConfirmDialog open={confirmClose} title="放弃结构调整？" message="未保存的篇章名称、归属和阅读顺序会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
   </div>;

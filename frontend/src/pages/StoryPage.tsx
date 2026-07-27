@@ -6,16 +6,18 @@ import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { EntityDetail, Plot } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EditorSettingsSection } from "../components/EditorSettingsSection";
 import { FilterChips } from "../components/FilterChips";
 import { Icon } from "../components/Icon";
 import { StoryStructureEditor } from "../components/StoryStructureEditor";
-import { RenderedMarkdown } from "../components/RenderedMarkdown";
+import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
 import { StoryReader } from "../components/StoryReader";
 import { Pagination } from "../components/Pagination";
 import { useUiStore } from "../state/ui";
+import { plotChapterNumber, plotChapterTitle, plotStatusOptions, tagColor, tagStyle } from "../storyOptions";
 
 interface PlotDraft {
-  title: string;
+  chapterNumber: string;
   chapterId: string;
   summary: string;
   body: string;
@@ -31,13 +33,13 @@ interface PlotDraft {
 }
 
 const emptyDraft: PlotDraft = {
-  title: "", chapterId: "", summary: "", body: "", status: "草稿", accent: "#3f7fc1",
+  chapterNumber: "1", chapterId: "", summary: "", body: "", status: "草稿", accent: "#3f7fc1",
   tags: [], people: [], entries: [], lanes: [], references: [], key: false, climax: false,
 };
 
 function draftFrom(plot: Plot): PlotDraft {
   return {
-    title: plot.title, chapterId: plot.chapterId, summary: plot.summary, body: plot.body || "",
+    chapterNumber: String(plotChapterNumber(plot.title, plot.sequence)), chapterId: plot.chapterId, summary: plot.summary, body: plot.body || "",
     status: plot.status, accent: plot.accent, tags: [...plot.tags], people: [...plot.people],
     entries: [...plot.entries], lanes: [...plot.lanes],
     references: [...new Set([...(plot.references || []), ...plot.people, ...plot.entries])],
@@ -76,50 +78,68 @@ function compactStoryPreview(source: string) {
 function PlotCard({ plot, chapterLabel, onOpen }: { plot: Plot; chapterLabel: string; onOpen: () => void }) {
   const importance = plot.climax ? "高潮" : plot.key ? "重点" : "";
   const preview = compactStoryPreview(plot.summary || plot.body || plot.bodyPreview || "_还没有正文。_");
+  const chapterColor = tagColor(chapterLabel);
+  const statusColor = tagColor(plot.status || "未标记");
   return <article className={`plot-card${importance ? " is-important" : ""}`} style={{ "--accent": plot.accent } as React.CSSProperties} onClick={onOpen}>
     {importance && <span className={`plot-card-ribbon${plot.climax ? " is-climax" : ""}`} aria-label={`${importance}剧情`}>{importance}</span>}
     <div className="plot-card-index">{String(plot.sequence).padStart(2, "0")}</div>
     <div className="card-meta">
-      <span className="plot-card-meta-item" aria-label={`篇章 ${chapterLabel}`} title={`篇章：${chapterLabel}`}><Icon name="book" /><strong>{chapterLabel}</strong></span>
-      <span className="plot-card-meta-item" aria-label={`状态 ${plot.status || "未标记"}`} title={`状态：${plot.status || "未标记"}`}><Icon name="filter" /><strong>{plot.status || "未标记"}</strong></span>
+      <span className="plot-card-meta-item" style={{ "--tag-color": chapterColor } as React.CSSProperties} aria-label={`篇章 ${chapterLabel}`} title={`篇章：${chapterLabel}`}><Icon name="book" /><strong>{chapterLabel}</strong></span>
+      <span className="plot-card-meta-item" style={{ "--tag-color": statusColor } as React.CSSProperties} aria-label={`状态 ${plot.status || "未标记"}`} title={`状态：${plot.status || "未标记"}`}><Icon name="filter" /><strong>{plot.status || "未标记"}</strong></span>
     </div>
-    <div className="plot-card-copy"><h2>{plot.title}</h2><RenderedMarkdown source={preview} className="plot-card-preview content-card-preview" /></div>
-    <div className="metadata-tags">{plot.tags.map((tag) => <span key={tag} style={{ borderColor: plot.accent, color: plot.accent }}>{tag}</span>)}</div>
+    <div className="plot-card-copy"><CompleteBlockPreview source={preview} className="plot-card-preview content-card-preview" /></div>
+    <div className="metadata-tags">{plot.tags.map((tag) => <span key={tag} style={tagStyle(tag)}>{tag}</span>)}</div>
     <button className="card-arrow" aria-label={`阅读${plot.title}`}><Icon name="arrow" /></button>
   </article>;
 }
 
 function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () => void }) {
-  const { api, project, snapshot, writable } = useRuntime();
+  const { api, project, snapshot, writable, meta } = useRuntime();
   const mutation = useProjectMutation();
   const queryClient = useQueryClient();
   const [currentId, setCurrentId] = useState<string | "new">(plotId);
   const [initialChapterId] = useState(() => snapshot.chapters[0]?.entityId || "");
+  const [initialChapterNumber] = useState(() => Math.max(0, ...snapshot.plots.map((plot) => plotChapterNumber(plot.title, plot.sequence))) + 1);
   const detail = useQuery({
     queryKey: ["entity", project, currentId],
     queryFn: () => api.detail<Plot>(currentId),
     enabled: currentId !== "new",
   });
-  const [draft, setDraft] = useState<PlotDraft>({ ...emptyDraft, chapterId: initialChapterId });
+  const [draft, setDraft] = useState<PlotDraft>({ ...emptyDraft, chapterId: initialChapterId, chapterNumber: String(initialChapterNumber) });
   const [baseline, setBaseline] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [convertConfirm, setConvertConfirm] = useState(false);
+  const [duplicateConfirm, setDuplicateConfirm] = useState(false);
+  const [chapterErrorPulse, setChapterErrorPulse] = useState(0);
   const [message, setMessage] = useState("");
+  const supportsConversion = Boolean(
+    meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
+  );
 
   useEffect(() => {
     if (currentId === "new") {
-      const next = { ...emptyDraft, chapterId: initialChapterId };
+      const next = { ...emptyDraft, chapterId: initialChapterId, chapterNumber: String(initialChapterNumber) };
       setDraft(next); setBaseline(JSON.stringify(next));
     } else if (detail.data?.data) {
       const next = draftFrom(detail.data.data);
       setDraft(next); setBaseline(JSON.stringify(next));
     }
-  }, [currentId, detail.data, initialChapterId]);
+  }, [currentId, detail.data, initialChapterId, initialChapterNumber]);
 
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const close = () => dirty ? setConfirmClose(true) : onClose();
   const change = <K extends keyof PlotDraft>(key: K, value: PlotDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const chapterNumber = Number(draft.chapterNumber);
+  const chapterNumberIsValid = draft.chapterNumber.trim() !== ""
+    && Number.isInteger(chapterNumber)
+    && chapterNumber >= 1
+    && chapterNumber <= 99999;
+  const currentChapterTitle = chapterNumberIsValid ? plotChapterTitle(chapterNumber) : "未设置章号";
+  const rejectInvalidChapter = () => {
+    setChapterErrorPulse((current) => current + 1);
+    setMessage("请填写 1 至 99999 之间的整数章号");
+  };
   const addReference = (reference: PickedReference) => {
     const key = reference.kind === "character" ? "people" : "entries";
     setDraft((current) => ({
@@ -130,31 +150,61 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
         : [...current.references, reference.entityId],
     }));
   };
-  const save = async () => {
+  const persist = async (shiftFollowing: boolean) => {
     if (!writable || mutation.isPending) return;
+    if (!chapterNumberIsValid) {
+      rejectInvalidChapter();
+      return;
+    }
     setMessage("");
     try {
-      const payload = { ...draft } as unknown as Record<string, unknown>;
+      const title = plotChapterTitle(chapterNumber);
+      const { chapterNumber: _chapterNumberText, ...draftFields } = draft;
+      const payload = { ...draftFields, chapterNumber, title, shiftFollowing } as unknown as Record<string, unknown>;
       const result = await mutation.mutateAsync({
         path: currentId === "new" ? "/plots" : `/plots/${encodeURIComponent(currentId)}`,
         method: currentId === "new" ? "POST" : "PATCH",
         payload,
       });
+      const changedPlot = result.changed.plots?.find((plot) => (
+        plot.entityId === currentId
+        || (currentId === "new" && !snapshot.plots.some((existing) => existing.entityId === plot.entityId))
+      ));
+      const savedDraft = {
+        ...draft,
+        people: Array.isArray(changedPlot?.people) ? changedPlot.people.map(String) : draft.people,
+      };
       if (currentId === "new") {
-        const created = result.changed.plots?.find((item) => !snapshot.plots.some((existing) => existing.entityId === item.entityId));
+        const created = changedPlot;
         if (created?.entityId) setCurrentId(String(created.entityId));
       } else {
         queryClient.setQueryData<EntityDetail<Plot>>(["entity", project, currentId], (current) => current ? {
           ...current,
-          title: draft.title,
-          data: { ...current.data, ...draft },
+          title,
+          data: { ...current.data, ...draftFields, people: savedDraft.people, title },
         } : current);
       }
-      setBaseline(JSON.stringify(draft));
+      setDraft(savedDraft);
+      setBaseline(JSON.stringify(savedDraft));
       setMessage(result.warnings[0] || "已保存");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存失败");
     }
+  };
+  const save = async () => {
+    if (!chapterNumberIsValid) {
+      rejectInvalidChapter();
+      return;
+    }
+    const duplicate = snapshot.plots.some((plot) => (
+      plot.entityId !== currentId
+      && plotChapterNumber(plot.title, plot.sequence) === chapterNumber
+    ));
+    if (duplicate) {
+      setDuplicateConfirm(true);
+      return;
+    }
+    await persist(false);
   };
   const remove = async () => {
     if (currentId === "new") return;
@@ -165,34 +215,59 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       setMessage(error instanceof Error ? error.message : "删除失败");
     }
   };
+  const requestConvert = () => {
+    if (dirty) {
+      setMessage("请先保存当前修改，再放入碎片箱");
+      return;
+    }
+    setConvertConfirm(true);
+  };
+  const convertToFragment = async () => {
+    if (currentId === "new") return;
+    try {
+      await mutation.mutateAsync({
+        path: `/plots/${encodeURIComponent(currentId)}/to-fragment`,
+        method: "POST",
+        payload: {},
+      });
+      useUiStore.getState().selectPlot(null);
+      useUiStore.getState().showNotice("已放入碎片箱，原剧情可在回收站恢复", "success");
+      onClose();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "放入碎片失败");
+      setConvertConfirm(false);
+    }
+  };
   useEditorSaveShortcut(save);
   if (plotId !== "new" && detail.isPending) return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取正文…</div></div>;
   return (
     <div className="dialog-backdrop editor-backdrop" role="presentation">
-      <section className="editor-dialog" role="dialog" aria-modal="true" aria-label={currentId === "new" ? "写新剧情" : `编辑${draft.title}`}>
+      <section className="editor-dialog" role="dialog" aria-modal="true" aria-label={currentId === "new" ? "写新剧情" : `编辑${currentChapterTitle}`}>
         <header className="dialog-header">
-          <div><small>{currentId === "new" ? "New Story" : "Story Editor"}</small><h2>{currentId === "new" ? "写新剧情" : draft.title || "编辑剧情"}</h2></div>
+          <div><small>{currentId === "new" ? "New Story" : "Story Editor"}</small><h2>{currentId === "new" ? "写新剧情" : currentChapterTitle}</h2></div>
           <div className="dialog-actions">
+            {currentId !== "new" && writable && supportsConversion && <button className="icon-button" aria-label="放入碎片箱" title="放入碎片箱" onClick={requestConvert}><Icon name="replace" /></button>}
             {currentId !== "new" && writable && <button className="icon-button is-danger" aria-label="删除剧情" title="删除剧情" onClick={() => setDeleteConfirm(true)}><Icon name="trash" /></button>}
             <button className="icon-button" aria-label="关闭" title="关闭" onClick={close}><Icon name="close" /></button>
           </div>
         </header>
-        <button className="settings-toggle" type="button" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Icon name="settings" /><span>剧情设置</span><small>{settingsOpen ? "收起" : "展开"}</small></button>
-        {settingsOpen && <div className="editor-settings">
-          <label className="wide"><span>标题</span><input value={draft.title} onChange={(event) => change("title", event.target.value)} /></label>
-          <label><span>篇章</span><select value={draft.chapterId} onChange={(event) => change("chapterId", event.target.value)}>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select></label>
-          <label><span>状态</span><input value={draft.status} onChange={(event) => change("status", event.target.value)} /></label>
+        <EditorSettingsSection label="剧情设置">
+          <label><span>章节</span><span key={chapterErrorPulse} className={`chapter-number-field${chapterErrorPulse ? " is-invalid-pulse" : ""}`}>第 <input type="number" min="1" max="99999" step="1" aria-label="章号" aria-invalid={!chapterNumberIsValid} value={draft.chapterNumber} onChange={(event) => change("chapterNumber", event.target.value)} /> 章</span></label>
+          <label><span>篇</span><select value={draft.chapterId} onChange={(event) => change("chapterId", event.target.value)}><option value="">主线</option>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select></label>
+          <label><span>状态</span><select value={draft.status} onChange={(event) => change("status", event.target.value)}>{plotStatusOptions(draft.status).map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
           <label><span>强调色</span><input type="color" value={draft.accent} onChange={(event) => change("accent", event.target.value)} /></label>
           <label className="wide"><span>摘要</span><input value={draft.summary} onChange={(event) => change("summary", event.target.value)} /></label>
           <label className="wide"><span>标签（逗号分隔）</span><input value={draft.tags.join("，")} onChange={(event) => change("tags", event.target.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean))} /></label>
           <label className="check"><input type="checkbox" checked={draft.key} onChange={(event) => change("key", event.target.checked)} />关键剧情</label>
           <label className="check"><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} />高潮剧情</label>
-        </div>}
+        </EditorSettingsSection>
         <MarkdownEditor value={draft.body} onChange={(body) => change("body", body)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} autoFocus />
         <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>@ 选择人物 · / 选择设定 · ⌘/Ctrl+S 保存</small></footer>
       </section>
       <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="关闭后，本次未保存的正文和设置会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
-      <ConfirmDialog open={deleteConfirm} title={`删除“${draft.title}”？`} message="剧情会进入回收站保留 7 天；原有稳定 ID 和阅读位置不会立即清除。" confirmLabel="移入回收站" danger onCancel={() => setDeleteConfirm(false)} onConfirm={remove} />
+      <ConfirmDialog open={deleteConfirm} title={`删除“${currentChapterTitle}”？`} message="剧情会进入回收站保留 7 天；原有稳定 ID 和阅读位置不会立即清除。" confirmLabel="移入回收站" danger onCancel={() => setDeleteConfirm(false)} onConfirm={remove} />
+      <ConfirmDialog open={convertConfirm} title={`把“${currentChapterTitle}”放入碎片箱？`} message="正文、标签、颜色和引用会迁移到新碎片；原剧情会进入回收站，整次操作可以撤销。" confirmLabel="放入碎片箱" onCancel={() => setConvertConfirm(false)} onConfirm={convertToFragment} />
+      <ConfirmDialog open={duplicateConfirm} title={`${currentChapterTitle}已经存在`} message="你可以继续编辑并重新填写章号，或者插入到这个位置，将这一章及后面的章节依次顺延。" confirmLabel="插入并顺延后续章节" onCancel={() => setDuplicateConfirm(false)} onConfirm={async () => { setDuplicateConfirm(false); await persist(true); }} />
     </div>
   );
 }
@@ -213,14 +288,14 @@ export default function StoryPage() {
   const [page, setPage] = useState(1);
   useEffect(() => setSelectedStatuses(statuses), [statuses.join("\0")]);
   useEffect(() => setSelectedTags(tags), [tags.join("\0")]);
-  useEffect(() => { if (chapter && !snapshot.chapters.some((item) => item.entityId === chapter)) setChapter(""); }, [chapter, snapshot.chapters]);
+  useEffect(() => { if (chapter && chapter !== "__mainline__" && !snapshot.chapters.some((item) => item.entityId === chapter)) setChapter(""); }, [chapter, snapshot.chapters]);
   useEffect(() => {
     if (!selectedPlotId) return;
     setReaderId(selectedPlotId);
   }, [selectedPlotId]);
   useEffect(() => setPage(1), [chapter, selectedStatuses.join("\0"), selectedTags.join("\0")]);
   const filteredPlots = snapshot.plots.filter((plot) =>
-    (!chapter || plot.chapterId === chapter) && selectedStatuses.includes(plot.status) &&
+    (!chapter || (chapter === "__mainline__" ? !plot.chapterId : plot.chapterId === chapter)) && selectedStatuses.includes(plot.status) &&
     (selectedTags.length === tags.length || plot.tags.some((tag) => selectedTags.includes(tag))),
   );
   const totalPages = Math.max(1, Math.ceil(filteredPlots.length / 9));
@@ -248,12 +323,12 @@ export default function StoryPage() {
   </>;
   return (
     <section className="workspace-page story-page">
-      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1></div><div className="page-actions"><select aria-label="篇章筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有篇章</option>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select>{writable && <><button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureEditor(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
+      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1></div><div className="page-actions"><select aria-label="篇章筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有篇</option><option value="__mainline__">主线</option>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select>{writable && <><button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureEditor(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
       <div className="filter-panel"><FilterChips label="状态" values={statuses} selected={selectedStatuses} onChange={setSelectedStatuses} /><FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible /></div>
       <div className="plot-grid">{plots.map((plot) => <PlotCard
         key={plot.entityId}
         plot={plot}
-        chapterLabel={snapshot.chapters.find((item) => item.entityId === plot.chapterId)?.label || "未安排"}
+        chapterLabel={snapshot.chapters.find((item) => item.entityId === plot.chapterId)?.label || "主线"}
         onOpen={() => open(plot.entityId)}
       />)}</div>
       <Pagination page={Math.min(page, totalPages)} totalPages={totalPages} onChange={(value) => { setPage(value); window.scrollTo({ top: 0, behavior: "smooth" }); }} />

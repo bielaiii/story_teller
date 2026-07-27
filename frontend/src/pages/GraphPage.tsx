@@ -254,17 +254,13 @@ export default function GraphPage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
     nodeMotionActiveRef.current = true;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0;
-    let lastPaint = 0;
     const draw = (now: number) => {
       frame = 0;
-      if (!reducedMotion && lastPaint && now - lastPaint < 50) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
-      lastPaint = now;
       const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
       if (canvas.width !== Math.round(size.width * ratio) || canvas.height !== Math.round(size.height * ratio)) {
         canvas.width = Math.round(size.width * ratio);
@@ -330,8 +326,6 @@ export default function GraphPage() {
         }
         nodeMotionActiveRef.current = shouldMoveNodes;
       }
-      const context = canvas.getContext("2d");
-      if (!context) return;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, size.width, size.height);
       context.save();
@@ -413,11 +407,6 @@ export default function GraphPage() {
     followerTargetsRef.current.delete(pending.id);
     followerPointsRef.current.delete(pending.id);
     followerVelocityRef.current.delete(pending.id);
-    setManualPoints((current) => {
-      const next = new Map(current);
-      next.set(pending.id, pending.point);
-      return next;
-    });
   };
   const queueDraggedPoint = (id: string, point: Point, deltaX: number, deltaY: number) => {
     const pending = pendingDragPointRef.current;
@@ -434,6 +423,13 @@ export default function GraphPage() {
     if (dragFrameRef.current) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = 0;
     commitDraggedPoint();
+  };
+  const stageDraggedPoint = (id: string, point: Point) => {
+    setManualPoints((current) => {
+      const next = new Map(current);
+      next.set(id, point);
+      return next;
+    });
   };
   const persistDraggedPoint = async (id: string, point: Point) => {
     if (!writable) return;
@@ -554,6 +550,7 @@ export default function GraphPage() {
     const drag = nodeDragRef.current;
     if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
     flushDraggedPoint();
+    if (drag.moved) stageDraggedPoint(item.entityId, drag.lastPoint);
     nodeDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (drag.moved) {
@@ -564,6 +561,7 @@ export default function GraphPage() {
     const drag = nodeDragRef.current;
     if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
     flushDraggedPoint();
+    if (drag.moved) stageDraggedPoint(item.entityId, drag.lastPoint);
     nodeDragRef.current = null;
     if (drag.moved) void persistDraggedPoint(item.entityId, drag.lastPoint);
   }} onClick={() => {

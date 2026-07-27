@@ -26,7 +26,7 @@ function TrashPreviewContent({ data }: { data: Record<string, unknown> }) {
   </div>;
 }
 
-export default function RecoveryCenter({ onClose }: { onClose: () => void }) {
+export default function ProjectManagementPage() {
   const { api, project } = useRuntime();
   const mutation = useProjectMutation();
   const trash = useQuery({ queryKey: ["trash", project], queryFn: () => api.trash() });
@@ -59,9 +59,9 @@ export default function RecoveryCenter({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return <div className="dialog-backdrop recovery-center-backdrop">
-    <section className="recovery-center-dialog" role="dialog" aria-modal="true" aria-label="回收站与撤销记录">
-      <header><div><small>Recovery</small><h2>恢复中心</h2><p>删除内容保留七天；近期操作在没有后续冲突时可以整体撤销。</p></div><div className="dialog-actions">{message && <span className="page-message">{message}</span>}<button className="icon-button" aria-label="关闭恢复中心" title="关闭" onClick={onClose}><Icon name="close" /></button></div></header>
+  return <section className="workspace-page management-page" aria-label="项目管理">
+    <section className="recovery-center-dialog">
+      <header><div><small>Project Management</small><h2>项目管理</h2><p>集中管理回收站、操作记录，以及后续不属于具体编辑器的项目设置。</p></div><div className="dialog-actions">{message && <span className="page-message">{message}</span>}</div></header>
       <div className="recovery-center-grid">
         <section className="recovery-panel"><header><div><small>Trash</small><h3>回收站</h3></div><strong>{trash.data?.items.length || 0}</strong></header><div className="trash-list-new">{trash.data?.items.map((item) => <article key={item.entityId}><button className="trash-preview-main" onClick={() => setPreview(item)}><span>{kindLabels[item.kind] || item.kind}</span><strong>{item.title}</strong><small>{item.kind === "character" ? `ID ${item.id} · ` : ""}{item.daysRemaining} 天后永久删除</small></button><button className="icon-button" aria-label={`恢复${item.title}${item.kind === "character" ? `（ID ${item.id}）` : ""}`} title="恢复" onClick={() => restore(item)}><Icon name="restore" /></button></article>)}{!trash.isPending && !trash.data?.items.length && <div className="empty-state compact"><Icon name="trash" /><p>回收站是空的</p></div>}</div></section>
         <section className="recovery-panel"><header><div><small>History</small><h3>操作记录</h3></div><strong>{operations.data?.items.length || 0}</strong></header><div className="operation-list-new">{operations.data?.items.map((item) => <article key={item.id}><div><span>{kindLabels[item.entityKind] || "内容"}</span><strong>{item.label}</strong><small>{new Date(item.createdAt * 1000).toLocaleString("zh-CN")}</small>{!item.canUndo && item.undoBlockedReason && <em>{item.undoBlockedReason}</em>}</div><button className="icon-button" disabled={!item.canUndo} aria-label={`撤销${item.label}`} title={item.undoBlockedReason || "撤销"} onClick={() => setUndoId(item.id)}><Icon name="undo" /></button></article>)}</div></section>
@@ -69,5 +69,5 @@ export default function RecoveryCenter({ onClose }: { onClose: () => void }) {
     </section>
     {preview && <section className="trash-preview-dialog" role="dialog" aria-modal="true" aria-label={`预览${preview.title}`}><header><div><small>{kindLabels[preview.kind]}</small><h2>{preview.title}</h2></div><button className="icon-button" aria-label="关闭预览" onClick={() => setPreview(null)}><Icon name="close" /></button></header>{previewQuery.isPending ? <p>正在读取预览…</p> : <TrashPreviewContent data={previewQuery.data?.data || {}} />}<footer><small>{preview.daysRemaining} 天后永久删除</small><button className="icon-button is-primary" aria-label={`恢复${preview.title}`} title="恢复" onClick={() => restore(preview)}><Icon name="restore" /></button></footer></section>}
     <ConfirmDialog open={Boolean(undoId)} title="撤销这项操作？" message="只有相关数据没有被后续修改时才能整体撤销；不会覆盖更新的内容。" confirmLabel="撤销操作" onCancel={() => setUndoId(null)} onConfirm={undo} />
-  </div>;
+  </section>;
 }

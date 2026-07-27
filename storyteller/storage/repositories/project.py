@@ -178,6 +178,7 @@ class ProjectRepository:
         )
         public_extra = dict(extra)
         public_extra.pop("characterPersona", None)
+        public_extra.pop("destinyOutline", None)
         result = {
             "entityId": identifier,
             "id": str(row["stable_id"]),
@@ -188,6 +189,7 @@ class ProjectRepository:
             "supplements": supplements.get(identifier, []),
             "corePersona": core_persona,
             "supplementPersona": supplement_persona,
+            "destinyOutline": str(extra.get("destinyOutline") or ""),
             "narrativeRole": str(row["narrative_role"]),
             "characterScope": str(row["character_scope"]),
             "side": str(row["side"]),

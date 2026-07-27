@@ -75,6 +75,7 @@ export class StoryApi {
   mutate(path: string, method: "POST" | "PATCH" | "PUT" | "DELETE", payload: Record<string, unknown>): Promise<MutationDelta> {
     return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
       method,
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         "X-Story-Teller-Token": this.mutationToken,
