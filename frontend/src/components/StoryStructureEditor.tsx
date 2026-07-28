@@ -114,7 +114,7 @@ export function StoryStructureEditor({ onClose }: { onClose: () => void }) {
   return <div className="dialog-backdrop">
     <section className="story-structure-dialog" role="dialog" aria-modal="true" aria-label="编辑篇章与阅读顺序">
       <header>
-        <div><small>Story Structure</small><h2>篇章与阅读顺序</h2><p>这里只调整读者看到文章的顺序，不改写时间线中的故事发生顺序。</p></div>
+        <div><small>Story Structure</small><h2>篇章与阅读顺序</h2><p>调整剧情顺序后会同步时间线节点，并保留当前节点间距。</p></div>
         <button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button>
       </header>
       <div className="story-structure-body">

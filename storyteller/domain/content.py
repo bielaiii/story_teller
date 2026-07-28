@@ -327,12 +327,36 @@ class ContentService:
 
     @staticmethod
     def _sync_plot_timeline_story_sort_keys(connection: sqlite3.Connection) -> None:
-        """Keep timeline node positions aligned with plot ranks without unique-key collisions."""
+        """Align timeline order with plot order while preserving the existing spacing slots."""
+        ordered_plot_ids = [
+            str(row["entity_id"])
+            for row in connection.execute(
+                "SELECT entity_id FROM active_plots ORDER BY sort_key, entity_id"
+            )
+        ]
+        existing_keys_by_plot: dict[str, str] = {}
+        for row in connection.execute(
+            """
+            SELECT plot_id, MIN(story_sort_key) AS story_sort_key
+            FROM plot_timeline_lines
+            GROUP BY plot_id
+            """
+        ):
+            story_key = str(row["story_sort_key"])
+            if story_key.isdigit():
+                existing_keys_by_plot[str(row["plot_id"])] = story_key
+        spacing_slots = sorted(
+            existing_keys_by_plot.values(),
+            key=lambda value: (int(value), value),
+        )
+        if len(spacing_slots) != len(ordered_plot_ids) or len(set(spacing_slots)) != len(spacing_slots):
+            spacing_slots = [f"{index * RANK_STEP:024d}" for index in range(1, len(ordered_plot_ids) + 1)]
+        target_key_by_plot = dict(zip(ordered_plot_ids, spacing_slots, strict=True))
         rows = list(connection.execute(
             """
-            SELECT ptl.plot_id, ptl.line_id, p.sort_key
+            SELECT ptl.plot_id, ptl.line_id
             FROM plot_timeline_lines ptl
-            JOIN plots p ON p.entity_id=ptl.plot_id
+            JOIN active_plots p ON p.entity_id=ptl.plot_id
             ORDER BY ptl.line_id, p.sort_key, ptl.plot_id
             """
         ))
@@ -350,7 +374,7 @@ class ContentService:
                 UPDATE plot_timeline_lines SET story_sort_key=?
                 WHERE plot_id=? AND line_id=?
                 """,
-                (row["sort_key"], row["plot_id"], row["line_id"]),
+                (target_key_by_plot[str(row["plot_id"])], row["plot_id"], row["line_id"]),
             )
 
     @staticmethod

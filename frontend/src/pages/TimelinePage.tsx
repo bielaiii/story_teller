@@ -75,7 +75,7 @@ export function visibleTimelineTrackIds(geometry: TimelineGeometry, top: number,
 
 export function moveTimelineAssignment(
   assignments: AssignmentDraft[],
-  lineId: string,
+  _lineId: string,
   plotId: string,
   targetPlotId: string,
 ): {
@@ -83,9 +83,8 @@ export function moveTimelineAssignment(
   swapPreview: TimelineDragState["swapPreview"];
   affectedLineIds: string[];
 } {
-  const ordered = assignments
-    .filter((item) => item.lineIds.includes(lineId))
-    .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey));
+  const ordered = [...assignments]
+    .sort((left, right) => left.storyPosition - right.storyPosition);
   let currentIndex = ordered.findIndex((item) => item.plotId === plotId);
   const targetIndex = ordered.findIndex((item) => item.plotId === targetPlotId);
   if (currentIndex < 0 || targetIndex < 0 || currentIndex === targetIndex) {
@@ -101,10 +100,13 @@ export function moveTimelineAssignment(
     const dragged = byId.get(plotId)!;
     const neighbor = byId.get(ordered[neighborIndex].plotId)!;
     const draggedStoryKey = dragged.storySortKey;
+    const draggedStoryPosition = dragged.storyPosition;
     const draggedChapterNumber = dragged.chapterNumber;
     dragged.storySortKey = neighbor.storySortKey;
+    dragged.storyPosition = neighbor.storyPosition;
     dragged.chapterNumber = neighbor.chapterNumber;
     neighbor.storySortKey = draggedStoryKey;
+    neighbor.storyPosition = draggedStoryPosition;
     neighbor.chapterNumber = draggedChapterNumber;
     dragged.lineIds.forEach((id) => affectedLineIds.add(id));
     neighbor.lineIds.forEach((id) => affectedLineIds.add(id));
@@ -672,7 +674,32 @@ export default function TimelinePage() {
     setCurrentDrag(null);
   };
   const processTimelineDragWorldY = (worldY: number, current: TimelineDragState) => {
-    const ordered = [...assignmentsRef.current].sort((left, right) => left.storyPosition - right.storyPosition);
+    let nextAssignments = assignmentsRef.current;
+    let nextLines = linesRef.current;
+    let swapPreview = dragStateRef.current?.swapPreview || null;
+    let reordered = false;
+    while (true) {
+      const ordered = [...nextAssignments].sort((left, right) => left.storyPosition - right.storyPosition);
+      const index = ordered.findIndex((item) => item.plotId === current.plotId);
+      if (index < 0) return;
+      const target = worldY >= (ordered[index + 1]?.storyPosition ?? Number.POSITIVE_INFINITY)
+        ? ordered[index + 1]
+        : worldY <= (ordered[index - 1]?.storyPosition ?? Number.NEGATIVE_INFINITY)
+          ? ordered[index - 1]
+          : null;
+      if (!target) break;
+      const moved = moveTimelineAssignment(nextAssignments, current.lineId, current.plotId, target.plotId);
+      if (!moved.affectedLineIds.length) break;
+      nextAssignments = moved.assignments;
+      nextAssignments = nextAssignments.map((item) => ({
+        ...item,
+        storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
+      }));
+      nextLines = normalizeTimelineLineBounds(nextLines, nextAssignments, mainLineId, moved.affectedLineIds);
+      swapPreview = moved.swapPreview;
+      reordered = true;
+    }
+    const ordered = [...nextAssignments].sort((left, right) => left.storyPosition - right.storyPosition);
     const index = ordered.findIndex((item) => item.plotId === current.plotId);
     if (index < 0) return;
     const nextPosition = clampTimelineNodePosition(
@@ -680,15 +707,20 @@ export default function TimelinePage() {
       ordered[index - 1]?.storyPosition,
       ordered[index + 1]?.storyPosition,
     );
-    if (Math.abs(nextPosition - ordered[index].storyPosition) < .1) return;
-    const nextAssignments = assignmentsRef.current.map((item) => (
+    if (!reordered && Math.abs(nextPosition - ordered[index].storyPosition) < .1) return;
+    nextAssignments = nextAssignments.map((item) => (
       item.plotId === current.plotId ? { ...item, storyPosition: nextPosition } : item
-    ));
+    )).map((item) => ({
+      ...item,
+      storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
+    }));
     assignmentsRef.current = nextAssignments;
+    linesRef.current = nextLines;
     setAssignments(nextAssignments);
+    setLines(nextLines);
     const nextOrderedAssignments = [...nextAssignments]
       .sort((left, right) => left.storyPosition - right.storyPosition);
-    const nextTimelineLines: TimelineLine[] = linesRef.current.map((line, lineIndex) => ({
+    const nextTimelineLines: TimelineLine[] = nextLines.map((line, lineIndex) => ({
       entityId: line.entityId,
       id: line.stableId,
       name: line.name,
@@ -718,7 +750,7 @@ export default function TimelinePage() {
       mainLineId,
       nextPositions,
     );
-    setCurrentDrag({ ...dragStateRef.current!, moved: true, swapPreview: null });
+    setCurrentDrag({ ...dragStateRef.current!, moved: true, swapPreview });
   };
   const processTimelineDragPointer = (clientX: number, clientY: number) => {
     const current = dragStateRef.current;
@@ -818,15 +850,15 @@ export default function TimelinePage() {
   const moveStoryNode = (plotId: string, direction: -1 | 1) => {
     const ordered = [...assignments].sort((left, right) => left.storyPosition - right.storyPosition);
     const index = ordered.findIndex((item) => item.plotId === plotId);
-    if (index < 0) return;
-    const nextPosition = clampTimelineNodePosition(
-      ordered[index].storyPosition + direction * 24,
-      ordered[index - 1]?.storyPosition,
-      ordered[index + 1]?.storyPosition,
-    );
-    setAssignments((current) => current.map((item) => (
-      item.plotId === plotId ? { ...item, storyPosition: nextPosition } : item
-    )));
+    const target = ordered[index + direction];
+    if (index < 0 || !target) return;
+    const moved = moveTimelineAssignment(assignments, selectedEditLine, plotId, target.plotId);
+    const nextAssignments = moved.assignments.map((item) => ({
+      ...item,
+      storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
+    }));
+    setAssignments(nextAssignments);
+    setLines((current) => normalizeTimelineLineBounds(current, nextAssignments, mainLineId, moved.affectedLineIds));
   };
   useEffect(() => {
     if (!editing) {
@@ -843,6 +875,10 @@ export default function TimelinePage() {
   }, [editing]);
   const save = async () => {
     if (!lines.length || !mainLineId || mutation.isPending || dragStateRef.current) return;
+    const chapterNumbersChanged = assignments.some((item) => {
+      const plot = snapshot.plots.find((candidate) => candidate.entityId === item.plotId);
+      return plot && item.chapterNumber !== plotChapterNumber(plot.title, plot.sequence);
+    });
     try {
       const result = await mutation.mutateAsync({
         path: "/timeline",
@@ -867,6 +903,10 @@ export default function TimelinePage() {
             lineIds: item.lineIds,
             storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
           })),
+          chapterNumbers: chapterNumbersChanged ? assignments.map((item) => ({
+            plotId: item.plotId,
+            chapterNumber: item.chapterNumber,
+          })) : undefined,
           lineReplacements,
         },
       });
@@ -899,7 +939,7 @@ export default function TimelinePage() {
   const draggedPlot = snapshot.plots.find((item) => item.entityId === dragState?.plotId);
   const draggedLine = lines.find((item) => item.entityId === dragState?.lineId);
   return <section className="workspace-page timeline-page-new">
-    <header className="page-header"><div><small>Story Time</small><h1>时间线</h1><p>纵向是故事发生顺序；节点间距可自由调整，篇章顺序和章号保持不变。</p></div>{writable && <button className="icon-button" aria-label="编辑时间线" title="编辑时间线" onClick={beginEdit}><Icon name="edit" /></button>}</header>
+    <header className="page-header"><div><small>Story Time</small><h1>时间线</h1><p>纵向是故事发生顺序；自由调整间距，越过节点即可同步重排剧情篇次。</p></div>{writable && <button className="icon-button" aria-label="编辑时间线" title="编辑时间线" onClick={beginEdit}><Icon name="edit" /></button>}</header>
     {message && <p className="page-message">{message}</p>}
     <div className="timeline-workspace">
       <aside className={`timeline-line-rail${writable ? " has-editor" : ""}`} aria-label="时间线图示">
@@ -935,7 +975,7 @@ export default function TimelinePage() {
         {plot && <aside className="timeline-plot-card" style={{ top: 30 }} onClick={(event) => event.stopPropagation()}><button className="icon-button" aria-label="关闭剧情卡片" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small><h2>{plot.title}</h2><RenderedMarkdown source={plotPreview} className="timeline-plot-preview" /><button className="primary-action" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}>进入完整文章</button></aside>}
       </div>
     </div>
-    {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>按住节点可连续上下拖动，自由调整相邻节点间距；节点不会越过彼此，篇章顺序和章号保持不变。</p></div><button className="icon-button" aria-label="关闭" onClick={() => { finishTimelineDrag(false); setEditing(false); }}><Icon name="close" /></button></header>
+    {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>节点间可连续调距；拖过其他节点时会推动沿途节点，并同步更新剧情篇次。</p></div><button className="icon-button" aria-label="关闭" onClick={() => { finishTimelineDrag(false); setEditing(false); }}><Icon name="close" /></button></header>
       <div className="timeline-editor-body">
         <section className={`timeline-editor-map${dragState ? " is-dragging" : ""}`}><header><strong>故事时间线</strong><small>{editorTimelineLines.length} 条线 · {editorOrderedAssignments.length} 个节点</small></header><div className="timeline-editor-visual-scroll" ref={editorTimelineScrollRef}><div className="timeline-editor-visual-world" style={{ minHeight: `${editorGeometry.height}px` }} onClick={(event) => {
           if ((event.target as HTMLElement).closest(".timeline-editor-track-node")) return;
@@ -1001,6 +1041,6 @@ export default function TimelinePage() {
           <section><div className="section-heading"><h3>剧情线设置</h3><button className="icon-button is-danger" disabled={lines.length === 1} aria-label={`删除${selectedLine?.name || "剧情线"}`} title="删除剧情线" onClick={() => requestRemoveLine(selectedEditLine)}><Icon name="trash" /></button></div><div className="timeline-line-fields"><label><span>名称</span><input value={selectedLine?.name || ""} onChange={(event) => changeLine("name", event.target.value)} /></label><label><span>颜色</span><input type="color" value={selectedLine?.color || "#3f7fc1"} onChange={(event) => changeLine("color", event.target.value)} /></label><label><span>位置</span><select disabled={selectedEditLine === mainLineId} value={selectedEditLine === mainLineId ? "center" : selectedLine?.side || "right"} onChange={(event) => changeLine("side", event.target.value as LineDraft["side"])}><option value="left">左侧</option><option value="right">右侧</option><option value="center">主线</option></select></label><label className="main-line-choice"><input type="radio" checked={selectedEditLine === mainLineId} onChange={() => setMainLineId(selectedEditLine)} />设为主线</label></div></section>{editPlot && editAssignment ? <section><div className="section-heading"><div><h3>篇章详情</h3><small>故事位置 {editNodeIndex + 1} · 第 {editAssignment.chapterNumber} 章</small></div><div className="row-icon-actions"><button className="icon-button" disabled={editNodeIndex <= 0} aria-label={`上移${editPlot.title}`} title="故事时间提前" onClick={() => moveStoryNode(editPlot.entityId, -1)}><Icon name="up" /></button><button className="icon-button" disabled={editNodeIndex < 0 || editNodeIndex === editNodes.length - 1} aria-label={`下移${editPlot.title}`} title="故事时间延后" onClick={() => moveStoryNode(editPlot.entityId, 1)}><Icon name="down" /></button></div></div><h2>第 {editAssignment.chapterNumber} 章 · {editPlot.title.replace(/^第\s*\d+\s*章\s*[·:：—-]?\s*/, "")}</h2><RenderedMarkdown source={editPlot.summary || editPlot.bodyPreview || "还没有摘要"} className="content-card-preview" /><h4>所属剧情线</h4><div className="timeline-membership-list">{lines.map((line) => <label key={line.entityId}><input type="checkbox" checked={editAssignment.lineIds.includes(line.entityId)} onChange={() => togglePlotLine(editPlot.entityId, line.entityId)} /><span className="line-swatch" style={{ background: line.color }} />{line.name}</label>)}</div><button className="text-action" onClick={() => { useUiStore.getState().selectPlot(editPlot.entityId); useUiStore.getState().navigate("story"); finishTimelineDrag(false); setEditing(false); }}>进入完整文章</button></section> : <section className="empty-state compact"><p>选择一条有节点的剧情线，或点击左侧时间线节点。</p></section>}</aside>
       </div>
       <footer><span>{message}</span><button className="primary-action" disabled={mutation.isPending || Boolean(dragState)} onClick={save}>{mutation.isPending ? "正在保存…" : dragState ? "松开后保存" : "保存时间线"}</button></footer>
-    </section>{dragState && draggedAssignment && draggedPlot && <aside className={`timeline-drag-ghost${dragState.clientX > window.innerWidth - 360 ? " is-left" : ""}`} style={{ left: dragState.clientX, top: dragState.clientY, "--node-color": draggedLine?.color || draggedPlot.accent } as React.CSSProperties} aria-live="polite"><span className="timeline-drag-ghost-node" /><div><strong>第 {draggedAssignment.chapterNumber} 章</strong><small>{draggedPlot.title.replace(/^第\s*\d+\s*章\s*[·:：—-]?\s*/, "")}</small>{dragState.moved && <em>自由位置 · 顺序保持</em>}</div><kbd>Esc 取消</kbd></aside>}<ConfirmDialog open={Boolean(deleteLine)} title={`删除“${deleteTarget?.name || "这条剧情线"}”？`} message={deleteNodeCount ? `其中 ${deleteNodeCount} 个节点会在同一事务中转移到接收剧情线。` : "剧情线会进入统一回收站保留 7 天。"} confirmLabel={deleteNodeCount ? "转移并删除" : "移入回收站"} danger confirmDisabled={!replacement} onCancel={() => setDeleteLine(null)} onConfirm={removeSelectedLine}><label className="confirm-field"><span>接收剧情线</span><select value={replacement} onChange={(event) => setReplacement(event.target.value)}>{lines.filter((line) => line.entityId !== deleteLine).map((line) => <option key={line.entityId} value={line.entityId}>{line.name}</option>)}</select></label></ConfirmDialog></div>}
+    </section>{dragState && draggedAssignment && draggedPlot && <aside className={`timeline-drag-ghost${dragState.clientX > window.innerWidth - 360 ? " is-left" : ""}`} style={{ left: dragState.clientX, top: dragState.clientY, "--node-color": draggedLine?.color || draggedPlot.accent } as React.CSSProperties} aria-live="polite"><span className="timeline-drag-ghost-node" /><div><strong>第 {draggedAssignment.chapterNumber} 章</strong><small>{draggedPlot.title.replace(/^第\s*\d+\s*章\s*[·:：—-]?\s*/, "")}</small>{dragState.moved && <em>{dragState.swapPreview ? "已推动沿途节点 · 保存后同步篇次" : "自由调整节点间距"}</em>}</div><kbd>Esc 取消</kbd></aside>}<ConfirmDialog open={Boolean(deleteLine)} title={`删除“${deleteTarget?.name || "这条剧情线"}”？`} message={deleteNodeCount ? `其中 ${deleteNodeCount} 个节点会在同一事务中转移到接收剧情线。` : "剧情线会进入统一回收站保留 7 天。"} confirmLabel={deleteNodeCount ? "转移并删除" : "移入回收站"} danger confirmDisabled={!replacement} onCancel={() => setDeleteLine(null)} onConfirm={removeSelectedLine}><label className="confirm-field"><span>接收剧情线</span><select value={replacement} onChange={(event) => setReplacement(event.target.value)}>{lines.filter((line) => line.entityId !== deleteLine).map((line) => <option key={line.entityId} value={line.entityId}>{line.name}</option>)}</select></label></ConfirmDialog></div>}
   </section>;
 }

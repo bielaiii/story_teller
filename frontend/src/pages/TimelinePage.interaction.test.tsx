@@ -118,7 +118,7 @@ describe("TimelinePage drag interaction", () => {
     fireEvent.pointerDown(firstNode, { pointerId: 1, button: 0, clientX: 360, clientY: 158 });
     fireEvent.pointerMove(firstNode, { pointerId: 1, clientX: 360, clientY: 220 });
     expect(within(dialog).getByRole("heading", { name: /第 12 章/ })).toBeInTheDocument();
-    expect(screen.getByText("自由位置 · 顺序保持")).toBeInTheDocument();
+    expect(screen.getByText("自由调整节点间距")).toBeInTheDocument();
     expect(firstNode).toHaveStyle({ top: "220px" });
     expect(document.querySelector(".timeline-drag-minimap")).toBeInTheDocument();
 
@@ -146,6 +146,36 @@ describe("TimelinePage drag interaction", () => {
     expect(savedKeys[1]).toBeLessThan(savedKeys[2]);
   });
 
+  it("pushes every crossed node and submits the synchronized chapter order", async () => {
+    renderTimeline();
+    fireEvent.click(screen.getByRole("button", { name: "编辑时间线" }));
+    const dialog = screen.getByRole("dialog", { name: "编辑时间线" });
+    const firstNode = within(dialog).getByRole("button", { name: /第12章/ });
+
+    fireEvent.pointerDown(firstNode, { pointerId: 9, button: 0, clientX: 360, clientY: 158 });
+    fireEvent.pointerMove(firstNode, { pointerId: 9, clientX: 360, clientY: 390 });
+
+    expect(screen.getByText("已推动沿途节点 · 保存后同步篇次")).toBeInTheDocument();
+    expect(firstNode).toHaveStyle({ top: "390px" });
+    expect(within(dialog).getByRole("button", { name: /第12章/ })).toHaveStyle({ top: "158px" });
+    expect(within(dialog).getByRole("button", { name: /第37章/ })).toHaveStyle({ top: "274px" });
+
+    fireEvent.pointerUp(firstNode, { pointerId: 9, clientX: 360, clientY: 390 });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存时间线" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    const request = mocks.mutateAsync.mock.calls[0][0];
+    expect(request.payload.chapterNumbers).toEqual([
+      { plotId: "plot:a", chapterNumber: 999 },
+      { plotId: "plot:b", chapterNumber: 12 },
+      { plotId: "plot:c", chapterNumber: 37 },
+    ]);
+    const orderedPlotIds = [...request.payload.assignments]
+      .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey))
+      .map((item) => item.plotId);
+    expect(orderedPlotIds).toEqual(["plot:b", "plot:c", "plot:a"]);
+  });
+
   it("uses the temporary minimap to jump across content outside the visible preview", () => {
     renderTimeline();
     fireEvent.click(screen.getByRole("button", { name: "编辑时间线" }));
@@ -165,8 +195,8 @@ describe("TimelinePage drag interaction", () => {
     fireEvent.pointerMove(firstNode, { pointerId: 3, clientX: 694, clientY: 590 });
 
     expect(scroller.scrollTop).toBeGreaterThan(850);
-    expect(within(dialog).getByRole("heading", { name: /第 12 章/ })).toBeInTheDocument();
-    expect(firstNode).toHaveStyle({ top: "246px" });
+    expect(within(dialog).getByRole("heading", { name: /第 999 章/ })).toBeInTheDocument();
+    expect(Number(firstNode.style.top.replace("px", ""))).toBeGreaterThan(390);
     fireEvent.pointerUp(firstNode, { pointerId: 3, clientX: 694, clientY: 590 });
     expect(document.querySelector(".timeline-drag-minimap")).not.toBeInTheDocument();
   });

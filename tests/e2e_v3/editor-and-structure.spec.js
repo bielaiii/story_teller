@@ -518,10 +518,10 @@ test("正文原位保存并保持编辑器、折叠状态和页面实例", async
   expect(detail.data.body).toContain("新的线索");
 });
 
-test("篇章与阅读顺序在一个事务中保存且不改写故事时间", async ({ page }) => {
+test("篇章与阅读顺序在一个事务中保存并同步故事时间", async ({ page }) => {
   await page.goto("/?project=novel#/story");
   const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-  const storyTime = new Map(before.timeline.nodes.map((item) => [`${item.plotId}\0${item.lineId}`, item.storySortKey]));
+  const storySlots = [...new Set(before.timeline.nodes.map((item) => item.storySortKey))].sort();
   await page.evaluate(() => { window.__structurePageIdentity = "still-here"; });
 
   await page.getByRole("button", { name: "编辑篇章与阅读顺序" }).click();
@@ -530,7 +530,7 @@ test("篇章与阅读顺序在一个事务中保存且不改写故事时间", as
   const firstChapterName = dialog.locator(".chapter-editor-list input").first();
   await firstChapterName.fill("浏览器改名篇");
   const secondPlot = dialog.locator(".plot-order-list article").nth(1);
-  const movedTitle = await secondPlot.locator("strong").textContent();
+  const movedPlotId = before.plots[1].entityId;
   await secondPlot.getByRole("combobox").selectOption("");
   await secondPlot.getByRole("button", { name: /^上移/ }).click();
   await dialog.getByRole("button", { name: "保存结构" }).click();
@@ -540,9 +540,13 @@ test("篇章与阅读顺序在一个事务中保存且不改写故事时间", as
 
   const after = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   expect(after.chapters[0].label).toBe("浏览器改名篇");
-  expect(after.plots[0].title).toBe(movedTitle);
+  expect(after.plots[0].entityId).toBe(movedPlotId);
   expect(after.plots[0].chapterId).toBe("");
-  expect(new Map(after.timeline.nodes.map((item) => [`${item.plotId}\0${item.lineId}`, item.storySortKey]))).toEqual(storyTime);
+  const storyKeyByPlot = new Map(after.timeline.nodes.map((item) => [item.plotId, item.storySortKey]));
+  expect([...after.plots]
+    .sort((left, right) => storyKeyByPlot.get(left.entityId).localeCompare(storyKeyByPlot.get(right.entityId)))
+    .map((item) => item.entityId)).toEqual(after.plots.map((item) => item.entityId));
+  expect([...new Set(storyKeyByPlot.values())].sort()).toEqual(storySlots);
 });
 
 test("人物关系可新增、编辑并进入统一回收站", async ({ page }) => {
@@ -661,12 +665,39 @@ test("时间线节点可连续调整间距且删除剧情线会转移节点", as
   expect(reordered.timeline.nodes.find((item) => item.plotId === secondPlotId)?.storySortKey).not.toBe(originalStoryKey);
 
   await page.getByRole("button", { name: "编辑时间线" }).click();
+  const reorderDialog = page.getByRole("dialog", { name: "编辑时间线" });
+  const firstGlobalPlotId = reordered.plots[0].entityId;
+  const secondGlobalPlotId = reordered.plots[1].entityId;
+  const firstGlobalNode = reorderDialog.locator(`.timeline-editor-track-node[data-plot-id="${firstGlobalPlotId}"]`).first();
+  const secondGlobalNode = reorderDialog.locator(`.timeline-editor-track-node[data-plot-id="${secondGlobalPlotId}"]`).first();
+  const firstGlobalBox = await firstGlobalNode.boundingBox();
+  const firstGlobalY = await firstGlobalNode.evaluate((element) => parseFloat(element.style.top));
+  const secondGlobalY = await secondGlobalNode.evaluate((element) => parseFloat(element.style.top));
+  await page.mouse.move(firstGlobalBox.x + firstGlobalBox.width / 2, firstGlobalBox.y + firstGlobalBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    firstGlobalBox.x + firstGlobalBox.width / 2,
+    firstGlobalBox.y + firstGlobalBox.height / 2 + secondGlobalY - firstGlobalY,
+    { steps: 12 },
+  );
+  await page.mouse.up();
+  await expect(reorderDialog.locator(".timeline-editor-track-node").first()).toBeVisible();
+  await reorderDialog.getByRole("button", { name: "保存时间线" }).click();
+  await expect(reorderDialog).not.toBeVisible();
+  const pushed = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  expect(pushed.plots.slice(0, 2).map((item) => item.entityId)).toEqual([secondGlobalPlotId, firstGlobalPlotId]);
+  const pushedStoryKeyByPlot = new Map(pushed.timeline.nodes.map((item) => [item.plotId, item.storySortKey]));
+  expect([...pushed.plots]
+    .sort((left, right) => pushedStoryKeyByPlot.get(left.entityId).localeCompare(pushedStoryKeyByPlot.get(right.entityId)))
+    .map((item) => item.entityId)).toEqual(pushed.plots.map((item) => item.entityId));
+
+  await page.getByRole("button", { name: "编辑时间线" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "编辑时间线" });
   await deleteDialog.locator(".timeline-editor-toolbar select").first().selectOption(selectedLine.entityId);
   await deleteDialog.getByRole("button", { name: `删除${selectedLine.name}` }).click();
   const confirm = page.getByRole("alertdialog");
   const replacement = await confirm.locator("select").inputValue();
-  const affectedPlots = reordered.timeline.nodes
+  const affectedPlots = pushed.timeline.nodes
     .filter((node) => node.lineId === selectedLine.entityId)
     .map((node) => node.plotId);
   await confirm.getByRole("button", { name: "转移并删除" }).click();

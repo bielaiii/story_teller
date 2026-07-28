@@ -76,7 +76,7 @@ describe("buildTimelineGeometry", () => {
     expect(timelineSortKeyFromPosition(216, 10 ** 12)).toBe("000000000001500000000000");
   });
 
-  it("clamps a dragged node between its neighbors without changing their relative order", () => {
+  it("clamps a freely spaced node between its current neighbors", () => {
     expect(clampTimelineNodePosition(100, 158, 390)).toBe(186);
     expect(clampTimelineNodePosition(500, 158, 390)).toBe(362);
     expect(clampTimelineNodePosition(275, 158, 390)).toBe(275);
@@ -102,6 +102,7 @@ describe("timeline dragging", () => {
       ["plot:c", 37],
       ["plot:a", 999],
     ]);
+    expect(ordered.map((item) => item.storyPosition)).toEqual([158, 274, 390]);
     expect(moved.assignments.find((item) => item.plotId === "plot:other")).toEqual(assignments[3]);
     expect(moved.swapPreview).toEqual({
       targetPlotId: "plot:c",

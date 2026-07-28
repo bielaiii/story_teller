@@ -689,6 +689,110 @@ class V3ApiTests(unittest.TestCase):
             if plot_id in restored_story_keys:
                 self.assertEqual(story_key, restored_story_keys[plot_id])
 
+    def test_plot_order_changes_sync_timeline_order_without_losing_spacing(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        timeline = snapshot["timeline"]
+        plot_ids = [plot["entityId"] for plot in snapshot["plots"]]
+        lines_by_plot: dict[str, list[str]] = {}
+        for node in timeline["nodes"]:
+            lines_by_plot.setdefault(node["plotId"], []).append(node["lineId"])
+        spacing_slots = {
+            plot_id: f"{(index + 1) * (index + 2) * 500_000_000_000:024d}"
+            for index, plot_id in enumerate(plot_ids)
+        }
+        spaced = self.client.put(
+            "/api/v1/projects/demo/timeline",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "mainLineId": timeline["mainLineId"],
+                "lineSpacing": timeline["lineSpacing"],
+                "topPadding": timeline["topPadding"],
+                "sidePadding": timeline["sidePadding"],
+                "pixelsPerStoryUnit": timeline["pixelsPerStoryUnit"],
+                "lines": [
+                    {
+                        "entityId": line["entityId"],
+                        "name": line["name"],
+                        "color": line["color"],
+                        "side": line["side"],
+                        "startPlotId": line["startPlotId"],
+                        "endPlotId": line["endPlotId"],
+                    }
+                    for line in timeline["lines"]
+                ],
+                "assignments": [
+                    {
+                        "plotId": plot_id,
+                        "lineIds": lines_by_plot.get(plot_id, []),
+                        "storySortKey": spacing_slots[plot_id],
+                    }
+                    for plot_id in plot_ids
+                ],
+                "lineReplacements": {},
+            },
+        )
+        self.assertEqual(200, spaced.status_code, spaced.text)
+
+        reversed_ids = list(reversed(plot_ids))
+        reordered = self.client.put(
+            "/api/v1/projects/demo/plots/order",
+            headers=self.headers,
+            json={
+                "baseRevision": spaced.json()["projectRevision"],
+                "plotIds": reversed_ids,
+            },
+        )
+        self.assertEqual(200, reordered.status_code, reordered.text)
+        after_reorder = self.client.get("/api/v1/projects/demo/snapshot").json()
+        keys_after_reorder = {
+            node["plotId"]: node["storySortKey"]
+            for node in after_reorder["timeline"]["nodes"]
+        }
+        self.assertEqual(
+            reversed_ids,
+            sorted(reversed_ids, key=lambda plot_id: keys_after_reorder[plot_id]),
+        )
+        self.assertEqual(set(spacing_slots.values()), set(keys_after_reorder.values()))
+
+        restored_structure = self.client.put(
+            "/api/v1/projects/demo/story-structure",
+            headers=self.headers,
+            json={
+                "baseRevision": reordered.json()["projectRevision"],
+                "chapters": [
+                    {
+                        "entityId": item["entityId"],
+                        "stableId": item["id"],
+                        "label": item["label"],
+                    }
+                    for item in after_reorder["chapters"]
+                ],
+                "plots": [
+                    {
+                        "entityId": plot_id,
+                        "chapterId": next(
+                            item["chapterId"]
+                            for item in after_reorder["plots"]
+                            if item["entityId"] == plot_id
+                        ),
+                    }
+                    for plot_id in plot_ids
+                ],
+            },
+        )
+        self.assertEqual(200, restored_structure.status_code, restored_structure.text)
+        after_structure = self.client.get("/api/v1/projects/demo/snapshot").json()
+        keys_after_structure = {
+            node["plotId"]: node["storySortKey"]
+            for node in after_structure["timeline"]["nodes"]
+        }
+        self.assertEqual(
+            plot_ids,
+            sorted(plot_ids, key=lambda plot_id: keys_after_structure[plot_id]),
+        )
+        self.assertEqual(set(spacing_slots.values()), set(keys_after_structure.values()))
+
     def test_editor_references_persist_and_follow_target_lifecycle(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         fragment_id = snapshot["fragments"][0]["entityId"]
@@ -880,10 +984,10 @@ class V3ApiTests(unittest.TestCase):
         ]
         chapters.append({"entityId": "", "stableId": "review-act", "label": "复盘篇"})
         reversed_plots = list(reversed(snapshot["plots"]))
-        original_story_time = {
-            (item["plotId"], item["lineId"]): item["storySortKey"]
+        original_story_slots = sorted({
+            item["storySortKey"]
             for item in snapshot["timeline"]["nodes"]
-        }
+        })
         response = self.client.put(
             "/api/v1/projects/demo/story-structure",
             headers=self.headers,
@@ -922,10 +1026,15 @@ class V3ApiTests(unittest.TestCase):
             item["chapterId"] != removed_chapter["entityId"]
             for item in updated["plots"]
         ))
-        self.assertEqual(original_story_time, {
-            (item["plotId"], item["lineId"]): item["storySortKey"]
+        expected_story_slot = dict(zip(
+            [item["entityId"] for item in reversed_plots],
+            original_story_slots,
+            strict=True,
+        ))
+        self.assertTrue(all(
+            item["storySortKey"] == expected_story_slot[item["plotId"]]
             for item in updated["timeline"]["nodes"]
-        })
+        ))
 
         undone = self.client.post(
             "/api/v1/projects/demo/operations/undo",

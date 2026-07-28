@@ -6,7 +6,7 @@ import sqlite3
 import time
 from typing import Any
 
-from storyteller.domain.content import RANK_STEP, clean_color, clean_text, entity_id
+from storyteller.domain.content import ContentService, RANK_STEP, clean_color, clean_text, entity_id
 from storyteller.domain.errors import DomainError, NotFoundError
 from storyteller.domain.uow import MutationResult, UnitOfWork
 from storyteller.storage.connection import Database
@@ -113,6 +113,7 @@ class StructureService:
                     "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
                     (f"第 {index} 章", now, identifier),
                 )
+            ContentService._sync_plot_timeline_story_sort_keys(connection)
 
         return self.uow.mutate(
             base_revision=base_revision, label="调整剧情阅读顺序", action="reorder",
@@ -232,6 +233,7 @@ class StructureService:
                     "UPDATE entities SET deleted_at=?, purge_at=?, revision=revision+1, updated_at=? WHERE id=?",
                     (now, now + 7 * 24 * 60 * 60, now, identifier),
                 )
+            ContentService._sync_plot_timeline_story_sort_keys(connection)
             return {"chapterIds": retained, "plotIds": submitted_ids}
 
         return self.uow.mutate(
