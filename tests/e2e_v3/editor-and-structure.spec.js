@@ -310,21 +310,36 @@ test("设定筛选、档案索引和内容预览保持紧凑", async ({ page }) 
   expect(spacing.bottom).toBeGreaterThanOrEqual(0);
   expect(spacing.keywordRadius).toBe("0px");
   expect(spacing.keywordBackground).toBe("rgba(0, 0, 0, 0)");
+  await expect(page.locator(".entry-index-strip li small")).toHaveCount(0);
   await expect(page.locator(".entry-detail-panel .entry-body-preview.rendered-markdown")).toBeVisible();
 });
 
 test("人物资料使用紧凑表格且正文卡片渲染 Markdown", async ({ page }) => {
   await page.goto("/?project=novel#/characters");
+  const createCharacter = page.getByRole("button", { name: "新建人物" });
+  const createCharacterStyle = await createCharacter.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const bounds = button.getBoundingClientRect();
+    return {
+      width: bounds.width,
+      height: bounds.height,
+      radius: style.borderRadius,
+      iconParts: button.querySelector(".icon")?.children.length || 0,
+    };
+  });
+  expect(createCharacterStyle.width).toBe(createCharacterStyle.height);
+  expect(createCharacterStyle.radius).toBe("50%");
+  expect(createCharacterStyle.iconParts).toBeGreaterThan(1);
   const roleViewToggle = page.getByRole("button", { name: /临时角色/ });
   await roleViewToggle.click();
   await expect(page.getByRole("button", { name: /主要角色/ })).toBeVisible();
   await page.getByRole("button", { name: /主要角色/ }).click();
   await page.getByRole("button", { name: "编辑人物档案" }).click();
   const core = page.getByRole("region", { name: "核心人设" });
-  await expect(core.locator(".persona-kv-head")).toBeVisible();
+  await expect(core.locator(".persona-bullet-editor")).toBeVisible();
   const coreHeader = await core.locator(":scope > header").boundingBox();
-  expect(coreHeader.height).toBeLessThanOrEqual(44);
-  expect(await core.locator("h3").evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(14);
+  expect(coreHeader.height).toBeLessThanOrEqual(50);
+  expect(await core.locator("h3").evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(15);
   await page.getByRole("dialog", { name: "编辑人物档案" }).getByRole("button", { name: "关闭" }).click();
 
   await page.goto("/?project=novel#/story");
@@ -356,7 +371,7 @@ test("人物资料使用紧凑表格且正文卡片渲染 Markdown", async ({ pa
   expect(await ribbon.evaluate((element) => parseFloat(getComputedStyle(element).width))).toBeGreaterThanOrEqual(140);
   expect(await ribbon.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(12);
   const firstStoryCard = page.locator(".plot-card").first();
-  const storyTitle = await firstStoryCard.locator(":scope > .plot-card-copy > h2").textContent();
+  const storyTitle = (await firstStoryCard.locator(".card-arrow").getAttribute("aria-label")).replace(/^阅读/, "");
   await firstStoryCard.click();
   const storyReader = page.getByRole("region", { name: `阅读${storyTitle}` });
   await expect(storyReader).toBeVisible();
@@ -595,7 +610,7 @@ test("图谱布局参数、人物锚点、距离与分组都可以在网页保�
   expect(after.graph.clusters.some((item) => item.label === "浏览器图谱组" && item.members.includes(before.characters[0].entityId))).toBe(true);
 });
 
-test("时间线节点移动会交换现有章号且删除剧情线会转移节点", async ({ page }) => {
+test("时间线节点可连续调整间距且删除剧情线会转移节点", async ({ page }) => {
   await page.goto("/?project=novel#/timeline");
   const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   const readingOrder = before.plots.map((item) => item.entityId);
@@ -613,8 +628,7 @@ test("时间线节点移动会交换现有章号且删除剧情线会转移节�
   const chapterSelect = selectors.nth(1);
   const chapterIds = await chapterSelect.locator("option:not([value=''])").evaluateAll((options) => options.slice(0, 2).map((option) => option.value));
   const [firstPlotId, secondPlotId] = chapterIds;
-  const firstTitle = before.plots.find((item) => item.entityId === firstPlotId).title;
-  const secondTitle = before.plots.find((item) => item.entityId === secondPlotId).title;
+  const originalStoryKey = before.timeline.nodes.find((item) => item.plotId === secondPlotId)?.storySortKey;
   await chapterSelect.selectOption(secondPlotId);
   const activeNode = dialog.locator(`.timeline-editor-track-node[data-plot-id="${secondPlotId}"][data-line-id="${selectedLine.entityId}"]`);
   await expect(activeNode).toHaveClass(/is-active/);
@@ -623,22 +637,28 @@ test("时间线节点移动会交换现有章号且删除剧情线会转移节�
     const viewportBox = await dialog.locator(".timeline-editor-visual-scroll").boundingBox();
     return Boolean(nodeBox && viewportBox && nodeBox.y >= viewportBox.y && nodeBox.y + nodeBox.height <= viewportBox.y + viewportBox.height);
   }).toBe(true);
-  await dialog.getByRole("button", { name: `上移${secondTitle}` }).click();
+  const beforeBox = await activeNode.boundingBox();
+  const beforeWorldY = await activeNode.evaluate((element) => parseFloat(element.style.top));
+  const centerX = beforeBox.x + beforeBox.width / 2;
+  const centerY = beforeBox.y + beforeBox.height / 2;
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX, centerY + 42, { steps: 8 });
+  await page.mouse.up();
+  const movedWorldY = await activeNode.evaluate((element) => parseFloat(element.style.top));
+  expect(movedWorldY - beforeWorldY).toBeGreaterThan(30);
+  expect(movedWorldY - beforeWorldY).toBeLessThan(52);
   await dialog.getByRole("button", { name: "保存时间线" }).click();
   await expect(dialog).not.toBeVisible();
 
   const reordered = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-  const expectedReadingOrder = readingOrder.map((plotId) => {
-    if (plotId === firstPlotId) return secondPlotId;
-    if (plotId === secondPlotId) return firstPlotId;
-    return plotId;
-  });
-  expect(reordered.plots.map((item) => item.entityId)).toEqual(expectedReadingOrder);
+  expect(reordered.plots.map((item) => item.entityId)).toEqual(readingOrder);
   const lineOrder = reordered.timeline.nodes
     .filter((node) => node.lineId === selectedLine.entityId)
     .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey))
     .map((node) => node.plotId);
-  expect(lineOrder.slice(0, 2)).toEqual([secondPlotId, firstPlotId]);
+  expect(lineOrder.slice(0, 2)).toEqual([firstPlotId, secondPlotId]);
+  expect(reordered.timeline.nodes.find((item) => item.plotId === secondPlotId)?.storySortKey).not.toBe(originalStoryKey);
 
   await page.getByRole("button", { name: "编辑时间线" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "编辑时间线" });

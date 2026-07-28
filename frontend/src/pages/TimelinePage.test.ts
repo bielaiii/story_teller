@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { TimelineLine, TimelineNode } from "../api/types";
 import {
   buildTimelineGeometry,
+  clampTimelineNodePosition,
   moveTimelineAssignment,
   normalizeTimelineLineBounds,
   timelineAutoScrollSpeed,
   timelineMinimapRatio,
+  timelinePositionsFromSortKeys,
+  timelineSortKeyFromPosition,
   visibleTimelineTrackIds,
 } from "./TimelinePage";
 
@@ -50,14 +53,42 @@ describe("buildTimelineGeometry", () => {
     expect([...visibleTimelineTrackIds(geometry, 0, 520)]).toEqual(["main"]);
     expect([...visibleTimelineTrackIds(geometry, 860, 1220)]).toEqual(["main", "late-branch"]);
   });
+
+  it("renders persisted continuous story spacing instead of snapping every plot to one fixed step", () => {
+    const plotIds = ["plot:1", "plot:2", "plot:3"];
+    const sortKeys = new Map([
+      ["plot:1", "000000000001000000000000"],
+      ["plot:2", "000000000001500000000000"],
+      ["plot:3", "000000000003000000000000"],
+    ]);
+    const positions = timelinePositionsFromSortKeys(plotIds, sortKeys);
+    const geometry = buildTimelineGeometry(
+      800,
+      plotIds,
+      [line("main", "center")],
+      plotIds.map((plotId) => ({ plotId, lineId: "main", storySortKey: sortKeys.get(plotId)! })),
+      "main",
+      positions,
+    );
+
+    expect((geometry.plotY.get("plot:2") || 0) - (geometry.plotY.get("plot:1") || 0)).toBe(58);
+    expect((geometry.plotY.get("plot:3") || 0) - (geometry.plotY.get("plot:2") || 0)).toBe(174);
+    expect(timelineSortKeyFromPosition(216, 10 ** 12)).toBe("000000000001500000000000");
+  });
+
+  it("clamps a dragged node between its neighbors without changing their relative order", () => {
+    expect(clampTimelineNodePosition(100, 158, 390)).toBe(186);
+    expect(clampTimelineNodePosition(500, 158, 390)).toBe(362);
+    expect(clampTimelineNodePosition(275, 158, 390)).toBe(275);
+  });
 });
 
 describe("timeline dragging", () => {
   const assignments = [
-    { plotId: "plot:a", lineIds: ["main"], storySortKey: "001", chapterNumber: 12 },
-    { plotId: "plot:b", lineIds: ["main", "branch"], storySortKey: "002", chapterNumber: 37 },
-    { plotId: "plot:c", lineIds: ["main", "branch"], storySortKey: "003", chapterNumber: 999 },
-    { plotId: "plot:other", lineIds: ["other"], storySortKey: "004", chapterNumber: 64 },
+    { plotId: "plot:a", lineIds: ["main"], storySortKey: "001", storyPosition: 158, chapterNumber: 12 },
+    { plotId: "plot:b", lineIds: ["main", "branch"], storySortKey: "002", storyPosition: 274, chapterNumber: 37 },
+    { plotId: "plot:c", lineIds: ["main", "branch"], storySortKey: "003", storyPosition: 390, chapterNumber: 999 },
+    { plotId: "plot:other", lineIds: ["other"], storySortKey: "004", storyPosition: 506, chapterNumber: 64 },
   ];
 
   it("crosses distant nodes through adjacent swaps without inventing chapter numbers", () => {

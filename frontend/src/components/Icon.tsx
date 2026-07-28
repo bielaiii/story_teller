@@ -1,6 +1,6 @@
 interface Props {
   name:
-    | "plus" | "edit" | "trash" | "close" | "restore" | "search" | "person" | "book"
+    | "plus" | "edit" | "trash" | "close" | "restore" | "search" | "person" | "person-add" | "book"
     | "settings" | "undo" | "redo" | "arrow" | "bold" | "italic" | "heading" | "bullet"
     | "numbered" | "quote" | "code" | "link" | "up" | "down" | "replace" | "preview"
     | "expand" | "collapse" | "save" | "check" | "help" | "filter" | "tag" | "more" | "sidebar" | "timeline";
@@ -14,6 +14,7 @@ const paths: Record<Props["name"], React.ReactNode> = {
   restore: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
   person: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+  "person-add": <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M18 8v7M14.5 11.5h7" /></>,
   book: <><path d="M4 5a3 3 0 0 1 3-3h5v18H7a3 3 0 0 0-3 3Z" /><path d="M20 5a3 3 0 0 0-3-3h-5v18h5a3 3 0 0 1 3 3Z" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5L9 6.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2.1 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.5 3.1h5l.5-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4L19 13a7 7 0 0 0 0-1Z" /></>,
   undo: <><path d="M9 7 4 12l5 5" /><path d="M5 12h8a6 6 0 0 1 6 6" /></>,
