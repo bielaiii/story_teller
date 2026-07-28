@@ -69,7 +69,7 @@ export function graphLayout(
   graph: GraphData,
   relationships: Relationship[],
 ): Map<string, Point> {
-  const visible = characters.filter((item) => item.graphVisible !== false && !["一次性角色", "待定角色"].includes(item.characterScope));
+  const visible = characters.filter((item) => item.graphVisible);
   const visibleIds = new Set(visible.map((item) => item.entityId));
   const center = { x: width / 2, y: height / 2 };
   const spacing = finite(graph.settings.node_spacing, 116);

@@ -319,6 +319,25 @@ class UnitOfWork:
             })
             if (table_name, occupant_key) not in affected_keys:
                 return False, "相关内容的顺序后来已经调整，不能安全撤销"
+        for change in changes:
+            if str(change["table_name"]) != "plot_timeline_lines" or not change["before_json"]:
+                continue
+            before = json.loads(str(change["before_json"]))
+            occupant = connection.execute(
+                """
+                SELECT plot_id, line_id FROM plot_timeline_lines
+                WHERE line_id=? AND story_sort_key=?
+                """,
+                (before.get("line_id"), before.get("story_sort_key")),
+            ).fetchone()
+            if not occupant:
+                continue
+            occupant_key = canonical_json({
+                "plot_id": str(occupant["plot_id"]),
+                "line_id": str(occupant["line_id"]),
+            })
+            if ("plot_timeline_lines", occupant_key) not in affected_keys:
+                return False, "相关时间线节点后来已经调整，不能安全撤销"
         return True, ""
 
     @staticmethod
@@ -420,6 +439,21 @@ class UnitOfWork:
                     connection.execute(
                         f'UPDATE "{info.name}" SET sort_key=? WHERE {where}',
                         (f"~undo-{operation_id}-{index:06d}",) + values,
+                    )
+            for index, change in enumerate(
+                (item for item in restorations if item["table_name"] == "plot_timeline_lines"),
+                start=1,
+            ):
+                info = tables["plot_timeline_lines"]
+                primary_key = json.loads(change["primary_key_json"])
+                where = " AND ".join(f'"{column}"=?' for column in info.primary_keys)
+                values = tuple(decode_value(primary_key[column]) for column in info.primary_keys)
+                if connection.execute(
+                    f'SELECT 1 FROM "{info.name}" WHERE {where}', values
+                ).fetchone():
+                    connection.execute(
+                        f'UPDATE "{info.name}" SET story_sort_key=? WHERE {where}',
+                        (f"~undo-timeline-{operation_id}-{index:06d}",) + values,
                     )
             for change in sorted(deletions, key=lambda item: depths.get(item["table_name"], 0), reverse=True):
                 self._apply_row(connection, tables[change["table_name"]], change["primary_key_json"], None)

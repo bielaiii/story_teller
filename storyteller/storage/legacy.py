@@ -434,6 +434,9 @@ class V3Migrator:
             extra,
         )
         impact = max(0, min(100, int(data.get("mainPlotImpact", 0) or 0)))
+        graph_visible = data.get("graphVisible")
+        if graph_visible is None:
+            graph_visible = scope not in {"一次性角色", "待定角色"}
         connection.execute(
             """
             INSERT INTO characters(
@@ -445,7 +448,7 @@ class V3Migrator:
                 identifier, str(data.get("name") or data.get("id")), document.body,
                 narrative_role, scope, side, impact, normalize_color(data.get("color")),
                 str(data.get("gradient") or ""), str(data.get("group") or ""),
-                None if data.get("graphVisible") is None else int(bool(data.get("graphVisible"))),
+                int(bool(graph_visible)),
             ),
         )
         self._insert_values(connection, "character_aliases", "character_id", identifier, "alias", clean_list(data.get("aliases")))
@@ -891,7 +894,13 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         current_version = schema_version(source)
     if current_version == 3:
         Database(root).require_v3()
-        return {"ok": True, "alreadyMigrated": True, "database": str(database)}
+        normalized = normalize_graph_visibility(database, root.name)
+        return {
+            "ok": True,
+            "alreadyMigrated": True,
+            "database": str(database),
+            "normalizedGraphVisibility": normalized,
+        }
     if current_version not in {1, 2}:
         raise ValueError(f"只支持迁移 Schema V1/V2，当前为 V{current_version}")
     source_digest = file_sha256(database)
@@ -918,3 +927,66 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         return report
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def normalize_graph_visibility(database: Path, project_id: str) -> int:
+    """Replace the old nullable graph state once and reject future null writes."""
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        rows = [
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT character.entity_id
+                FROM characters character
+                JOIN entities entity ON entity.id=character.entity_id
+                WHERE entity.project_id=? AND character.graph_visible IS NULL
+                """,
+                (project_id,),
+            )
+        ]
+        if rows:
+            now = int(time.time())
+            connection.execute(
+                """
+                UPDATE characters
+                SET graph_visible=CASE
+                    WHEN character_scope IN ('一次性角色', '待定角色') THEN 0
+                    ELSE 1
+                END
+                WHERE graph_visible IS NULL
+                """
+            )
+            placeholders = ",".join("?" for _ in rows)
+            connection.execute(
+                f"UPDATE entities SET revision=revision+1, updated_at=? WHERE id IN ({placeholders})",
+                (now, *rows),
+            )
+            revision = int(connection.execute(
+                "SELECT revision FROM projects WHERE id=?", (project_id,)
+            ).fetchone()[0]) + 1
+            connection.execute(
+                "UPDATE projects SET revision=?, updated_at=? WHERE id=?",
+                (revision, now, project_id),
+            )
+            connection.execute(
+                "UPDATE export_state SET requested_revision=?, status='pending', updated_at=? WHERE project_id=?",
+                (revision, now, project_id),
+            )
+        connection.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS characters_graph_visible_required_insert
+            BEFORE INSERT ON characters
+            WHEN NEW.graph_visible IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'graph_visible must be 0 or 1');
+            END;
+            CREATE TRIGGER IF NOT EXISTS characters_graph_visible_required_update
+            BEFORE UPDATE OF graph_visible ON characters
+            WHEN NEW.graph_visible IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'graph_visible must be 0 or 1');
+            END;
+            """
+        )
+        return len(rows)

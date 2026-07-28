@@ -3,7 +3,7 @@ interface Props {
     | "plus" | "edit" | "trash" | "close" | "restore" | "search" | "person" | "book"
     | "settings" | "undo" | "redo" | "arrow" | "bold" | "italic" | "heading" | "bullet"
     | "numbered" | "quote" | "code" | "link" | "up" | "down" | "replace" | "preview"
-    | "expand" | "collapse" | "save" | "help" | "filter" | "tag" | "more" | "sidebar" | "timeline";
+    | "expand" | "collapse" | "save" | "check" | "help" | "filter" | "tag" | "more" | "sidebar" | "timeline";
 }
 
 const paths: Record<Props["name"], React.ReactNode> = {
@@ -34,6 +34,7 @@ const paths: Record<Props["name"], React.ReactNode> = {
   expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /><path d="m3 8 6-6M21 8l-6-6M3 16l6 6M21 16l-6 6" /></>,
   collapse: <><path d="M9 9H4V4M15 9h5V4M9 15H4v5M15 15h5v5" /><path d="M4 4l6 6M20 4l-6 6M4 20l6-6M20 20l-6-6" /></>,
   save: <><path d="M5 4h12l2 2v14H5Z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></>,
+  check: <path d="m5 12 4 4L19 6" />,
   help: <><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.5 2.1c-.9.5-1.3 1-1.3 2M12 17h.01" /></>,
   filter: <><path d="M4 6h16M7 12h10M10 18h4" /><circle cx="8" cy="6" r="1.5" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="12" cy="18" r="1.5" fill="currentColor" stroke="none" /></>,
   tag: <><path d="M20 13 13 20l-9-9V4h7Z" /><circle cx="8.5" cy="8.5" r="1.3" /></>,

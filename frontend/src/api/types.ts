@@ -33,7 +33,7 @@ export interface Character {
   color: string;
   gradient: string;
   group: string;
-  graphVisible: boolean | null;
+  graphVisible: boolean;
   revision: number;
   introPreview: string;
   intro?: string;

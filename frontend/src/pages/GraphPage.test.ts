@@ -52,4 +52,18 @@ describe("graphLayout", () => {
     expect(points.get("character:2")).toEqual({ x: 500, y: 400 });
     expect(points.get("character:3")).toEqual({ x: 900, y: 400 });
   });
+
+  it("uses the explicit graph choice even for one-time characters", () => {
+    const visibleOneOff = { ...character("character:one-off"), characterScope: "一次性角色" as const };
+    const hiddenRegular = { ...character("character:hidden"), graphVisible: false };
+    const points = graphLayout(800, 600, [visibleOneOff, hiddenRegular], {
+      settings: {},
+      nodes: [],
+      distances: [],
+      clusters: [],
+    }, []);
+
+    expect(points.has(visibleOneOff.entityId)).toBe(true);
+    expect(points.has(hiddenRegular.entityId)).toBe(false);
+  });
 });

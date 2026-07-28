@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { applyDelta } from "./delta";
 import { ApiError, loadStaticSnapshot, projectFromLocation, StoryApi } from "./client";
-import { canRetryAgainstLatest, entityRevision, mutationTargetId } from "./mutationConflict";
+import { canRetryAgainstLatest, entityRevision, isContentCreatePath, mutationTargetId } from "./mutationConflict";
 import type { MetaResponse, MutationDelta, ProjectSnapshot } from "./types";
 import { useUiStore } from "../state/ui";
 
@@ -81,7 +81,9 @@ export function useProjectMutation() {
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
         const latest = await api.snapshot();
-        if (!canRetryAgainstLatest(path, submitted, latest)) throw error;
+        const canRetry = canRetryAgainstLatest(path, submitted, latest)
+          || (method === "POST" && isContentCreatePath(path));
+        if (!canRetry) throw error;
         queryClient.setQueryData(["snapshot", project], latest);
         return api.mutate(path, method, { ...requestPayload, baseRevision: latest.project.revision });
       }
@@ -94,6 +96,13 @@ export function useProjectMutation() {
     },
     onError: (error, variables) => {
       if (variables.method !== "DELETE") {
+        if (error instanceof ApiError && error.code === "api_unavailable") {
+          useUiStore.getState().showNotice("服务正在重启，草稿已保存，正在等待恢复…", "progress");
+          void api.waitForRecovery().then(() => {
+            useUiStore.getState().showNotice("服务已恢复，可以继续保存", "success");
+          });
+          return;
+        }
         useUiStore.getState().showNotice(error instanceof Error ? `保存失败：${error.message}` : "保存失败，请重试", "error");
       }
     },

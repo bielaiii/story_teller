@@ -6,6 +6,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icon";
 import { RenderedMarkdown } from "../components/RenderedMarkdown";
 import { useUiStore } from "../state/ui";
+import { plotChapterNumber } from "../storyOptions";
 
 interface LineDraft {
   entityId: string;
@@ -22,6 +23,25 @@ interface AssignmentDraft {
   plotId: string;
   lineIds: string[];
   storySortKey: string;
+  chapterNumber: number;
+}
+
+interface TimelineDragState {
+  plotId: string;
+  lineId: string;
+  pointerId: number;
+  startClientY: number;
+  clientX: number;
+  clientY: number;
+  originalChapterNumber: number;
+  moved: boolean;
+  originalAssignments: AssignmentDraft[];
+  originalLines: LineDraft[];
+  swapPreview: {
+    targetPlotId: string;
+    fromChapterNumber: number;
+    toChapterNumber: number;
+  } | null;
 }
 
 interface TimelineTrackGeometry {
@@ -50,6 +70,95 @@ export function visibleTimelineTrackIds(geometry: TimelineGeometry, top: number,
     const end = track.isMain ? track.endY : track.endY + timelineTurnHeight(track.x, track.endTargetX);
     return end >= top - 24 && start <= bottom + 24;
   }).map((track) => track.id));
+}
+
+export function moveTimelineAssignment(
+  assignments: AssignmentDraft[],
+  lineId: string,
+  plotId: string,
+  targetPlotId: string,
+): {
+  assignments: AssignmentDraft[];
+  swapPreview: TimelineDragState["swapPreview"];
+  affectedLineIds: string[];
+} {
+  const ordered = assignments
+    .filter((item) => item.lineIds.includes(lineId))
+    .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey));
+  let currentIndex = ordered.findIndex((item) => item.plotId === plotId);
+  const targetIndex = ordered.findIndex((item) => item.plotId === targetPlotId);
+  if (currentIndex < 0 || targetIndex < 0 || currentIndex === targetIndex) {
+    return { assignments, swapPreview: null, affectedLineIds: [] };
+  }
+  const direction = targetIndex > currentIndex ? 1 : -1;
+  const next = assignments.map((item) => ({ ...item, lineIds: [...item.lineIds] }));
+  const byId = new Map(next.map((item) => [item.plotId, item]));
+  const affectedLineIds = new Set<string>();
+  let swapPreview: TimelineDragState["swapPreview"] = null;
+  while (currentIndex !== targetIndex) {
+    const neighborIndex = currentIndex + direction;
+    const dragged = byId.get(plotId)!;
+    const neighbor = byId.get(ordered[neighborIndex].plotId)!;
+    const draggedStoryKey = dragged.storySortKey;
+    const draggedChapterNumber = dragged.chapterNumber;
+    dragged.storySortKey = neighbor.storySortKey;
+    dragged.chapterNumber = neighbor.chapterNumber;
+    neighbor.storySortKey = draggedStoryKey;
+    neighbor.chapterNumber = draggedChapterNumber;
+    dragged.lineIds.forEach((id) => affectedLineIds.add(id));
+    neighbor.lineIds.forEach((id) => affectedLineIds.add(id));
+    swapPreview = {
+      targetPlotId: neighbor.plotId,
+      fromChapterNumber: draggedChapterNumber,
+      toChapterNumber: dragged.chapterNumber,
+    };
+    [ordered[currentIndex], ordered[neighborIndex]] = [ordered[neighborIndex], ordered[currentIndex]];
+    currentIndex = neighborIndex;
+  }
+  return { assignments: next, swapPreview, affectedLineIds: [...affectedLineIds] };
+}
+
+export function normalizeTimelineLineBounds(
+  lines: LineDraft[],
+  assignments: AssignmentDraft[],
+  mainLineId: string,
+  affectedLineIds: string[],
+): LineDraft[] {
+  if (!affectedLineIds.length) return lines;
+  const affected = new Set(affectedLineIds);
+  const order = new Map(
+    [...assignments]
+      .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey))
+      .map((item, index) => [item.plotId, index]),
+  );
+  return lines.map((line) => {
+    if (line.entityId === mainLineId || !affected.has(line.entityId)) return line;
+    const plotIds = assignments
+      .filter((item) => item.lineIds.includes(line.entityId))
+      .sort((left, right) => (order.get(left.plotId) || 0) - (order.get(right.plotId) || 0))
+      .map((item) => item.plotId);
+    return {
+      ...line,
+      startPlotId: plotIds[0] || null,
+      endPlotId: plotIds.length > 1 ? plotIds.at(-1)! : null,
+    };
+  });
+}
+
+export function timelineAutoScrollSpeed(pointerY: number, top: number, bottom: number, heldMs: number): number {
+  const edgeSize = Math.min(88, Math.max(52, (bottom - top) * .16));
+  const topIntensity = Math.max(0, Math.min(1, (top + edgeSize - pointerY) / edgeSize));
+  const bottomIntensity = Math.max(0, Math.min(1, (pointerY - (bottom - edgeSize)) / edgeSize));
+  const direction = bottomIntensity > 0 ? 1 : topIntensity > 0 ? -1 : 0;
+  const intensity = Math.max(topIntensity, bottomIntensity);
+  if (!direction || !intensity) return 0;
+  const holdAcceleration = 1 + Math.min(2.2, Math.max(0, heldMs - 450) / 900);
+  return direction * (2.5 + 21.5 * intensity * intensity) * holdAcceleration;
+}
+
+export function timelineMinimapRatio(pointerY: number, top: number, height: number): number {
+  if (height <= 0) return 0;
+  return Math.max(0, Math.min(1, (pointerY - top) / height));
 }
 
 const TIMELINE_TOP = 158;
@@ -242,10 +351,19 @@ function generatedLineId(): string {
 }
 
 export default function TimelinePage() {
-  const { api, project, snapshot, writable } = useRuntime();
+  const { api, project, snapshot, writable, meta } = useRuntime();
   const mutation = useProjectMutation();
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const editorTimelineScrollRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<HTMLDivElement>(null);
+  const assignmentsRef = useRef<AssignmentDraft[]>([]);
+  const linesRef = useRef<LineDraft[]>([]);
+  const editorGeometryRef = useRef<TimelineGeometry | null>(null);
+  const dragStateRef = useRef<TimelineDragState | null>(null);
+  const autoScrollFrameRef = useRef(0);
+  const edgeDirectionRef = useRef(0);
+  const edgeStartedAtRef = useRef(0);
+  const suppressClickRef = useRef("");
   const focus = useUiStore((state) => state.timelineFocusId);
   const setFocus = useUiStore((state) => state.setTimelineFocus);
   const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
@@ -262,6 +380,11 @@ export default function TimelinePage() {
   const [visibleRange, setVisibleRange] = useState(() => ({ top: 0, bottom: window.innerHeight }));
   const [canvasWidth, setCanvasWidth] = useState(1000);
   const [editorCanvasWidth, setEditorCanvasWidth] = useState(720);
+  const [dragState, setDragState] = useState<TimelineDragState | null>(null);
+  const supportsTimelineDrag = Boolean(
+    meta?.routes.timelineChapterSwap
+    || meta?.features.includes("timeline-drag-chapter-swap-v1"),
+  );
 
   const storyKeyByPlot = useMemo(() => {
     const result = new Map<string, string>();
@@ -328,6 +451,10 @@ export default function TimelinePage() {
     editorTimelineNodes,
     mainLineId,
   ), [editorCanvasWidth, editorOrderedAssignments, editorTimelineLines, editorTimelineNodes, mainLineId]);
+  assignmentsRef.current = assignments;
+  linesRef.current = lines;
+  editorGeometryRef.current = editorGeometry;
+  dragStateRef.current = dragState;
 
   useEffect(() => {
     const element = canvasWrapRef.current;
@@ -369,7 +496,7 @@ export default function TimelinePage() {
   }, [editing]);
   useEffect(() => {
     const scroller = editorTimelineScrollRef.current;
-    if (!editing || !scroller) return;
+    if (!editing || !scroller || dragStateRef.current) return;
     const track = editorGeometry.tracks.find((item) => item.id === selectedEditLine);
     const targetY = selectedEditPlot ? editorGeometry.plotY.get(selectedEditPlot) : track?.startY;
     if (targetY == null) return;
@@ -379,6 +506,9 @@ export default function TimelinePage() {
     }));
     return () => cancelAnimationFrame(frame);
   }, [editing, editorGeometry, selectedEditLine, selectedEditPlot]);
+  useEffect(() => () => {
+    if (autoScrollFrameRef.current) cancelAnimationFrame(autoScrollFrameRef.current);
+  }, []);
 
   const beginEdit = () => {
     const nextLines = snapshot.timeline.lines.map((line) => ({
@@ -397,6 +527,7 @@ export default function TimelinePage() {
         plotId: plot.entityId,
         lineIds: [...new Set(nodes.map((node) => node.lineId))],
         storySortKey: nodes.map((node) => node.storySortKey).sort()[0] || rank(index + 1),
+        chapterNumber: plotChapterNumber(plot.title, plot.sequence),
       };
     });
     const initialLine = focus && nextLines.some((line) => line.entityId === focus)
@@ -462,6 +593,179 @@ export default function TimelinePage() {
       return { ...item, lineIds: present ? item.lineIds.filter((id) => id !== lineId) : [...item.lineIds, lineId] };
     }));
   };
+  const setCurrentDrag = (next: TimelineDragState | null) => {
+    dragStateRef.current = next;
+    setDragState(next);
+  };
+  const stopTimelineAutoScroll = () => {
+    if (autoScrollFrameRef.current) cancelAnimationFrame(autoScrollFrameRef.current);
+    autoScrollFrameRef.current = 0;
+    edgeDirectionRef.current = 0;
+    edgeStartedAtRef.current = 0;
+  };
+  const finishTimelineDrag = (restore: boolean) => {
+    const current = dragStateRef.current;
+    stopTimelineAutoScroll();
+    if (restore && current) {
+      assignmentsRef.current = current.originalAssignments;
+      linesRef.current = current.originalLines;
+      setAssignments(current.originalAssignments);
+      setLines(current.originalLines);
+    }
+    if (current?.moved) suppressClickRef.current = `${current.plotId}:${current.lineId}`;
+    setCurrentDrag(null);
+  };
+  const processTimelineDragWorldY = (worldY: number, current: TimelineDragState) => {
+    const currentGeometry = editorGeometryRef.current;
+    if (!currentGeometry) return;
+    const candidates = assignmentsRef.current
+      .filter((item) => item.lineIds.includes(current.lineId))
+      .map((item) => ({ item, y: currentGeometry.plotY.get(item.plotId) }))
+      .filter((candidate): candidate is { item: AssignmentDraft; y: number } => candidate.y != null)
+      .sort((left, right) => Math.abs(left.y - worldY) - Math.abs(right.y - worldY));
+    const target = candidates[0]?.item;
+    if (!target || target.plotId === current.plotId) return;
+    const moved = moveTimelineAssignment(
+      assignmentsRef.current,
+      current.lineId,
+      current.plotId,
+      target.plotId,
+    );
+    if (!moved.affectedLineIds.length) return;
+    assignmentsRef.current = moved.assignments;
+    setAssignments(moved.assignments);
+    const nextLines = normalizeTimelineLineBounds(
+      linesRef.current,
+      moved.assignments,
+      mainLineId,
+      moved.affectedLineIds,
+    );
+    linesRef.current = nextLines;
+    setLines(nextLines);
+    const nextOrderedAssignments = [...moved.assignments]
+      .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey));
+    const nextTimelineLines: TimelineLine[] = nextLines.map((line, index) => ({
+      entityId: line.entityId,
+      id: line.stableId,
+      name: line.name,
+      color: line.color,
+      side: line.entityId === mainLineId ? "center" : line.side,
+      sortKey: rank(index + 1),
+      startPlotId: line.startPlotId,
+      endPlotId: line.endPlotId,
+      revision: 0,
+    }));
+    const nextTimelineNodes: TimelineNode[] = nextOrderedAssignments.flatMap((assignment) => (
+      assignment.lineIds.map((lineId) => ({
+        plotId: assignment.plotId,
+        lineId,
+        storySortKey: assignment.storySortKey,
+      }))
+    ));
+    editorGeometryRef.current = buildTimelineGeometry(
+      editorCanvasWidth,
+      nextOrderedAssignments.map((assignment) => assignment.plotId),
+      nextTimelineLines,
+      nextTimelineNodes,
+      mainLineId,
+    );
+    setCurrentDrag({ ...dragStateRef.current!, moved: true, swapPreview: moved.swapPreview });
+  };
+  const processTimelineDragPointer = (clientX: number, clientY: number) => {
+    const current = dragStateRef.current;
+    const scroller = editorTimelineScrollRef.current;
+    const currentGeometry = editorGeometryRef.current;
+    if (!current || !scroller || !currentGeometry) return;
+    const next = {
+      ...current,
+      clientX,
+      clientY,
+      moved: current.moved || Math.abs(clientY - current.startClientY) > 4,
+    };
+    setCurrentDrag(next);
+    const minimapBounds = minimapRef.current?.getBoundingClientRect();
+    if (
+      minimapBounds
+      && clientX >= minimapBounds.left - 8
+      && clientX <= minimapBounds.right + 8
+      && clientY >= minimapBounds.top
+      && clientY <= minimapBounds.bottom
+    ) {
+      const ratio = timelineMinimapRatio(clientY, minimapBounds.top, minimapBounds.height);
+      scroller.scrollTop = ratio * Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      processTimelineDragWorldY(
+        TIMELINE_TOP + ratio * Math.max(0, currentGeometry.height - TIMELINE_TOP - 40),
+        next,
+      );
+      return;
+    }
+    const bounds = scroller.getBoundingClientRect();
+    processTimelineDragWorldY(clientY - bounds.top + scroller.scrollTop, next);
+  };
+  const runTimelineAutoScroll = () => {
+    const current = dragStateRef.current;
+    const scroller = editorTimelineScrollRef.current;
+    if (!current || !scroller) {
+      stopTimelineAutoScroll();
+      return;
+    }
+    const minimapBounds = minimapRef.current?.getBoundingClientRect();
+    const overMinimap = Boolean(
+      minimapBounds
+      && current.clientX >= minimapBounds.left - 8
+      && current.clientX <= minimapBounds.right + 8
+      && current.clientY >= minimapBounds.top
+      && current.clientY <= minimapBounds.bottom
+    );
+    const bounds = scroller.getBoundingClientRect();
+    const initialSpeed = overMinimap ? 0 : timelineAutoScrollSpeed(current.clientY, bounds.top, bounds.bottom, 0);
+    const direction = Math.sign(initialSpeed);
+    if (direction !== edgeDirectionRef.current) {
+      edgeDirectionRef.current = direction;
+      edgeStartedAtRef.current = direction ? performance.now() : 0;
+    }
+    const heldMs = direction ? performance.now() - edgeStartedAtRef.current : 0;
+    const speed = overMinimap ? 0 : timelineAutoScrollSpeed(current.clientY, bounds.top, bounds.bottom, heldMs);
+    if (speed) {
+      const previousTop = scroller.scrollTop;
+      scroller.scrollTop = Math.max(
+        0,
+        Math.min(scroller.scrollHeight - scroller.clientHeight, previousTop + speed),
+      );
+      if (scroller.scrollTop !== previousTop) {
+        processTimelineDragWorldY(current.clientY - bounds.top + scroller.scrollTop, current);
+      }
+    }
+    autoScrollFrameRef.current = requestAnimationFrame(runTimelineAutoScroll);
+  };
+  const beginTimelineDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    assignment: AssignmentDraft,
+    lineId: string,
+  ) => {
+    if (!supportsTimelineDrag || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedEditLine(lineId);
+    setSelectedEditPlot(assignment.plotId);
+    const next: TimelineDragState = {
+      plotId: assignment.plotId,
+      lineId,
+      pointerId: event.pointerId,
+      startClientY: event.clientY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      originalChapterNumber: assignment.chapterNumber,
+      moved: false,
+      originalAssignments: assignmentsRef.current.map((item) => ({ ...item, lineIds: [...item.lineIds] })),
+      originalLines: linesRef.current.map((line) => ({ ...line })),
+      swapPreview: null,
+    };
+    setCurrentDrag(next);
+    stopTimelineAutoScroll();
+    autoScrollFrameRef.current = requestAnimationFrame(runTimelineAutoScroll);
+  };
   const moveStoryNode = (plotId: string, direction: -1 | 1) => {
     const visible = assignments
       .filter((item) => item.lineIds.includes(selectedEditLine))
@@ -469,6 +773,12 @@ export default function TimelinePage() {
     const index = visible.findIndex((item) => item.plotId === plotId);
     const target = visible[index + direction];
     if (index < 0 || !target) return;
+    if (supportsTimelineDrag) {
+      const moved = moveTimelineAssignment(assignments, selectedEditLine, plotId, target.plotId);
+      setAssignments(moved.assignments);
+      setLines((current) => normalizeTimelineLineBounds(current, moved.assignments, mainLineId, moved.affectedLineIds));
+      return;
+    }
     const currentKey = visible[index].storySortKey;
     setAssignments((current) => current.map((item) => {
       if (item.plotId === plotId) return { ...item, storySortKey: target.storySortKey };
@@ -476,8 +786,21 @@ export default function TimelinePage() {
       return item;
     }));
   };
+  useEffect(() => {
+    if (!editing) {
+      stopTimelineAutoScroll();
+      return;
+    }
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !dragStateRef.current) return;
+      event.preventDefault();
+      finishTimelineDrag(true);
+    };
+    window.addEventListener("keydown", cancelOnEscape);
+    return () => window.removeEventListener("keydown", cancelOnEscape);
+  }, [editing]);
   const save = async () => {
-    if (!lines.length || !mainLineId || mutation.isPending) return;
+    if (!lines.length || !mainLineId || mutation.isPending || dragStateRef.current) return;
     try {
       const result = await mutation.mutateAsync({
         path: "/timeline",
@@ -502,6 +825,12 @@ export default function TimelinePage() {
             lineIds: item.lineIds,
             storySortKey: item.storySortKey,
           })),
+          ...(supportsTimelineDrag ? {
+            chapterNumbers: assignments.map((item) => ({
+              plotId: item.plotId,
+              chapterNumber: item.chapterNumber,
+            })),
+          } : {}),
           lineReplacements,
         },
       });
@@ -530,8 +859,11 @@ export default function TimelinePage() {
   const editAssignment = assignments.find((item) => item.plotId === selectedEditPlot);
   const deleteTarget = lines.find((line) => line.entityId === deleteLine);
   const deleteNodeCount = assignments.filter((item) => item.lineIds.includes(deleteLine || "")).length;
+  const draggedAssignment = assignments.find((item) => item.plotId === dragState?.plotId);
+  const draggedPlot = snapshot.plots.find((item) => item.entityId === dragState?.plotId);
+  const draggedLine = lines.find((item) => item.entityId === dragState?.lineId);
   return <section className="workspace-page timeline-page-new">
-    <header className="page-header"><div><small>Story Time</small><h1>时间线</h1><p>纵向是故事发生顺序；剧情页中的篇章顺序是读者阅读顺序，两者互不改写。</p></div>{writable && <button className="icon-button" aria-label="编辑时间线" title="编辑时间线" onClick={beginEdit}><Icon name="edit" /></button>}</header>
+    <header className="page-header"><div><small>Story Time</small><h1>时间线</h1><p>纵向是故事发生顺序；拖动节点时交换现有章号，不会重新连续编号。</p></div>{writable && <button className="icon-button" aria-label="编辑时间线" title="编辑时间线" onClick={beginEdit}><Icon name="edit" /></button>}</header>
     {message && <p className="page-message">{message}</p>}
     <div className="timeline-workspace">
       <aside className={`timeline-line-rail${writable ? " has-editor" : ""}`} aria-label="时间线图示">
@@ -567,9 +899,9 @@ export default function TimelinePage() {
         {plot && <aside className="timeline-plot-card" style={{ top: 30 }} onClick={(event) => event.stopPropagation()}><button className="icon-button" aria-label="关闭剧情卡片" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small><h2>{plot.title}</h2><RenderedMarkdown source={plotPreview} className="timeline-plot-preview" /><button className="primary-action" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}>进入完整文章</button></aside>}
       </div>
     </div>
-    {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>左侧显示完整故事时间；在右侧选择剧情线或篇章，左侧会自动定位。</p></div><button className="icon-button" aria-label="关闭" onClick={() => setEditing(false)}><Icon name="close" /></button></header>
+    {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>{supportsTimelineDrag ? "按住节点上下拖动；越过节点会交换位置和章号。长距离移动时可用右侧缩略轨道。" : "当前写入服务版本暂不支持拖拽交换章号，请在服务更新后使用。"}</p></div><button className="icon-button" aria-label="关闭" onClick={() => { finishTimelineDrag(false); setEditing(false); }}><Icon name="close" /></button></header>
       <div className="timeline-editor-body">
-        <section className="timeline-editor-map"><header><strong>故事时间线</strong><small>{editorTimelineLines.length} 条线 · {editorOrderedAssignments.length} 篇</small></header><div className="timeline-editor-visual-scroll" ref={editorTimelineScrollRef}><div className="timeline-editor-visual-world" style={{ minHeight: `${editorGeometry.height}px` }} onClick={(event) => {
+        <section className={`timeline-editor-map${dragState ? " is-dragging" : ""}`}><header><strong>故事时间线</strong><small>{editorTimelineLines.length} 条线 · {editorOrderedAssignments.length} 个节点</small></header><div className="timeline-editor-visual-scroll" ref={editorTimelineScrollRef}><div className="timeline-editor-visual-world" style={{ minHeight: `${editorGeometry.height}px` }} onClick={(event) => {
           if ((event.target as HTMLElement).closest(".timeline-editor-track-node")) return;
           const bounds = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - bounds.left;
@@ -584,20 +916,55 @@ export default function TimelinePage() {
         }}>
           <TimelineTrackCanvas geometry={editorGeometry} focus={selectedEditLine || null} />
           {editorGeometry.tracks.filter((track) => track.isMain).map((track) => <span key={`${track.id}:editor-origin`} className="timeline-origin" style={{ left: track.x, top: track.startY, "--line-color": track.color } as React.CSSProperties} />)}
+          {dragState && draggedAssignment && <span className="timeline-drag-insertion" style={{ top: editorGeometry.plotY.get(dragState.plotId) || TIMELINE_TOP }} aria-hidden="true"><small>第 {draggedAssignment.chapterNumber} 章</small></span>}
           {editorOrderedAssignments.flatMap((assignment) => assignment.lineIds.map((lineId) => {
             const itemPlot = snapshot.plots.find((item) => item.entityId === assignment.plotId);
             const track = editorGeometry.tracks.find((item) => item.id === lineId);
             const line = lines.find((item) => item.entityId === lineId);
             const y = editorGeometry.plotY.get(assignment.plotId) || TIMELINE_TOP;
             if (!track || !itemPlot) return null;
-            return <button key={`${assignment.plotId}:${lineId}`} className={`timeline-editor-track-node${selectedEditPlot === assignment.plotId && selectedEditLine === lineId ? " is-active" : ""}${selectedEditLine && selectedEditLine !== lineId ? " is-muted" : ""}`} data-plot-id={assignment.plotId} data-line-id={lineId} aria-label={`选择${line?.name || "剧情线"}的第${itemPlot.sequence}篇：${itemPlot.title}`} title={`${line?.name || "剧情线"} · 第 ${itemPlot.sequence} 篇 · ${itemPlot.title}`} style={{ left: track.x, top: y, "--node-color": line?.color || itemPlot.accent } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setSelectedEditLine(lineId); setSelectedEditPlot(assignment.plotId); }}><span /></button>;
+            const isDraggedNode = dragState?.plotId === assignment.plotId && dragState.lineId === lineId;
+            return <button
+              key={`${assignment.plotId}:${lineId}`}
+              className={`timeline-editor-track-node${selectedEditPlot === assignment.plotId && selectedEditLine === lineId ? " is-active" : ""}${selectedEditLine && selectedEditLine !== lineId ? " is-muted" : ""}${isDraggedNode ? " is-dragging" : ""}`}
+              data-plot-id={assignment.plotId}
+              data-line-id={lineId}
+              aria-label={`选择${line?.name || "剧情线"}的第${assignment.chapterNumber}章：${itemPlot.title}`}
+              title={`${line?.name || "剧情线"} · 第 ${assignment.chapterNumber} 章 · ${itemPlot.title}`}
+              style={{ left: track.x, top: y, "--node-color": line?.color || itemPlot.accent } as React.CSSProperties}
+              onPointerDown={(event) => beginTimelineDrag(event, assignment, lineId)}
+              onPointerMove={(event) => {
+                if (dragStateRef.current?.pointerId === event.pointerId) processTimelineDragPointer(event.clientX, event.clientY);
+              }}
+              onPointerUp={(event) => {
+                if (dragStateRef.current?.pointerId !== event.pointerId) return;
+                processTimelineDragPointer(event.clientX, event.clientY);
+                finishTimelineDrag(false);
+              }}
+              onPointerCancel={(event) => {
+                if (dragStateRef.current?.pointerId === event.pointerId) finishTimelineDrag(true);
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                const key = `${assignment.plotId}:${lineId}`;
+                if (suppressClickRef.current === key) {
+                  suppressClickRef.current = "";
+                  return;
+                }
+                setSelectedEditLine(lineId);
+                setSelectedEditPlot(assignment.plotId);
+              }}
+            ><span /></button>;
           }))}
-        </div></div></section>
+        </div></div>{dragState && <div className="timeline-drag-minimap" ref={minimapRef} aria-hidden="true"><span className="timeline-drag-minimap-viewport" style={{
+          top: `${(editorTimelineScrollRef.current?.scrollTop || 0) / Math.max(1, editorGeometry.height) * 100}%`,
+          height: `${Math.min(100, (editorTimelineScrollRef.current?.clientHeight || 1) / Math.max(1, editorGeometry.height) * 100)}%`,
+        }} />{editorOrderedAssignments.map((assignment, index) => <i key={assignment.plotId} className={assignment.plotId === dragState.plotId ? "is-active" : ""} style={{ top: `${editorOrderedAssignments.length <= 1 ? 50 : index / (editorOrderedAssignments.length - 1) * 100}%` }} />)}</div>}</section>
         <aside className="timeline-editor-inspector">
-          <section className="timeline-editor-toolbar"><div className="timeline-editor-selector-row"><label><span>当前剧情线</span><select value={selectedEditLine} onChange={(event) => selectEditorLine(event.target.value)}>{lines.map((line) => <option key={line.entityId} value={line.entityId}>{line.name}{line.entityId === mainLineId ? " · 主线" : ""}</option>)}</select></label><button className="icon-button" aria-label="插入剧情线" title="插入剧情线" onClick={addLine}><Icon name="plus" /></button></div><label><span>当前篇章</span><select value={selectedEditPlot || ""} disabled={!editNodes.length} onChange={(event) => setSelectedEditPlot(event.target.value || null)}><option value="">选择篇章</option>{editNodes.map((item, index) => { const itemPlot = snapshot.plots.find((plotItem) => plotItem.entityId === item.plotId); return <option key={item.plotId} value={item.plotId}>故事 {index + 1} · 阅读 {itemPlot?.sequence} · {itemPlot?.title}</option>; })}</select></label></section>
-          <section><div className="section-heading"><h3>剧情线设置</h3><button className="icon-button is-danger" disabled={lines.length === 1} aria-label={`删除${selectedLine?.name || "剧情线"}`} title="删除剧情线" onClick={() => requestRemoveLine(selectedEditLine)}><Icon name="trash" /></button></div><div className="timeline-line-fields"><label><span>名称</span><input value={selectedLine?.name || ""} onChange={(event) => changeLine("name", event.target.value)} /></label><label><span>颜色</span><input type="color" value={selectedLine?.color || "#3f7fc1"} onChange={(event) => changeLine("color", event.target.value)} /></label><label><span>位置</span><select disabled={selectedEditLine === mainLineId} value={selectedEditLine === mainLineId ? "center" : selectedLine?.side || "right"} onChange={(event) => changeLine("side", event.target.value as LineDraft["side"])}><option value="left">左侧</option><option value="right">右侧</option><option value="center">主线</option></select></label><label className="main-line-choice"><input type="radio" checked={selectedEditLine === mainLineId} onChange={() => setMainLineId(selectedEditLine)} />设为主线</label></div></section>{editPlot && editAssignment ? <section><div className="section-heading"><div><h3>篇章详情</h3><small>故事位置 {editNodeIndex + 1} · 阅读第 {editPlot.sequence} 篇</small></div><div className="row-icon-actions"><button className="icon-button" disabled={editNodeIndex <= 0} aria-label={`上移${editPlot.title}`} title="故事时间提前" onClick={() => moveStoryNode(editPlot.entityId, -1)}><Icon name="up" /></button><button className="icon-button" disabled={editNodeIndex < 0 || editNodeIndex === editNodes.length - 1} aria-label={`下移${editPlot.title}`} title="故事时间延后" onClick={() => moveStoryNode(editPlot.entityId, 1)}><Icon name="down" /></button></div></div><h2>{editPlot.title}</h2><RenderedMarkdown source={editPlot.summary || editPlot.bodyPreview || "还没有摘要"} className="content-card-preview" /><h4>所属剧情线</h4><div className="timeline-membership-list">{lines.map((line) => <label key={line.entityId}><input type="checkbox" checked={editAssignment.lineIds.includes(line.entityId)} onChange={() => togglePlotLine(editPlot.entityId, line.entityId)} /><span className="line-swatch" style={{ background: line.color }} />{line.name}</label>)}</div><button className="text-action" onClick={() => { useUiStore.getState().selectPlot(editPlot.entityId); useUiStore.getState().navigate("story"); setEditing(false); }}>进入完整文章</button></section> : <section className="empty-state compact"><p>选择一条有节点的剧情线，或点击左侧时间线节点。</p></section>}</aside>
+          <section className="timeline-editor-toolbar"><div className="timeline-editor-selector-row"><label><span>当前剧情线</span><select value={selectedEditLine} onChange={(event) => selectEditorLine(event.target.value)}>{lines.map((line) => <option key={line.entityId} value={line.entityId}>{line.name}{line.entityId === mainLineId ? " · 主线" : ""}</option>)}</select></label><button className="icon-button" aria-label="插入剧情线" title="插入剧情线" onClick={addLine}><Icon name="plus" /></button></div><label><span>当前篇章</span><select value={selectedEditPlot || ""} disabled={!editNodes.length} onChange={(event) => setSelectedEditPlot(event.target.value || null)}><option value="">选择篇章</option>{editNodes.map((item, index) => { const itemPlot = snapshot.plots.find((plotItem) => plotItem.entityId === item.plotId); return <option key={item.plotId} value={item.plotId}>故事 {index + 1} · 第 {item.chapterNumber} 章 · {itemPlot?.title}</option>; })}</select></label></section>
+          <section><div className="section-heading"><h3>剧情线设置</h3><button className="icon-button is-danger" disabled={lines.length === 1} aria-label={`删除${selectedLine?.name || "剧情线"}`} title="删除剧情线" onClick={() => requestRemoveLine(selectedEditLine)}><Icon name="trash" /></button></div><div className="timeline-line-fields"><label><span>名称</span><input value={selectedLine?.name || ""} onChange={(event) => changeLine("name", event.target.value)} /></label><label><span>颜色</span><input type="color" value={selectedLine?.color || "#3f7fc1"} onChange={(event) => changeLine("color", event.target.value)} /></label><label><span>位置</span><select disabled={selectedEditLine === mainLineId} value={selectedEditLine === mainLineId ? "center" : selectedLine?.side || "right"} onChange={(event) => changeLine("side", event.target.value as LineDraft["side"])}><option value="left">左侧</option><option value="right">右侧</option><option value="center">主线</option></select></label><label className="main-line-choice"><input type="radio" checked={selectedEditLine === mainLineId} onChange={() => setMainLineId(selectedEditLine)} />设为主线</label></div></section>{editPlot && editAssignment ? <section><div className="section-heading"><div><h3>篇章详情</h3><small>故事位置 {editNodeIndex + 1} · 第 {editAssignment.chapterNumber} 章</small></div><div className="row-icon-actions"><button className="icon-button" disabled={editNodeIndex <= 0} aria-label={`上移${editPlot.title}`} title="故事时间提前" onClick={() => moveStoryNode(editPlot.entityId, -1)}><Icon name="up" /></button><button className="icon-button" disabled={editNodeIndex < 0 || editNodeIndex === editNodes.length - 1} aria-label={`下移${editPlot.title}`} title="故事时间延后" onClick={() => moveStoryNode(editPlot.entityId, 1)}><Icon name="down" /></button></div></div><h2>第 {editAssignment.chapterNumber} 章 · {editPlot.title.replace(/^第\s*\d+\s*章\s*[·:：—-]?\s*/, "")}</h2><RenderedMarkdown source={editPlot.summary || editPlot.bodyPreview || "还没有摘要"} className="content-card-preview" /><h4>所属剧情线</h4><div className="timeline-membership-list">{lines.map((line) => <label key={line.entityId}><input type="checkbox" checked={editAssignment.lineIds.includes(line.entityId)} onChange={() => togglePlotLine(editPlot.entityId, line.entityId)} /><span className="line-swatch" style={{ background: line.color }} />{line.name}</label>)}</div><button className="text-action" onClick={() => { useUiStore.getState().selectPlot(editPlot.entityId); useUiStore.getState().navigate("story"); finishTimelineDrag(false); setEditing(false); }}>进入完整文章</button></section> : <section className="empty-state compact"><p>选择一条有节点的剧情线，或点击左侧时间线节点。</p></section>}</aside>
       </div>
-      <footer><span>{message}</span><button className="primary-action" disabled={mutation.isPending} onClick={save}>{mutation.isPending ? "正在保存…" : "保存时间线"}</button></footer>
-    </section><ConfirmDialog open={Boolean(deleteLine)} title={`删除“${deleteTarget?.name || "这条剧情线"}”？`} message={deleteNodeCount ? `其中 ${deleteNodeCount} 个节点会在同一事务中转移到接收剧情线。` : "剧情线会进入统一回收站保留 7 天。"} confirmLabel={deleteNodeCount ? "转移并删除" : "移入回收站"} danger confirmDisabled={!replacement} onCancel={() => setDeleteLine(null)} onConfirm={removeSelectedLine}><label className="confirm-field"><span>接收剧情线</span><select value={replacement} onChange={(event) => setReplacement(event.target.value)}>{lines.filter((line) => line.entityId !== deleteLine).map((line) => <option key={line.entityId} value={line.entityId}>{line.name}</option>)}</select></label></ConfirmDialog></div>}
+      <footer><span>{message}</span><button className="primary-action" disabled={mutation.isPending || Boolean(dragState)} onClick={save}>{mutation.isPending ? "正在保存…" : dragState ? "松开后保存" : "保存时间线"}</button></footer>
+    </section>{dragState && draggedAssignment && draggedPlot && <aside className={`timeline-drag-ghost${dragState.clientX > window.innerWidth - 360 ? " is-left" : ""}`} style={{ left: dragState.clientX, top: dragState.clientY, "--node-color": draggedLine?.color || draggedPlot.accent } as React.CSSProperties} aria-live="polite"><span className="timeline-drag-ghost-node" /><div><strong>第 {draggedAssignment.chapterNumber} 章</strong><small>{draggedPlot.title.replace(/^第\s*\d+\s*章\s*[·:：—-]?\s*/, "")}</small>{dragState.swapPreview && <em>第 {dragState.originalChapterNumber} 章 → 第 {dragState.swapPreview.toChapterNumber} 章位置</em>}</div><kbd>Esc 取消</kbd></aside>}<ConfirmDialog open={Boolean(deleteLine)} title={`删除“${deleteTarget?.name || "这条剧情线"}”？`} message={deleteNodeCount ? `其中 ${deleteNodeCount} 个节点会在同一事务中转移到接收剧情线。` : "剧情线会进入统一回收站保留 7 天。"} confirmLabel={deleteNodeCount ? "转移并删除" : "移入回收站"} danger confirmDisabled={!replacement} onCancel={() => setDeleteLine(null)} onConfirm={removeSelectedLine}><label className="confirm-field"><span>接收剧情线</span><select value={replacement} onChange={(event) => setReplacement(event.target.value)}>{lines.filter((line) => line.entityId !== deleteLine).map((line) => <option key={line.entityId} value={line.entityId}>{line.name}</option>)}</select></label></ConfirmDialog></div>}
   </section>;
 }

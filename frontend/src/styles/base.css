@@ -10,7 +10,8 @@
 }
 html, body, #root { min-height: 100%; margin: 0; }
 body {
-  min-width: 1000px;
+  min-width: 320px;
+  overflow-x: hidden;
   color: var(--ink);
   background: #ffffff;
   background-attachment: fixed;

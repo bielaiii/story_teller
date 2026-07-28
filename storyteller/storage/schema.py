@@ -69,7 +69,7 @@ CREATE TABLE characters (
     color TEXT NOT NULL DEFAULT '#7d6bd6',
     gradient TEXT NOT NULL DEFAULT '',
     group_name TEXT NOT NULL DEFAULT '',
-    graph_visible INTEGER CHECK(graph_visible IN (0, 1) OR graph_visible IS NULL)
+    graph_visible INTEGER NOT NULL DEFAULT 0 CHECK(graph_visible IN (0, 1))
 );
 
 CREATE TABLE character_aliases (

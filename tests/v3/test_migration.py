@@ -10,7 +10,7 @@ from storyteller.domain.services import EntityService
 from storyteller.exports import ExportCoordinator
 from storyteller.exports.recovery import EXCLUDED_TABLES, RecoveryImporter
 from storyteller.storage.connection import Database
-from storyteller.storage.legacy import V3Migrator, parse_markdown
+from storyteller.storage.legacy import V3Migrator, normalize_graph_visibility, parse_markdown
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -173,6 +173,41 @@ class V3MigrationTests(unittest.TestCase):
             details = json.loads(operation["details_json"])
             self.assertTrue(details["legacySnapshotArchived"])
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
+    def test_nullable_graph_visibility_is_normalized_once_and_then_enforced(self):
+        legacy = Path(self.temporary.name) / "nullable-graph.db"
+        with sqlite3.connect(legacy) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE projects(id TEXT PRIMARY KEY, revision INTEGER, updated_at INTEGER);
+                CREATE TABLE entities(id TEXT PRIMARY KEY, project_id TEXT, revision INTEGER, updated_at INTEGER);
+                CREATE TABLE characters(entity_id TEXT PRIMARY KEY, character_scope TEXT, graph_visible INTEGER);
+                CREATE TABLE export_state(project_id TEXT PRIMARY KEY, requested_revision INTEGER, status TEXT, updated_at INTEGER);
+                INSERT INTO projects VALUES('demo', 7, 1);
+                INSERT INTO entities VALUES('character:major', 'demo', 2, 1);
+                INSERT INTO entities VALUES('character:minor', 'demo', 3, 1);
+                INSERT INTO characters VALUES('character:major', '常驻人物', NULL);
+                INSERT INTO characters VALUES('character:minor', '一次性角色', NULL);
+                INSERT INTO export_state VALUES('demo', 7, 'ready', 1);
+                """
+            )
+
+        self.assertEqual(2, normalize_graph_visibility(legacy, "demo"))
+        self.assertEqual(0, normalize_graph_visibility(legacy, "demo"))
+        with sqlite3.connect(legacy) as connection:
+            self.assertEqual(
+                [("character:major", 1), ("character:minor", 0)],
+                list(connection.execute(
+                    "SELECT entity_id, graph_visible FROM characters ORDER BY entity_id"
+                )),
+            )
+            self.assertEqual(8, connection.execute(
+                "SELECT revision FROM projects WHERE id='demo'"
+            ).fetchone()[0])
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "graph_visible must be 0 or 1"):
+                connection.execute(
+                    "UPDATE characters SET graph_visible=NULL WHERE entity_id='character:major'"
+                )
 
 
 if __name__ == "__main__":

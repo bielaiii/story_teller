@@ -15,14 +15,18 @@ interface Props {
   previous?: Plot;
   next?: Plot;
   onBack: () => void;
+  backLabel?: string;
+  originBackLabel?: string;
+  onOriginBack?: () => void;
   onNavigate: (plotId: string) => void;
   onEdit?: () => void;
 }
 
-export function StoryReader({ plot, previous, next, onBack, onNavigate, onEdit }: Props) {
+export function StoryReader({ plot, previous, next, onBack, backLabel = "返回剧情列表", originBackLabel, onOriginBack, onNavigate, onEdit }: Props) {
   const { api, project, snapshot } = useRuntime();
   const bodyRef = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
+  const [originBackVisible, setOriginBackVisible] = useState(Boolean(originBackLabel));
   const detail = useQuery({
     queryKey: ["entity", project, plot.entityId],
     queryFn: () => api.detail<Plot>(plot.entityId),
@@ -50,6 +54,12 @@ export function StoryReader({ plot, previous, next, onBack, onNavigate, onEdit }
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [plot.entityId]);
+  useEffect(() => {
+    setOriginBackVisible(Boolean(originBackLabel));
+    if (!originBackLabel) return;
+    const timer = window.setTimeout(() => setOriginBackVisible(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [originBackLabel]);
   useEffect(() => {
     let frame = 0;
     const update = () => {
@@ -99,7 +109,8 @@ export function StoryReader({ plot, previous, next, onBack, onNavigate, onEdit }
 
     <aside className="story-reader-tools" aria-label="阅读导航">
       <header><small>阅读导航</small><strong>{chapter}</strong></header>
-      <button className="story-reader-back" type="button" onClick={onBack}><Icon name="arrow" /><span>返回剧情列表</span></button>
+      <button className="story-reader-back" type="button" onClick={onBack}><Icon name="arrow" /><span>{backLabel}</span></button>
+      {originBackVisible && originBackLabel && onOriginBack && <button className="story-reader-origin-back" type="button" onClick={onOriginBack}><Icon name="person" /><span>{originBackLabel}</span></button>}
       <div className="story-reader-chapter-nav">
         <button type="button" disabled={!previous} onClick={() => previous && onNavigate(previous.entityId)}><span>上一篇</span><strong>{previous?.title || "没有上一篇"}</strong></button>
         <button type="button" disabled={!next} onClick={() => next && onNavigate(next.entityId)}><span>下一篇</span><strong>{next?.title || "没有下一篇"}</strong></button>

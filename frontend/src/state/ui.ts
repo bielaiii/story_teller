@@ -7,6 +7,7 @@ interface UiState {
   selectedCharacterId: string | null;
   selectedGraphCharacterId: string | null;
   selectedPlotId: string | null;
+  storyReturnCharacterId: string | null;
   selectedEntryId: string | null;
   graphViewport: { x: number; y: number; scale: number };
   timelineFocusId: string | null;
@@ -16,6 +17,8 @@ interface UiState {
   selectCharacter: (id: string | null) => void;
   selectGraphCharacter: (id: string | null) => void;
   selectPlot: (id: string | null) => void;
+  openPlotFromCharacter: (plotId: string, characterId: string) => void;
+  clearStoryReturn: () => void;
   selectEntry: (id: string | null) => void;
   setGraphViewport: (viewport: UiState["graphViewport"]) => void;
   setTimelineFocus: (id: string | null) => void;
@@ -44,6 +47,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedCharacterId: null,
   selectedGraphCharacterId: null,
   selectedPlotId: initialPlotId,
+  storyReturnCharacterId: null,
   selectedEntryId: null,
   graphViewport: { x: 0, y: 0, scale: 1 },
   timelineFocusId: null,
@@ -51,7 +55,7 @@ export const useUiStore = create<UiState>((set) => ({
   notice: null,
   navigate: (page) => {
     window.history.pushState({}, "", `${window.location.pathname}${window.location.search}#/${page}`);
-    set({ page });
+    set((state) => ({ page, storyReturnCharacterId: page === "story" ? state.storyReturnCharacterId : null }));
   },
   selectCharacter: (selectedCharacterId) => set({ selectedCharacterId }),
   selectGraphCharacter: (selectedGraphCharacterId) => set({ selectedGraphCharacterId }),
@@ -63,6 +67,11 @@ export const useUiStore = create<UiState>((set) => ({
     }
     set({ selectedPlotId });
   },
+  openPlotFromCharacter: (selectedPlotId, storyReturnCharacterId) => set({
+    selectedPlotId,
+    storyReturnCharacterId,
+  }),
+  clearStoryReturn: () => set({ storyReturnCharacterId: null }),
   selectEntry: (selectedEntryId) => set({ selectedEntryId }),
   setGraphViewport: (graphViewport) => set({ graphViewport }),
   setTimelineFocus: (timelineFocusId) => set({ timelineFocusId }),

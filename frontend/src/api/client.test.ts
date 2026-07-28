@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { projectFromLocation, StoryApi } from "./client";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
 });
@@ -34,5 +35,75 @@ describe("StoryApi project negotiation", () => {
       headers: { "content-type": "text/html" },
     })));
     await expect(new StoryApi("").meta()).rejects.toThrow("没有可用的本地 Story Teller API");
+  });
+
+  it("refreshes the write token after a local service restart", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        apiVersion: 1,
+        schemaVersion: 3,
+        writable: true,
+        project: "demo",
+        projectRevision: 6,
+        features: [],
+        mutationToken: "old-token",
+        error: "",
+        routes: {},
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: "写入授权已失效，请刷新本地服务能力",
+      }), { status: 403, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        apiVersion: 1,
+        schemaVersion: 3,
+        writable: true,
+        project: "demo",
+        projectRevision: 6,
+        features: [],
+        mutationToken: "new-token",
+        error: "",
+        routes: {},
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        projectRevision: 7,
+        changed: {},
+        deleted: [],
+        warnings: [],
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new StoryApi("demo");
+    await api.meta();
+
+    await api.mutate("/characters/character%3A1", "PATCH", { baseRevision: 6 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect((fetchMock.mock.calls[3][1] as RequestInit).headers).toMatchObject({
+      "X-Story-Teller-Token": "new-token",
+    });
+  });
+
+  it("polls until the restarted local service becomes writable", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        apiVersion: 1,
+        schemaVersion: 3,
+        writable: true,
+        project: "demo",
+        projectRevision: 6,
+        features: [],
+        mutationToken: "recovered-token",
+        error: "",
+        routes: {},
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new StoryApi("demo");
+
+    const recovered = api.waitForRecovery(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await recovered;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

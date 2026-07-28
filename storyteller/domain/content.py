@@ -646,6 +646,12 @@ class ContentService:
             "markers": markers,
         }
         validate_character_classification(values)
+        graph_visible = payload.get("graph_visible")
+        if graph_visible is None:
+            graph_visible = (
+                values["narrative_role"] == "主角"
+                or values["side"] in {"反派方", "中立"}
+            ) and values["character_scope"] not in {"一次性角色", "待定角色"}
 
         def mutation(connection: sqlite3.Connection):
             stable = clean_text(payload.get("stable_id"), "人物 ID", 60) or self._next_numeric_id(connection, self.project_id, "character")
@@ -664,7 +670,7 @@ class ContentService:
                     identifier, name, clean_body(payload.get("intro", ""), "人物设定"),
                     values["narrative_role"], values["character_scope"], values["side"], impact,
                     clean_color(payload.get("color")), str(payload.get("gradient") or ""),
-                    clean_text(payload.get("group", ""), "人物分组", 80), payload.get("graph_visible"),
+                    clean_text(payload.get("group", ""), "人物分组", 80), graph_visible,
                 ),
             )
             self._replace_values(connection, "character_aliases", "character_id", identifier, "alias", clean_values(payload.get("aliases", []), "别名"))
@@ -703,7 +709,7 @@ class ContentService:
                 "main_plot_impact": ("main_plot_impact", int),
                 "color": ("color", clean_color), "gradient": ("gradient", str),
                 "group": ("group_name", lambda value: clean_text(value, "人物分组", 80)),
-                "graph_visible": ("graph_visible", lambda value: value),
+                "graph_visible": ("graph_visible", bool),
             }
             for key, (column, cleaner) in mappings.items():
                 if key in payload:

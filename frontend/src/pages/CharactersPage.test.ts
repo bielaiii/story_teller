@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Character } from "../api/types";
-import { displayRole, orderCharactersForList, storedClassification } from "./CharactersPage";
+import {
+  displayRole,
+  graphVisibilityAfterRole,
+  graphVisibilityAfterScope,
+  orderCharactersForList,
+  storedClassification,
+} from "./CharactersPage";
 
 function character(name: string, entityId: string): Character {
   return { name, entityId } as Character;
@@ -39,5 +45,15 @@ describe("character role presentation", () => {
   it("converts the visible role back to compatible persisted fields", () => {
     expect(storedClassification("反派")).toEqual({ narrativeRole: "配角", side: "反派方" });
     expect(storedClassification("中立")).toEqual({ narrativeRole: "配角", side: "中立" });
+  });
+
+  it("applies graph defaults without preventing a later manual choice", () => {
+    expect(graphVisibilityAfterRole(false, "主角")).toBe(true);
+    expect(graphVisibilityAfterRole(false, "反派")).toBe(true);
+    expect(graphVisibilityAfterRole(false, "中立")).toBe(true);
+    expect(graphVisibilityAfterRole(false, "配角")).toBe(false);
+    expect(graphVisibilityAfterScope(true, "一次性角色")).toBe(false);
+    expect(graphVisibilityAfterScope(true, "待定角色")).toBe(false);
+    expect(graphVisibilityAfterScope(true, "常驻人物")).toBe(true);
   });
 });

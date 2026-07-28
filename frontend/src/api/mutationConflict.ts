@@ -9,6 +9,10 @@ export function mutationTargetId(path: string): string | null {
   return null;
 }
 
+export function isContentCreatePath(path: string): boolean {
+  return ["/characters", "/plots", "/entries", "/fragments", "/relationships"].includes(path);
+}
+
 export function entityRevision(snapshot: ProjectSnapshot, entityId: string): number | null {
   const collections = [
     snapshot.characters,

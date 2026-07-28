@@ -6,6 +6,7 @@ import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { TrashItem } from "../api/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { MarkdownExportPanel } from "./MarkdownExportPanel";
 
 const kindLabels: Record<string, string> = {
   character: "人物", plot: "剧情", entry: "设定", fragment: "碎片",
@@ -63,6 +64,7 @@ export default function ProjectManagementPage() {
     <section className="recovery-center-dialog">
       <header><div><small>Project Management</small><h2>项目管理</h2><p>集中管理回收站、操作记录，以及后续不属于具体编辑器的项目设置。</p></div><div className="dialog-actions">{message && <span className="page-message">{message}</span>}</div></header>
       <div className="recovery-center-grid">
+        <MarkdownExportPanel onMessage={setMessage} />
         <section className="recovery-panel"><header><div><small>Trash</small><h3>回收站</h3></div><strong>{trash.data?.items.length || 0}</strong></header><div className="trash-list-new">{trash.data?.items.map((item) => <article key={item.entityId}><button className="trash-preview-main" onClick={() => setPreview(item)}><span>{kindLabels[item.kind] || item.kind}</span><strong>{item.title}</strong><small>{item.kind === "character" ? `ID ${item.id} · ` : ""}{item.daysRemaining} 天后永久删除</small></button><button className="icon-button" aria-label={`恢复${item.title}${item.kind === "character" ? `（ID ${item.id}）` : ""}`} title="恢复" onClick={() => restore(item)}><Icon name="restore" /></button></article>)}{!trash.isPending && !trash.data?.items.length && <div className="empty-state compact"><Icon name="trash" /><p>回收站是空的</p></div>}</div></section>
         <section className="recovery-panel"><header><div><small>History</small><h3>操作记录</h3></div><strong>{operations.data?.items.length || 0}</strong></header><div className="operation-list-new">{operations.data?.items.map((item) => <article key={item.id}><div><span>{kindLabels[item.entityKind] || "内容"}</span><strong>{item.label}</strong><small>{new Date(item.createdAt * 1000).toLocaleString("zh-CN")}</small>{!item.canUndo && item.undoBlockedReason && <em>{item.undoBlockedReason}</em>}</div><button className="icon-button" disabled={!item.canUndo} aria-label={`撤销${item.label}`} title={item.undoBlockedReason || "撤销"} onClick={() => setUndoId(item.id)}><Icon name="undo" /></button></article>)}</div></section>
       </div>

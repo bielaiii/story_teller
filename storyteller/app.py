@@ -43,6 +43,7 @@ FEATURES = [
     "snapshot-v1", "delta-v1", "entity-detail-v1", "history-v2", "trash-v2",
     "soft-delete-v1", "row-undo-v1", "static-snapshot-v1", "content-mutations-v1",
     "story-structure-v1", "graph-layout-v1", "content-conversion-v1",
+    "timeline-drag-chapter-swap-v1",
 ]
 
 
@@ -124,6 +125,7 @@ def create_app(settings: Settings) -> FastAPI:
                 "plots": True, "entries": True, "fragments": True, "relationships": True,
                 "chapters": True, "timeline": True, "graph": True, "plotOrder": True,
                 "storyStructure": True, "contentConversion": True,
+                "timelineChapterSwap": True,
             },
         }
 

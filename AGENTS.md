@@ -83,6 +83,8 @@ Core style:
 * Prefer recognizable icon controls for compact or repeated actions such as edit, rename, delete, settings, collapse, close, move, restore, and preview. Avoid a bordered rectangle containing only an ordinary action word.
 * Reuse one coherent icon language. Prefer the project's existing icon set or small inline SVG icons; do not mix unrelated emoji, text glyphs, and icon styles.
 * Every icon-only action must have an accurate accessible name, a `title` or tooltip, visible hover/focus/disabled states, and a sufficiently large click target. The icon may be visually minimal without making the hit area tiny.
+* Do not wrap a simple boolean choice in a large rectangular card, bordered tile, or oversized color block. Prefer one compact line with a familiar icon and a circular checkbox or toggle; keep the control visually light while preserving a comfortable click target.
+* Boolean controls must communicate both states with equal clarity. For a circle choice, use the conventional radio treatment: a high-contrast empty ring when off and a clearly visible inner dot when on. Do not substitute crosses, checkmarks, or a fully filled outer circle unless the product explicitly calls for them.
 * Use text when an action is unfamiliar, consequential, or ambiguous without it. In those cases prefer an icon with a concise label, a menu item, or a clearly emphasized primary action instead of a generic outlined word box.
 * Destructive icon actions still require clear danger styling and confirmation. Do not rely on color alone to communicate meaning.
 * Prefer focus interactions: click a line, node, or person to emphasize related content; hide or de-emphasize unrelated content; click blank space to return to the default state.

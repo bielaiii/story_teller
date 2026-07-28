@@ -32,6 +32,8 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export class StoryApi {
   private mutationToken = "";
+  private refreshingMeta: Promise<MetaResponse> | null = null;
+  private recoveryWatch: Promise<void> | null = null;
 
   constructor(public project: string) {}
 
@@ -72,7 +74,11 @@ export class StoryApi {
       .then(parseResponse<{ items: OperationItem[] }>);
   }
 
-  mutate(path: string, method: "POST" | "PATCH" | "PUT" | "DELETE", payload: Record<string, unknown>): Promise<MutationDelta> {
+  private mutationRequest(
+    path: string,
+    method: "POST" | "PATCH" | "PUT" | "DELETE",
+    payload: Record<string, unknown>,
+  ): Promise<MutationDelta> {
     return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
       method,
       signal: AbortSignal.timeout(15_000),
@@ -82,6 +88,57 @@ export class StoryApi {
       },
       body: JSON.stringify(payload),
     }).then(parseResponse<MutationDelta>);
+  }
+
+  private refreshMeta(): Promise<MetaResponse> {
+    if (!this.refreshingMeta) {
+      this.refreshingMeta = this.meta().finally(() => {
+        this.refreshingMeta = null;
+      });
+    }
+    return this.refreshingMeta;
+  }
+
+  waitForRecovery(pollInterval = 1_000): Promise<void> {
+    if (!this.recoveryWatch) {
+      this.recoveryWatch = (async () => {
+        while (true) {
+          try {
+            const meta = await this.refreshMeta();
+            if (meta.writable && meta.mutationToken) return;
+          } catch {
+            // The local process is expected to reject connections while restarting.
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, pollInterval));
+        }
+      })().finally(() => {
+        this.recoveryWatch = null;
+      });
+    }
+    return this.recoveryWatch;
+  }
+
+  async mutate(
+    path: string,
+    method: "POST" | "PATCH" | "PUT" | "DELETE",
+    payload: Record<string, unknown>,
+  ): Promise<MutationDelta> {
+    try {
+      return await this.mutationRequest(path, method, payload);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        await this.refreshMeta();
+        return this.mutationRequest(path, method, payload);
+      }
+      if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
+        throw new ApiError(
+          "本地服务正在重启，草稿已保存在浏览器中",
+          0,
+          "api_unavailable",
+        );
+      }
+      throw error;
+    }
   }
 }
 

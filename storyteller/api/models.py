@@ -215,6 +215,12 @@ class TimelineAssignment(BaseModel):
     story_order: int | None = Field(default=None, alias="storyOrder")
 
 
+class TimelineChapterNumberItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    plot_id: str = Field(alias="plotId")
+    chapter_number: int = Field(alias="chapterNumber", ge=1, le=99999)
+
+
 class TimelineUpdate(MutationRequest):
     main_line_id: str = Field(alias="mainLineId")
     line_spacing: int = Field(default=72, alias="lineSpacing")
@@ -223,6 +229,7 @@ class TimelineUpdate(MutationRequest):
     pixels_per_story_unit: int = Field(default=760, alias="pixelsPerStoryUnit")
     lines: list[TimelineLineItem]
     assignments: list[TimelineAssignment]
+    chapter_numbers: list[TimelineChapterNumberItem] | None = Field(default=None, alias="chapterNumbers")
     line_replacements: dict[str, str] = Field(default={}, alias="lineReplacements")
 
 

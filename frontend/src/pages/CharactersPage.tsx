@@ -3,11 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import type { Character } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
+import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CollapsibleList } from "../components/CollapsibleList";
 import { Icon } from "../components/Icon";
 import { RelationshipEditor } from "../components/RelationshipEditor";
 import { useUiStore } from "../state/ui";
+import { compactStoryPreview } from "../storyPreview";
+import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
 
 interface EditablePair {
   rowId: string;
@@ -34,6 +37,7 @@ interface CharacterDraft {
   mainPlotImpact: number;
   color: string;
   group: string;
+  graphVisible: boolean;
 }
 
 let pairSequence = 0;
@@ -64,7 +68,7 @@ function blankDraft(): CharacterDraft {
     name: "", aliases: [], markers: [], facts: [],
     corePersona: [newBullet()], supplementPersona: [], destinyOutline: "", references: [],
     narrativeRole: "配角", characterScope: "常驻人物",
-    mainPlotImpact: 50, color: "#3f7fc1", group: "",
+    mainPlotImpact: 50, color: "#3f7fc1", group: "", graphVisible: false,
   };
 }
 
@@ -75,7 +79,8 @@ function fromCharacter(item: Character): CharacterDraft {
     corePersona: editableBullets(item.corePersona || []),
     supplementPersona: editableBullets(item.supplementPersona || []), destinyOutline: item.destinyOutline || "", narrativeRole: displayRole(item),
     characterScope: item.characterScope, mainPlotImpact: item.mainPlotImpact,
-    color: item.color, group: item.group, references: [...(item.references || [])],
+    color: item.color, group: item.group, graphVisible: item.graphVisible !== false,
+    references: [...(item.references || [])],
   };
 }
 
@@ -91,6 +96,14 @@ export function storedClassification(role: CharacterDraft["narrativeRole"]): Pic
   if (role === "反派") return { narrativeRole: "配角", side: "反派方" };
   if (role === "中立") return { narrativeRole: "配角", side: "中立" };
   return { narrativeRole: "配角", side: "主角方" };
+}
+
+export function graphVisibilityAfterRole(current: boolean, role: CharacterDraft["narrativeRole"]): boolean {
+  return role === "配角" ? current : true;
+}
+
+export function graphVisibilityAfterScope(current: boolean, scope: CharacterDraft["characterScope"]): boolean {
+  return ["一次性角色", "待定角色"].includes(scope) ? false : current;
 }
 
 function cleanPairs(items: EditablePair[]): Array<{ key: string; value: string }> {
@@ -211,12 +224,27 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRename, setConfirmRename] = useState(false);
+  const draftKey = browserDraftKey(project, "character", currentId);
   useEffect(() => {
     const next = currentId === "new" ? blankDraft() : detail.data?.data ? fromCharacter(detail.data.data) : null;
-    if (next) { setDraft(next); setBaseline(JSON.stringify(next)); }
-  }, [currentId, detail.data]);
+    if (next) {
+      setDraft(restoreBrowserDraft(browserDraftKey(project, "character", currentId), next));
+      setBaseline(JSON.stringify(next));
+    }
+  }, [currentId, detail.data, project]);
+  useBrowserDraft(draftKey, draft, baseline);
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const change = <K extends keyof CharacterDraft>(key: K, value: CharacterDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const changeRole = (narrativeRole: CharacterDraft["narrativeRole"]) => setDraft((current) => ({
+    ...current,
+    narrativeRole,
+    graphVisible: graphVisibilityAfterRole(current.graphVisible, narrativeRole),
+  }));
+  const changeScope = (characterScope: CharacterDraft["characterScope"]) => setDraft((current) => ({
+    ...current,
+    characterScope,
+    graphVisible: graphVisibilityAfterScope(current.graphVisible, characterScope),
+  }));
   const referenceSourceCount = currentId === "new" ? 0 : new Set([
     ...snapshot.characters.filter((item) => item.references?.includes(currentId)).map((item) => item.entityId),
     ...snapshot.plots.filter((item) => item.references?.includes(currentId) || item.people.includes(currentId)).map((item) => item.entityId),
@@ -245,6 +273,7 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
           supplementPersona,
         },
       });
+      clearBrowserDraft(draftKey);
       if (currentId === "new") {
         const created = result.changed.characters?.find((item) => !snapshot.characters.some((existing) => existing.entityId === item.entityId));
         if (created?.entityId) setCurrentId(String(created.entityId));
@@ -265,10 +294,15 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
     if (currentId === "new") return;
     try {
       await mutation.mutateAsync({ path: `/entities/${encodeURIComponent(currentId)}`, method: "DELETE", payload: {} });
+      clearBrowserDraft(draftKey);
       onClose();
     } catch (error) { setMessage(error instanceof Error ? error.message : "删除失败"); }
   };
   useEditorSaveShortcut(save);
+  const discard = () => {
+    clearBrowserDraft(draftKey);
+    onClose();
+  };
   if (entityId !== "new" && detail.isPending) return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取人物档案…</div></div>;
   return <div className="dialog-backdrop editor-backdrop">
     <section className="editor-dialog character-editor-dialog" role="dialog" aria-modal="true" aria-label="编辑人物档案">
@@ -278,8 +312,21 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
           <header><span className="character-editor-avatar" style={{ background: draft.color }}>{draft.name.trim().slice(0, 1) || "人"}</span><div><small>Basic Profile</small><h3>基础资料</h3></div></header>
           <div className="profile-editor-grid">
             <label className="wide"><span>姓名</span><input value={draft.name} placeholder="输入人物姓名" onChange={(event) => change("name", event.target.value)} /></label>
-            <label><span>戏份定位</span><select value={draft.narrativeRole} onChange={(event) => change("narrativeRole", event.target.value as CharacterDraft["narrativeRole"])}><option>主角</option><option>反派</option><option>中立</option><option>配角</option></select></label>
-            <label><span>出场类型</span><select value={draft.characterScope} onChange={(event) => change("characterScope", event.target.value as CharacterDraft["characterScope"])}><option>主线人物</option><option>常驻人物</option><option>一次性角色</option><option>待定角色</option></select></label>
+            <label><span>戏份定位</span><select value={draft.narrativeRole} onChange={(event) => changeRole(event.target.value as CharacterDraft["narrativeRole"])}><option>主角</option><option>反派</option><option>中立</option><option>配角</option></select></label>
+            <label><span>出场类型</span><select value={draft.characterScope} onChange={(event) => changeScope(event.target.value as CharacterDraft["characterScope"])}><option>主线人物</option><option>常驻人物</option><option>一次性角色</option><option>待定角色</option></select></label>
+            <label className="wide graph-visibility-field">
+              <span>人物图谱</span>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={draft.graphVisible}
+                className={draft.graphVisible ? "graph-visibility-choice is-selected" : "graph-visibility-choice"}
+                onClick={() => change("graphVisible", !draft.graphVisible)}
+              >
+                <span className="choice-circle" aria-hidden="true"><span /></span>
+                <span>显示在图谱中</span>
+              </button>
+            </label>
             <label><span>主线影响 <small>0–100</small></span><input type="number" min="0" max="100" value={draft.mainPlotImpact} onChange={(event) => change("mainPlotImpact", Number(event.target.value))} /></label>
             <label className="wide"><span>分组</span><input value={draft.group} placeholder="例如：沈家" onChange={(event) => change("group", event.target.value)} /></label>
             <label className="color-field"><span>人物颜色</span><span><input type="color" value={draft.color} onChange={(event) => change("color", event.target.value)} /><small>{draft.color.toUpperCase()}</small></span></label>
@@ -298,9 +345,9 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
           <KeyValueSection title="人物档案" description="年龄、职业、身份、住址等客观信息。" items={draft.facts} onChange={(items) => change("facts", items)} tone="facts" />
         </main>
       </div>
-      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>保存不会关闭档案或重置当前状态</small></footer>
+      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>保存不会关闭档案或重置当前状态</small></footer>
     </section>
-    <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="关闭后，本次人物档案修改会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
+    <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份人物草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.name}”？`} message="人物会进入回收站；图谱节点和相连关系会立即从活动视图隐藏，恢复人物后有效关系会自然回来。" confirmLabel="移入回收站" danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
     <ConfirmDialog open={confirmRename} title={`重命名为“${draft.name}”？`} message={`人物稳定 ID 不会改变；系统会在同一事务中更新 ${referenceSourceCount} 篇带稳定引用的相关正文，整次重命名可以撤销。`} confirmLabel="确认重命名" onCancel={() => setConfirmRename(false)} onConfirm={() => { setConfirmRename(false); void persist(); }} />
   </div>;
@@ -310,6 +357,7 @@ export default function CharactersPage() {
   const { snapshot, writable } = useRuntime();
   const selected = useUiStore((state) => state.selectedCharacterId);
   const select = useUiStore((state) => state.selectCharacter);
+  const openPlotFromCharacter = useUiStore((state) => state.openPlotFromCharacter);
   const [editor, setEditor] = useState<string | "new" | null>(null);
   const [relationshipEditor, setRelationshipEditor] = useState<string | "new" | null>(null);
   const [query, setQuery] = useState("");
@@ -339,7 +387,7 @@ export default function CharactersPage() {
         {Boolean(current.destinyOutline?.trim()) && <section className="character-outline-detail"><h3>人物大纲</h3><p>{current.destinyOutline}</p></section>}
         <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
         {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl></section>}
-        <section><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></section>
+        <section><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards character-related-plots" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { openPlotFromCharacter(plot.entityId, current.entityId); useUiStore.getState().navigate("story"); }}><span><strong>{plot.title}</strong><CompleteBlockPreview source={compactStoryPreview(plot.summary || plot.bodyPreview || "还没有剧情摘要")} className="character-related-plot-preview content-card-preview" /></span><small>第 {plot.sequence} 章</small></button>} /></section>
         <section><div className="section-heading"><h3>人物关系</h3>{writable && <button className="icon-button" aria-label={`为${current.name}建立人物关系`} title="建立人物关系" onClick={() => setRelationshipEditor("new")}><Icon name="plus" /></button>}</div><CollapsibleList items={relationships} itemKey={(relation) => relation.entityId} resetKey={current.entityId} label={`${current.name}的人物关系`} className="relationship-list-new" emptyText="还没有记录人物关系" renderItem={(relation) => { const otherId = relation.from === current.entityId ? relation.to : relation.from; const other = snapshot.characters.find((item) => item.entityId === otherId); return <article><button className="relationship-target" onClick={() => other && select(other.entityId)}><span style={{ background: relation.color }} /><strong>{other?.name || "已删除人物"}</strong><small>{relation.label || relation.type || "未命名关系"}</small></button>{writable && <button className="icon-button" aria-label={`编辑${relation.label || "人物关系"}`} title="编辑人物关系" onClick={() => setRelationshipEditor(relation.entityId)}><Icon name="edit" /></button>}</article>; }} /></section>
       </> : <div className="empty-state"><Icon name="person" /><h2>选择一个人物</h2></div>}</article>
     </div>

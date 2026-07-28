@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectSnapshot } from "./types";
-import { canRetryAgainstLatest, mutationTargetId } from "./mutationConflict";
+import { canRetryAgainstLatest, isContentCreatePath, mutationTargetId } from "./mutationConflict";
 
 function snapshot(projectRevision: number, characterRevision: number, plotRevision: number): ProjectSnapshot {
   return {
@@ -17,6 +17,12 @@ function snapshot(projectRevision: number, characterRevision: number, plotRevisi
 }
 
 describe("non-overlapping mutation conflicts", () => {
+  it("recognizes only direct content creation routes as safe create retries", () => {
+    expect(isContentCreatePath("/characters")).toBe(true);
+    expect(isContentCreatePath("/plots")).toBe(true);
+    expect(isContentCreatePath("/plots/plot%3A1/to-fragment")).toBe(false);
+  });
+
   it("retries a plot save when only a character changed", () => {
     const submitted = snapshot(90, 3, 5);
     const latest = snapshot(91, 4, 5);

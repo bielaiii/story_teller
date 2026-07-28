@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PickedReference } from "../editor/MarkdownEditor";
 import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
+import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { EntityDetail, Plot } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -14,6 +15,7 @@ import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
 import { StoryReader } from "../components/StoryReader";
 import { Pagination } from "../components/Pagination";
 import { useUiStore } from "../state/ui";
+import { compactStoryPreview } from "../storyPreview";
 import { plotChapterNumber, plotChapterTitle, plotStatusOptions, tagColor, tagStyle } from "../storyOptions";
 
 interface PlotDraft {
@@ -45,34 +47,6 @@ function draftFrom(plot: Plot): PlotDraft {
     references: [...new Set([...(plot.references || []), ...plot.people, ...plot.entries])],
     key: plot.key, climax: plot.climax,
   };
-}
-
-function compactStoryPreview(source: string) {
-  const blocks = source
-    .replace(/\r\n?/g, "\n")
-    .split(/\n\s*\n+/)
-    .map((block) => block.trim())
-    .filter((block) => block && !/^(?:-{3,}|\*{3,}|_{3,})$/.test(block));
-  const selected: string[] = [];
-  let layoutCost = 0;
-
-  for (const block of blocks) {
-    const visible = block
-      .replace(/^```[^\n]*|```$/gm, "")
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/^[\s>#*+\-\d.)]+/gm, "")
-      .replace(/[*_`~]/g, "")
-      .replace(/\s+/g, "")
-      .length;
-    const blockCost = visible + (block.match(/\n/g)?.length || 0) * 24;
-    if (!visible || blockCost > 110 || layoutCost + blockCost > 105) continue;
-    selected.push(block);
-    layoutCost += blockCost;
-    if (selected.length === 3) break;
-  }
-
-  return selected.join("\n\n") || "_正文较长，点击卡片阅读完整内容。_";
 }
 
 function PlotCard({ plot, chapterLabel, onOpen }: { plot: Plot; chapterLabel: string; onOpen: () => void }) {
@@ -113,6 +87,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   const [duplicateConfirm, setDuplicateConfirm] = useState(false);
   const [chapterErrorPulse, setChapterErrorPulse] = useState(0);
   const [message, setMessage] = useState("");
+  const draftKey = browserDraftKey(project, "plot", currentId);
   const supportsConversion = Boolean(
     meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
   );
@@ -120,12 +95,15 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   useEffect(() => {
     if (currentId === "new") {
       const next = { ...emptyDraft, chapterId: initialChapterId, chapterNumber: String(initialChapterNumber) };
-      setDraft(next); setBaseline(JSON.stringify(next));
+      setDraft(restoreBrowserDraft(browserDraftKey(project, "plot", currentId), next));
+      setBaseline(JSON.stringify(next));
     } else if (detail.data?.data) {
       const next = draftFrom(detail.data.data);
-      setDraft(next); setBaseline(JSON.stringify(next));
+      setDraft(restoreBrowserDraft(browserDraftKey(project, "plot", currentId), next));
+      setBaseline(JSON.stringify(next));
     }
-  }, [currentId, detail.data, initialChapterId, initialChapterNumber]);
+  }, [currentId, detail.data, initialChapterId, initialChapterNumber, project]);
+  useBrowserDraft(draftKey, draft, baseline);
 
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const close = () => dirty ? setConfirmClose(true) : onClose();
@@ -166,6 +144,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
         method: currentId === "new" ? "POST" : "PATCH",
         payload,
       });
+      clearBrowserDraft(draftKey);
       const changedPlot = result.changed.plots?.find((plot) => (
         plot.entityId === currentId
         || (currentId === "new" && !snapshot.plots.some((existing) => existing.entityId === plot.entityId))
@@ -210,6 +189,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
     if (currentId === "new") return;
     try {
       await mutation.mutateAsync({ path: `/entities/${encodeURIComponent(currentId)}`, method: "DELETE", payload: {} });
+      clearBrowserDraft(draftKey);
       onClose();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除失败");
@@ -239,6 +219,10 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
     }
   };
   useEditorSaveShortcut(save);
+  const discard = () => {
+    clearBrowserDraft(draftKey);
+    onClose();
+  };
   if (plotId !== "new" && detail.isPending) return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取正文…</div></div>;
   return (
     <div className="dialog-backdrop editor-backdrop" role="presentation">
@@ -262,9 +246,9 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
           <label className="check"><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} />高潮剧情</label>
         </EditorSettingsSection>
         <MarkdownEditor value={draft.body} onChange={(body) => change("body", body)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} autoFocus />
-        <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>@ 选择人物 · / 选择设定 · ⌘/Ctrl+S 保存</small></footer>
+        <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>@ 选择人物 · / 选择设定 · ⌘/Ctrl+S 保存</small></footer>
       </section>
-      <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="关闭后，本次未保存的正文和设置会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
+      <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份剧情草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
       <ConfirmDialog open={deleteConfirm} title={`删除“${currentChapterTitle}”？`} message="剧情会进入回收站保留 7 天；原有稳定 ID 和阅读位置不会立即清除。" confirmLabel="移入回收站" danger onCancel={() => setDeleteConfirm(false)} onConfirm={remove} />
       <ConfirmDialog open={convertConfirm} title={`把“${currentChapterTitle}”放入碎片箱？`} message="正文、标签、颜色和引用会迁移到新碎片；原剧情会进入回收站，整次操作可以撤销。" confirmLabel="放入碎片箱" onCancel={() => setConvertConfirm(false)} onConfirm={convertToFragment} />
       <ConfirmDialog open={duplicateConfirm} title={`${currentChapterTitle}已经存在`} message="你可以继续编辑并重新填写章号，或者插入到这个位置，将这一章及后面的章节依次顺延。" confirmLabel="插入并顺延后续章节" onCancel={() => setDuplicateConfirm(false)} onConfirm={async () => { setDuplicateConfirm(false); await persist(true); }} />
@@ -278,6 +262,7 @@ export default function StoryPage() {
   const selectPlot = useUiStore((state) => state.selectPlot);
   const [editorId, setEditorId] = useState<string | "new" | null>(null);
   const [readerId, setReaderId] = useState<string | null>(selectedPlotId);
+  const storyReturnCharacterId = useUiStore((state) => state.storyReturnCharacterId);
   const [structureEditor, setStructureEditor] = useState(false);
   const storyScrollRef = useRef(0);
   const statuses = useMemo(() => [...new Set(snapshot.plots.map((item) => item.status))].sort(), [snapshot.plots]);
@@ -302,12 +287,22 @@ export default function StoryPage() {
   const plots = filteredPlots.slice((Math.min(page, totalPages) - 1) * 9, Math.min(page, totalPages) * 9);
   const open = (id: string) => { storyScrollRef.current = window.scrollY; selectPlot(id); setReaderId(id); };
   const closeReader = () => {
+    useUiStore.getState().clearStoryReturn();
     selectPlot(null);
     setReaderId(null);
     requestAnimationFrame(() => window.scrollTo({ top: storyScrollRef.current, behavior: "auto" }));
   };
+  const returnToCharacter = () => {
+    if (!storyReturnCharacterId) return;
+    const returnId = storyReturnCharacterId;
+    selectPlot(null);
+    setReaderId(null);
+    useUiStore.getState().selectCharacter(returnId);
+    useUiStore.getState().navigate("characters");
+  };
   const navigateReader = (id: string) => { selectPlot(id); setReaderId(id); };
   const readerPlot = snapshot.plots.find((item) => item.entityId === readerId);
+  const returnCharacter = snapshot.characters.find((item) => item.entityId === storyReturnCharacterId);
   const readingOrder = useMemo(() => [...snapshot.plots].sort((left, right) => left.sequence - right.sequence), [snapshot.plots]);
   const readerIndex = readerPlot ? readingOrder.findIndex((item) => item.entityId === readerPlot.entityId) : -1;
   if (readerPlot) return <>
@@ -316,6 +311,8 @@ export default function StoryPage() {
       previous={readerIndex > 0 ? readingOrder[readerIndex - 1] : undefined}
       next={readerIndex >= 0 && readerIndex < readingOrder.length - 1 ? readingOrder[readerIndex + 1] : undefined}
       onBack={closeReader}
+      originBackLabel={returnCharacter ? `返回${returnCharacter.name}` : undefined}
+      onOriginBack={returnToCharacter}
       onNavigate={navigateReader}
       onEdit={writable ? () => setEditorId(readerPlot.entityId) : undefined}
     />
@@ -324,14 +321,14 @@ export default function StoryPage() {
   return (
     <section className="workspace-page story-page">
       <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1></div><div className="page-actions"><select aria-label="篇章筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有篇</option><option value="__mainline__">主线</option>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select>{writable && <><button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureEditor(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
-      <div className="filter-panel"><FilterChips label="状态" values={statuses} selected={selectedStatuses} onChange={setSelectedStatuses} /><FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible /></div>
+      <div className="filter-panel"><FilterChips label="状态" values={statuses} selected={selectedStatuses} onChange={setSelectedStatuses} /><FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible inlineExpanded /></div>
       <div className="plot-grid">{plots.map((plot) => <PlotCard
         key={plot.entityId}
         plot={plot}
         chapterLabel={snapshot.chapters.find((item) => item.entityId === plot.chapterId)?.label || "主线"}
         onOpen={() => open(plot.entityId)}
       />)}</div>
-      <Pagination page={Math.min(page, totalPages)} totalPages={totalPages} onChange={(value) => { setPage(value); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+      <Pagination page={Math.min(page, totalPages)} totalPages={totalPages} onChange={setPage} />
       {!plots.length && <div className="empty-state"><Icon name="book" /><h2>当前筛选下没有剧情</h2><p>调整状态、标签或篇章后再看。</p></div>}
       {editorId && <PlotEditor plotId={editorId} onClose={() => setEditorId(null)} />}
       {structureEditor && <StoryStructureEditor onClose={() => setStructureEditor(false)} />}

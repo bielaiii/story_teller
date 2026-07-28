@@ -197,7 +197,7 @@ class ProjectRepository:
             "color": str(row["color"]),
             "gradient": str(row["gradient"]),
             "group": str(row["group_name"]),
-            "graphVisible": None if row["graph_visible"] is None else bool(row["graph_visible"]),
+            "graphVisible": bool(row["graph_visible"]),
             "revision": int(row["revision"]),
             "introPreview": preview(row["intro_markdown"]),
             "extra": public_extra,

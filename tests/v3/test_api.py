@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 import unittest
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -574,6 +575,120 @@ class V3ApiTests(unittest.TestCase):
             unchanged_character.json()["projectRevision"],
         )
 
+    def test_timeline_drag_atomically_swaps_story_positions_and_chapter_numbers(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        timeline = snapshot["timeline"]
+        plots = snapshot["plots"]
+        original_titles = {plot["entityId"]: plot["title"] for plot in plots}
+        original_numbers = {}
+        for plot in plots:
+            match = re.fullmatch(r"第\s*(\d+)\s*章", plot["title"])
+            original_numbers[plot["entityId"]] = int(match.group(1)) if match else int(plot["sequence"])
+        nodes_by_plot: dict[str, list[str]] = {}
+        story_key_by_plot: dict[str, str] = {}
+        plot_ids_by_line: dict[str, list[str]] = {}
+        for node in timeline["nodes"]:
+            nodes_by_plot.setdefault(node["plotId"], []).append(node["lineId"])
+            story_key_by_plot.setdefault(node["plotId"], node["storySortKey"])
+            plot_ids_by_line.setdefault(node["lineId"], []).append(node["plotId"])
+        drag_line_id, drag_plot_ids = next(
+            (line_id, plot_ids)
+            for line_id, plot_ids in plot_ids_by_line.items()
+            if len(plot_ids) >= 2
+        )
+        drag_plot_ids = sorted(
+            drag_plot_ids, key=lambda plot_id: story_key_by_plot[plot_id]
+        )
+        plots_by_id = {plot["entityId"]: plot for plot in plots}
+        first, second = (plots_by_id[plot_id] for plot_id in drag_plot_ids[:2])
+        original_story_keys = dict(story_key_by_plot)
+        first_key = story_key_by_plot[first["entityId"]]
+        second_key = story_key_by_plot[second["entityId"]]
+        story_key_by_plot[first["entityId"]] = second_key
+        story_key_by_plot[second["entityId"]] = first_key
+        swapped_numbers = dict(original_numbers)
+        swapped_numbers[first["entityId"]] = original_numbers[second["entityId"]]
+        swapped_numbers[second["entityId"]] = original_numbers[first["entityId"]]
+
+        response = self.client.put(
+            "/api/v1/projects/demo/timeline",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "mainLineId": timeline["mainLineId"],
+                "lineSpacing": timeline["lineSpacing"],
+                "topPadding": timeline["topPadding"],
+                "sidePadding": timeline["sidePadding"],
+                "pixelsPerStoryUnit": timeline["pixelsPerStoryUnit"],
+                "lines": [
+                    {
+                        "entityId": line["entityId"],
+                        "name": line["name"],
+                        "color": line["color"],
+                        "side": line["side"],
+                        "startPlotId": line["startPlotId"],
+                        "endPlotId": line["endPlotId"],
+                    }
+                    for line in timeline["lines"]
+                ],
+                "assignments": [
+                    {
+                        "plotId": plot["entityId"],
+                        "lineIds": nodes_by_plot.get(plot["entityId"], []),
+                        "storySortKey": story_key_by_plot.get(plot["entityId"], plot["sortKey"]),
+                    }
+                    for plot in plots
+                ],
+                "chapterNumbers": [
+                    {"plotId": plot_id, "chapterNumber": number}
+                    for plot_id, number in swapped_numbers.items()
+                ],
+                "lineReplacements": {},
+            },
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        saved = self.client.get("/api/v1/projects/demo/snapshot").json()
+        saved_titles = {plot["entityId"]: plot["title"] for plot in saved["plots"]}
+        self.assertEqual(
+            f"第 {original_numbers[second['entityId']]} 章",
+            saved_titles[first["entityId"]],
+        )
+        self.assertEqual(
+            f"第 {original_numbers[first['entityId']]} 章",
+            saved_titles[second["entityId"]],
+        )
+        saved_story_keys = {
+            node["plotId"]: node["storySortKey"]
+            for node in saved["timeline"]["nodes"]
+            if node["lineId"] == drag_line_id
+        }
+        self.assertEqual(second_key, saved_story_keys[first["entityId"]])
+        self.assertEqual(first_key, saved_story_keys[second["entityId"]])
+        self.assertIn(first["entityId"], {
+            item["entityId"] for item in response.json()["changed"]["plots"]
+        })
+
+        undone = self.client.post(
+            "/api/v1/projects/demo/operations/undo",
+            headers=self.headers,
+            json={
+                "baseRevision": response.json()["projectRevision"],
+                "operationId": response.json()["operation"]["id"],
+            },
+        )
+        self.assertEqual(200, undone.status_code, undone.text)
+        restored = self.client.get("/api/v1/projects/demo/snapshot").json()
+        restored_titles = {plot["entityId"]: plot["title"] for plot in restored["plots"]}
+        self.assertEqual(original_titles, restored_titles)
+        restored_story_keys = {
+            node["plotId"]: node["storySortKey"]
+            for node in restored["timeline"]["nodes"]
+            if node["lineId"] == drag_line_id
+        }
+        for plot_id, story_key in original_story_keys.items():
+            if plot_id in restored_story_keys:
+                self.assertEqual(story_key, restored_story_keys[plot_id])
+
     def test_editor_references_persist_and_follow_target_lifecycle(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         fragment_id = snapshot["fragments"][0]["entityId"]
@@ -1029,6 +1144,36 @@ class V3ApiTests(unittest.TestCase):
             list(range(1, len(final_snapshot["plots"]) + 1)),
             [item["sequence"] for item in final_snapshot["plots"]],
         )
+
+    def test_new_character_graph_visibility_defaults_follow_role_and_scope(self):
+        revision = self.client.get("/api/v1/projects/demo/snapshot").json()["project"]["revision"]
+        cases = [
+            ({
+                "name": "默认配角", "narrativeRole": "配角",
+                "characterScope": "常驻人物", "side": "主角方",
+            }, False),
+            ({
+                "name": "默认主角", "narrativeRole": "主角",
+                "characterScope": "常驻人物", "side": "主角方",
+            }, True),
+            ({
+                "name": "一次性反派", "narrativeRole": "配角",
+                "characterScope": "一次性角色", "side": "反派方",
+            }, False),
+        ]
+        for payload, expected in cases:
+            response = self.client.post(
+                "/api/v1/projects/demo/characters",
+                headers=self.headers,
+                json={"baseRevision": revision, **payload},
+            )
+            self.assertEqual(200, response.status_code, response.text)
+            revision = response.json()["projectRevision"]
+            created = next(
+                item for item in response.json()["changed"]["characters"]
+                if item["name"] == payload["name"]
+            )
+            self.assertEqual(expected, created["graphVisible"])
 
 
 if __name__ == "__main__":

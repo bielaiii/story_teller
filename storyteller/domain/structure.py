@@ -245,11 +245,14 @@ class StructureService:
     def update_timeline(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         lines = payload.get("lines")
         assignments = payload.get("assignments")
+        chapter_numbers = payload.get("chapter_numbers")
         replacements = payload.get("line_replacements", {})
         if not isinstance(lines, list) or not 1 <= len(lines) <= 30:
             raise DomainError("时间线需要包含 1 到 30 条剧情线")
         if not isinstance(assignments, list) or not isinstance(replacements, dict):
             raise DomainError("时间线节点数据格式不合法")
+        if chapter_numbers is not None and not isinstance(chapter_numbers, list):
+            raise DomainError("时间线章号数据格式不合法")
         now = int(time.time())
 
         def mutation(connection: sqlite3.Connection):
@@ -374,6 +377,10 @@ class StructureService:
                     )
             if submitted != active_plots:
                 raise DomainError("请提交全部活动剧情的时间线归属")
+            if chapter_numbers is not None:
+                self._apply_timeline_chapter_numbers(
+                    connection, chapter_numbers, active_plots, now
+                )
             connection.execute(
                 """
                 UPDATE timeline_settings SET main_line_id=?, line_spacing=?, top_padding=?,
@@ -388,9 +395,71 @@ class StructureService:
             )
 
         return self.uow.mutate(
-            base_revision=base_revision, label="编辑时间线", action="update",
+            base_revision=base_revision,
+            label=("拖动时间线并交换章号" if chapter_numbers is not None else "编辑时间线"),
+            action=("reorder" if chapter_numbers is not None else "update"),
             entity_kind="timeline_line", callback=mutation,
         )
+
+    @staticmethod
+    def _apply_timeline_chapter_numbers(
+        connection: sqlite3.Connection,
+        chapter_numbers: list[dict[str, Any]],
+        active_plots: set[str],
+        now: int,
+    ) -> None:
+        submitted: dict[str, int] = {}
+        for item in chapter_numbers:
+            if not isinstance(item, dict):
+                raise DomainError("时间线章号数据格式不合法")
+            plot_id = str(item.get("plot_id") or "")
+            try:
+                number = int(item.get("chapter_number"))
+            except (TypeError, ValueError) as error:
+                raise DomainError("时间线章号必须是整数") from error
+            if plot_id not in active_plots or plot_id in submitted:
+                raise DomainError("时间线章号重复或引用了不存在的剧情")
+            if not 1 <= number <= 99999:
+                raise DomainError("时间线章号需要在 1 至 99999 之间")
+            submitted[plot_id] = number
+        if set(submitted) != active_plots:
+            raise DomainError("请提交全部活动剧情的章号")
+        if len(set(submitted.values())) != len(submitted):
+            raise DomainError("时间线交换后的章号不能重复")
+
+        current_rows = {
+            str(row["entity_id"]): row
+            for row in connection.execute(
+                """
+                SELECT plot.entity_id, plot.sort_key, entity.title
+                FROM active_plots plot
+                JOIN active_entities entity ON entity.id=plot.entity_id
+                """
+            )
+        }
+        ordered = sorted(submitted, key=lambda plot_id: (submitted[plot_id], plot_id))
+        for index, plot_id in enumerate(current_rows, start=1):
+            connection.execute(
+                "UPDATE plots SET sort_key=? WHERE entity_id=?",
+                (f"~timeline-chapter-swap-{index:06d}", plot_id),
+            )
+        for index, plot_id in enumerate(ordered, start=1):
+            next_sort_key = rank(index)
+            next_title = f"第 {submitted[plot_id]} 章"
+            previous = current_rows[plot_id]
+            connection.execute(
+                "UPDATE plots SET sort_key=? WHERE entity_id=?",
+                (next_sort_key, plot_id),
+            )
+            if str(previous["sort_key"]) != next_sort_key or str(previous["title"]) != next_title:
+                connection.execute(
+                    """
+                    UPDATE entities
+                    SET title=?, revision=revision+1, updated_at=?
+                    WHERE id=?
+                    """,
+                    (next_title, now, plot_id),
+                )
 
     def update_graph(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         now = int(time.time())

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
+import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -62,6 +63,7 @@ export function RelationshipEditor({
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState(relationshipId === "new" ? "尚未保存" : "");
+  const draftKey = browserDraftKey(project, "relationship", currentId);
   const detail = useQuery({
     queryKey: ["entity", project, currentId],
     queryFn: () => api.detail<Relationship>(currentId),
@@ -69,11 +71,14 @@ export function RelationshipEditor({
   });
 
   useEffect(() => {
-    if (!detail.data?.data) return;
-    const next = fromRelationship(detail.data.data);
-    setDraft(next);
+    const next = currentId === "new"
+      ? initial
+      : detail.data?.data ? fromRelationship(detail.data.data) : null;
+    if (!next) return;
+    setDraft(restoreBrowserDraft(browserDraftKey(project, "relationship", currentId), next));
     setBaseline(JSON.stringify(next));
-  }, [detail.data]);
+  }, [currentId, detail.data, project]);
+  useBrowserDraft(draftKey, draft, baseline);
 
   const dirty = JSON.stringify(draft) !== baseline;
   const change = <K extends keyof RelationshipDraft>(key: K, value: RelationshipDraft[K]) => {
@@ -94,6 +99,7 @@ export function RelationshipEditor({
         method: currentId === "new" ? "POST" : "PATCH",
         payload,
       });
+      clearBrowserDraft(draftKey);
       const created = currentId === "new"
         ? result.changed.relationships?.find((item) =>
           (item as unknown as Relationship).from === draft.fromCharacterId
@@ -114,6 +120,7 @@ export function RelationshipEditor({
         method: "DELETE",
         payload: {},
       });
+      clearBrowserDraft(draftKey);
       onClose();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除失败");
@@ -121,6 +128,10 @@ export function RelationshipEditor({
     }
   };
   useEditorSaveShortcut(save);
+  const discard = () => {
+    clearBrowserDraft(draftKey);
+    onClose();
+  };
 
   if (currentId !== "new" && detail.isPending) {
     return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取人物关系…</div></div>;
@@ -147,9 +158,9 @@ export function RelationshipEditor({
         <label><span>关系颜色</span><input type="color" value={draft.color} onChange={(event) => change("color", event.target.value)} /></label>
         <label className="wide"><span>关系说明</span><input value={draft.body} onChange={(event) => change("body", event.target.value)} placeholder="用一句话描述这段关系" autoFocus /></label>
       </div>
-      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "有未保存修改" : "已保存")}</span><small>保存和删除会进入统一操作历史</small></footer>
+      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>保存和删除会进入统一操作历史</small></footer>
     </section>
-    <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="关闭后，本次人物关系修改会丢失。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
+    <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份关系草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.label || "这条人物关系"}”？`} message="关系会进入统一回收站保留 7 天，可以恢复或撤销。" confirmLabel="移入回收站" danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
   </div>;
 }
