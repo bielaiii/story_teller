@@ -176,6 +176,10 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
     labelShadow: "none",
   });
   const dragStart = await node.boundingBox();
+  const basePositionBeforeDrag = await node.evaluate((element) => ({
+    left: element.style.left,
+    top: element.style.top,
+  }));
   const graphPositionsBefore = await page.locator(".graph-node").evaluateAll((elements) => elements.map((element) => {
     const bounds = element.getBoundingClientRect();
     return { left: bounds.left, top: bounds.top };
@@ -190,6 +194,10 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   await page.mouse.move(dragX, dragY);
   await page.mouse.down();
   await page.mouse.move(dragX + dragDx, dragY + dragDy, { steps: 8 });
+  expect(await node.evaluate((element) => ({
+    left: element.style.left,
+    top: element.style.top,
+  }))).toEqual(basePositionBeforeDrag);
   await page.mouse.up();
   await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("位置已保存");
