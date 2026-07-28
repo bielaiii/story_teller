@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Character, GraphData } from "../api/types";
-import { graphLayout, quadraticPoint } from "./GraphPage";
+import { advanceFollowerSpring, graphLayout, quadraticPoint } from "./GraphPage";
 
 function character(id: string): Character {
   return {
@@ -65,5 +65,27 @@ describe("graphLayout", () => {
 
     expect(points.has(visibleOneOff.entityId)).toBe(true);
     expect(points.has(hiddenRegular.entityId)).toBe(false);
+  });
+
+  it("keeps follower return slow, non-bouncy, and stable across frame rates", () => {
+    const simulate = (framesPerSecond: number, seconds: number) => {
+      let point = { x: 0, y: 0 };
+      let velocity = { x: 0, y: 0 };
+      let maximum = point.x;
+      for (let frame = 0; frame < framesPerSecond * seconds; frame += 1) {
+        const next = advanceFollowerSpring(point, velocity, { x: 100, y: 0 }, 1 / framesPerSecond, false);
+        point = next.point;
+        velocity = next.velocity;
+        maximum = Math.max(maximum, point.x);
+      }
+      return { point, maximum };
+    };
+
+    const lowRate = simulate(20, 1);
+    const highRate = simulate(60, 1);
+    expect(Math.abs(lowRate.point.x - highRate.point.x)).toBeLessThan(4);
+    expect(highRate.point.x).toBeGreaterThan(45);
+    expect(highRate.point.x).toBeLessThan(55);
+    expect(simulate(60, 6).maximum).toBeLessThanOrEqual(100);
   });
 });

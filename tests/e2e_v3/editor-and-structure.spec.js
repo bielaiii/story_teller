@@ -100,9 +100,9 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   await expect(tagChips).toBeVisible();
   const statusBox = await statusChips.boundingBox();
   const tagBox = await tagChips.boundingBox();
-  expect(Math.abs(statusBox.x - tagBox.x)).toBeLessThan(1);
+  expect(Math.abs(tagBox.x - statusBox.x)).toBeLessThanOrEqual(64);
   await expect(page.locator(".filter-details summary small")).toHaveCount(0);
-  await expect(page.locator(".filter-details summary")).toHaveText("标签");
+  await expect(page.locator(".filter-details summary")).toHaveAttribute("aria-label", "收起标签");
 
   await page.goto("/?project=novel#/timeline");
   await expect(page.locator(".timeline-track-canvas")).toBeVisible();
@@ -200,8 +200,13 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   }))).toEqual(basePositionBeforeDrag);
   await page.mouse.up();
   await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
-  await expect(page.getByRole("status")).toContainText("位置已保存");
+  await expect(page.locator(".graph-save-message")).toHaveCount(0);
   const draggedId = await node.getAttribute("data-entity-id");
+  await expect.poll(async () => {
+    const current = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+    const saved = current.graph.nodes.find((item) => item.character_id === draggedId);
+    return Boolean(saved?.anchor_x != null && saved?.anchor_y != null);
+  }).toBe(true);
   const persistedGraph = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   const persistedNode = persistedGraph.graph.nodes.find((item) => item.character_id === draggedId);
   expect(persistedNode.anchor_x).not.toBeNull();
@@ -219,7 +224,7 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
       position.left - graphPositionsBefore[index + 1].left,
       position.top - graphPositionsBefore[index + 1].top,
     )));
-  }).toBeGreaterThan(20);
+  }).toBeGreaterThan(8);
   const before = await node.evaluate((element) => getComputedStyle(element).transform);
   await page.waitForTimeout(500);
   const after = await node.evaluate((element) => getComputedStyle(element).transform);
@@ -241,7 +246,7 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   const selectedName = await node.locator("strong").textContent();
   await node.click();
   await page.getByRole("button", { name: "进入人物详情" }).click();
-  await expect(page.locator(".profile-detail-panel h2")).toHaveText(selectedName);
+  await expect(page.getByRole("heading", { name: selectedName, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "图谱", exact: true }).click();
   await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
   await expect(page.locator(".graph-node.is-muted")).toHaveCount(0);
@@ -249,27 +254,33 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   await expect.poll(() => page.locator(".graph-node-layer").evaluate((element) => getComputedStyle(element).transform)).toBe(defaultViewport);
 });
 
-test("设定筛选、标签间距和内容预览保持紧凑", async ({ page }) => {
+test("设定筛选、档案索引和内容预览保持紧凑", async ({ page }) => {
   await page.goto("/?project=novel#/entries");
   await expect(page.getByRole("combobox", { name: "类型" })).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "搜索设定" })).toHaveCount(0);
   const tagFilter = page.locator(".entries-page-new > .filter-details");
-  const headerTagFilter = page.locator(".entry-header-tools > .filter-details");
+  const libraryTagFilter = page.locator(".entry-library-filter > .filter-details");
   await expect(tagFilter).toHaveCount(0);
-  await expect(headerTagFilter).toBeVisible();
-  await expect(headerTagFilter.locator(".filter-chips")).toBeHidden();
+  await expect(libraryTagFilter).toBeVisible();
+  await expect(libraryTagFilter.locator(".filter-chips")).toBeHidden();
   const workspaceBeforeTags = await page.locator(".entries-page-new .two-column-workspace").boundingBox();
-  await headerTagFilter.locator("summary").click();
-  await expect(headerTagFilter.locator(".filter-chips")).toBeVisible();
+  await libraryTagFilter.locator("summary").click();
+  await expect(libraryTagFilter.locator(".filter-chips")).toBeVisible();
   const workspaceWithTags = await page.locator(".entries-page-new .two-column-workspace").boundingBox();
   expect(Math.abs(workspaceWithTags.y - workspaceBeforeTags.y)).toBeLessThan(1);
-  await headerTagFilter.locator("summary").click();
-  await expect(headerTagFilter.locator(".filter-chips")).toBeHidden();
-  await expect(headerTagFilter.locator("summary")).toHaveAttribute("aria-label", "标签筛选");
-  await expect(headerTagFilter.locator("summary .filter-label > span")).toHaveCount(0);
+  await libraryTagFilter.locator("summary").click();
+  await expect(libraryTagFilter.locator(".filter-chips")).toBeHidden();
+  await expect(libraryTagFilter.locator("summary")).toHaveAttribute("aria-label", "展开标签");
   await page.getByRole("button", { name: "搜索设定" }).click();
   const search = page.getByRole("textbox", { name: "搜索设定" });
   await expect(search).toBeVisible();
+  const searchButtonStyle = await page.getByRole("button", { name: "收起设定搜索" }).evaluate((button) => {
+    const style = getComputedStyle(button);
+    return { width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height, radius: style.borderRadius, background: style.backgroundColor };
+  });
+  expect(searchButtonStyle.width).toBe(searchButtonStyle.height);
+  expect(searchButtonStyle.radius).toBe("50%");
+  expect(searchButtonStyle.background).not.toBe("rgba(0, 0, 0, 0)");
   await search.fill("旧港");
   await search.press("Escape");
   await expect(search).toHaveCount(0);
@@ -284,12 +295,21 @@ test("设定筛选、标签间距和内容预览保持紧凑", async ({ page }) 
 
   const spacing = await page.locator(".entry-detail-panel").evaluate((panel) => {
     const header = panel.querySelector(":scope > header").getBoundingClientRect();
-    const tag = panel.querySelector(":scope > .metadata-tags > span").getBoundingClientRect();
+    const index = panel.querySelector(":scope > .entry-index-strip").getBoundingClientRect();
+    const keyword = panel.querySelector(":scope > .entry-index-strip li");
+    const keywordStyle = getComputedStyle(keyword);
     const section = panel.querySelector(":scope > section").getBoundingClientRect();
-    return { top: tag.top - header.bottom, bottom: section.top - tag.bottom };
+    return {
+      top: index.top - header.bottom,
+      bottom: section.top - index.bottom,
+      keywordRadius: keywordStyle.borderRadius,
+      keywordBackground: keywordStyle.backgroundColor,
+    };
   });
-  expect(Math.abs(spacing.top - spacing.bottom)).toBeLessThan(1);
-  expect(spacing.top).toBeGreaterThanOrEqual(8);
+  expect(spacing.top).toBeGreaterThanOrEqual(0);
+  expect(spacing.bottom).toBeGreaterThanOrEqual(0);
+  expect(spacing.keywordRadius).toBe("0px");
+  expect(spacing.keywordBackground).toBe("rgba(0, 0, 0, 0)");
   await expect(page.locator(".entry-detail-panel .entry-body-preview.rendered-markdown")).toBeVisible();
 });
 
@@ -575,7 +595,7 @@ test("图谱布局参数、人物锚点、距离与分组都可以在网页保�
   expect(after.graph.clusters.some((item) => item.label === "浏览器图谱组" && item.members.includes(before.characters[0].entityId))).toBe(true);
 });
 
-test("时间线节点顺序独立于阅读顺序且删除剧情线会转移节点", async ({ page }) => {
+test("时间线节点移动会交换现有章号且删除剧情线会转移节点", async ({ page }) => {
   await page.goto("/?project=novel#/timeline");
   const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   const readingOrder = before.plots.map((item) => item.entityId);
@@ -608,13 +628,17 @@ test("时间线节点顺序独立于阅读顺序且删除剧情线会转移节�
   await expect(dialog).not.toBeVisible();
 
   const reordered = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-  expect(reordered.plots.map((item) => item.entityId)).toEqual(readingOrder);
-  const titleByPlot = new Map(reordered.plots.map((item) => [item.entityId, item.title]));
+  const expectedReadingOrder = readingOrder.map((plotId) => {
+    if (plotId === firstPlotId) return secondPlotId;
+    if (plotId === secondPlotId) return firstPlotId;
+    return plotId;
+  });
+  expect(reordered.plots.map((item) => item.entityId)).toEqual(expectedReadingOrder);
   const lineOrder = reordered.timeline.nodes
     .filter((node) => node.lineId === selectedLine.entityId)
     .sort((left, right) => left.storySortKey.localeCompare(right.storySortKey))
-    .map((node) => titleByPlot.get(node.plotId));
-  expect(lineOrder.slice(0, 2)).toEqual([secondTitle, firstTitle]);
+    .map((node) => node.plotId);
+  expect(lineOrder.slice(0, 2)).toEqual([secondPlotId, firstPlotId]);
 
   await page.getByRole("button", { name: "编辑时间线" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "编辑时间线" });

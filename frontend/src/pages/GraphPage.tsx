@@ -44,6 +44,36 @@ export function quadraticPoint(from: Point, control: Point, to: Point, progress:
   };
 }
 
+export function advanceFollowerSpring(
+  point: Point,
+  velocity: Point,
+  target: Point,
+  deltaSeconds: number,
+  dragging: boolean,
+): { point: Point; velocity: Point } {
+  const delta = Math.max(1 / 240, Math.min(.05, deltaSeconds));
+  const stiffness = dragging ? 6 : 4;
+  const damping = dragging ? 6.2 : 5.2;
+  const decay = Math.exp(-damping * delta);
+  const nextVelocity = {
+    x: (velocity.x + (target.x - point.x) * stiffness * delta) * decay,
+    y: (velocity.y + (target.y - point.y) * stiffness * delta) * decay,
+  };
+  const speed = Math.hypot(nextVelocity.x, nextVelocity.y);
+  const maximumSpeed = dragging ? 180 : 120;
+  if (speed > maximumSpeed) {
+    nextVelocity.x *= maximumSpeed / speed;
+    nextVelocity.y *= maximumSpeed / speed;
+  }
+  return {
+    point: {
+      x: point.x + nextVelocity.x * delta,
+      y: point.y + nextVelocity.y * delta,
+    },
+    velocity: nextVelocity,
+  };
+}
+
 function finite(value: unknown, fallback: number): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -197,7 +227,7 @@ export default function GraphPage() {
   const pendingDragPointRef = useRef<{ id: string; deltaX: number; deltaY: number; influence: Map<string, number> } | null>(null);
   const dragFrameRef = useRef(0);
   const dragInfluenceRef = useRef(new Map<string, number>());
-  const dragSwayRef = useRef({ startedAt: 0, updatedAt: -Infinity, energy: 0, directionX: 1, directionY: 0 });
+  const dragSwayRef = useRef({ updatedAt: -Infinity, energy: 0, directionX: 1, directionY: 0 });
   const followerTargetsRef = useRef(new Map<string, Point>());
   const followerPointsRef = useRef(new Map<string, Point>());
   const followerVelocityRef = useRef(new Map<string, Point>());
@@ -207,7 +237,7 @@ export default function GraphPage() {
   const [size, setSize] = useState({ width: 1000, height: 680 });
   const [editing, setEditing] = useState(false);
   const [manualPoints, setManualPoints] = useState<Map<string, Point>>(() => new Map());
-  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const selected = useUiStore((state) => state.selectedGraphCharacterId);
   const select = useUiStore((state) => state.selectGraphCharacter);
   const viewport = useUiStore((state) => state.graphViewport);
@@ -263,6 +293,7 @@ export default function GraphPage() {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0;
     let lastPaint = 0;
+    let lastMotionStep = performance.now();
     const draw = (now: number) => {
       frame = 0;
       const interactionActive = Boolean(
@@ -274,19 +305,21 @@ export default function GraphPage() {
         return;
       }
       lastPaint = now;
+      const motionDelta = Math.max(1 / 240, Math.min(.05, (now - lastMotionStep) / 1000));
+      lastMotionStep = now;
       const ratio = Math.min(window.devicePixelRatio || 1, 1.25);
       if (canvas.width !== Math.round(size.width * ratio) || canvas.height !== Math.round(size.height * ratio)) {
         canvas.width = Math.round(size.width * ratio);
         canvas.height = Math.round(size.height * ratio);
       }
       const elapsed = Math.max(0, now - motionStartedRef.current);
-      const initialSway = reducedMotion ? 0 : Math.exp(-elapsed / 2200) * Math.min(12, finite(snapshot.graph.settings.initial_jitter, 70) * .08);
+      const initialSway = reducedMotion ? 0 : Math.exp(-elapsed / 4200) * Math.min(4, finite(snapshot.graph.settings.initial_jitter, 70) * .03);
       const dragMotion = dragSwayRef.current;
       const dragAge = Math.max(0, now - dragMotion.updatedAt);
-      const dragEnergy = reducedMotion ? 0 : dragMotion.energy * Math.exp(-dragAge / 560);
+      const dragEnergy = reducedMotion ? 0 : dragMotion.energy * Math.exp(-dragAge / 1500);
       const animated = animatedPointsRef.current;
       const shouldMoveNodes = !reducedMotion && (
-        elapsed < 4800 || Boolean(nodeDragRef.current) || dragEnergy > .025 || followerPointsRef.current.size > 0
+        elapsed < 9000 || Boolean(nodeDragRef.current) || dragEnergy > .025 || followerPointsRef.current.size > 0
       );
       if (shouldMoveNodes || nodeMotionActiveRef.current) {
         animated.clear();
@@ -303,15 +336,20 @@ export default function GraphPage() {
             ? (followerTargetsRef.current.get(item.entityId) || point)
             : point;
           const velocity = followerVelocityRef.current.get(item.entityId) || { x: 0, y: 0 };
-          const stiffness = nodeDragRef.current ? .115 : .085;
-          const damping = nodeDragRef.current ? .76 : .8;
-          velocity.x = (velocity.x + (followerTarget.x - followerPoint.x) * stiffness) * damping;
-          velocity.y = (velocity.y + (followerTarget.y - followerPoint.y) * stiffness) * damping;
-          followerPoint.x = Math.max(64, Math.min(size.width - 64, followerPoint.x + velocity.x));
-          followerPoint.y = Math.max(64, Math.min(size.height - 64, followerPoint.y + velocity.y));
+          const spring = advanceFollowerSpring(
+            followerPoint,
+            velocity,
+            followerTarget,
+            motionDelta,
+            Boolean(nodeDragRef.current),
+          );
+          followerPoint.x = Math.max(64, Math.min(size.width - 64, spring.point.x));
+          followerPoint.y = Math.max(64, Math.min(size.height - 64, spring.point.y));
+          velocity.x = spring.velocity.x;
+          velocity.y = spring.velocity.y;
           followerPointsRef.current.set(item.entityId, followerPoint);
           followerVelocityRef.current.set(item.entityId, velocity);
-          if (!nodeDragRef.current && Math.hypot(followerTarget.x - followerPoint.x, followerTarget.y - followerPoint.y) < .2 && Math.hypot(velocity.x, velocity.y) < .08) {
+          if (!nodeDragRef.current && Math.hypot(followerTarget.x - followerPoint.x, followerTarget.y - followerPoint.y) < .35 && Math.hypot(velocity.x, velocity.y) < 2) {
             followerTargetsRef.current.delete(item.entityId);
             followerPointsRef.current.delete(item.entityId);
             followerVelocityRef.current.delete(item.entityId);
@@ -320,16 +358,14 @@ export default function GraphPage() {
           }
         }
         const follow = dragInfluenceRef.current.get(item.entityId) || 0;
-        const swayAmount = nodeDragRef.current?.id === item.entityId ? 0 : dragEnergy * (.45 + Math.sqrt(follow) * 2.6);
-        const swayTime = Math.max(0, now - dragMotion.startedAt);
-        const swayWave = Math.sin(swayTime / 260 + profile.phase * .18);
-        const returnWave = Math.cos(swayTime / 420 + profile.phase * .12);
+        const swayAmount = nodeDragRef.current?.id === item.entityId ? 0 : dragEnergy * (.18 + Math.sqrt(follow) * 1.1);
+        const swaySide = Math.sin(profile.phase) >= 0 ? 1 : -1;
         const perpendicularX = -dragMotion.directionY;
         const perpendicularY = dragMotion.directionX;
-        const initialSwayX = initialSway * Math.sin(now / 380 + profile.phase * .45);
-        const initialSwayY = initialSway * Math.cos(now / 420 + profile.phase * .4);
-        const swayX = perpendicularX * swayWave * swayAmount + dragMotion.directionX * returnWave * swayAmount * .22;
-        const swayY = perpendicularY * swayWave * swayAmount + dragMotion.directionY * returnWave * swayAmount * .22;
+        const initialSwayX = initialSway * Math.sin(now / 700 + profile.phase * .45);
+        const initialSwayY = initialSway * Math.cos(now / 820 + profile.phase * .4);
+        const swayX = perpendicularX * swaySide * swayAmount * .35 + dragMotion.directionX * swayAmount * .08;
+        const swayY = perpendicularY * swaySide * swayAmount * .35 + dragMotion.directionY * swayAmount * .08;
         const animatedPoint = shouldMoveNodes
           ? { x: physicalPoint.x + initialSwayX + swayX, y: physicalPoint.y + initialSwayY + swayY }
           : point;
@@ -431,8 +467,8 @@ export default function GraphPage() {
       });
       if (!followerPointsRef.current.has(item.entityId)) followerPointsRef.current.set(item.entityId, { ...baseTarget });
       const velocity = followerVelocityRef.current.get(item.entityId) || { x: 0, y: 0 };
-      velocity.x += pending.deltaX * influence * .055;
-      velocity.y += pending.deltaY * influence * .055;
+      velocity.x += pending.deltaX * influence * 1.4;
+      velocity.y += pending.deltaY * influence * 1.4;
       followerVelocityRef.current.set(item.entityId, velocity);
     }
     followerTargetsRef.current.delete(pending.id);
@@ -464,7 +500,7 @@ export default function GraphPage() {
   };
   const persistDraggedPoint = async (id: string, point: Point) => {
     if (!writable) return;
-    setSaveMessage("正在保存位置…");
+    setSaveError("");
     const percentCoordinates = graphUsesPercentCoordinates(snapshot.graph);
     const anchorX = percentCoordinates ? point.x / Math.max(1, size.width) * 100 : point.x;
     const anchorY = percentCoordinates ? point.y / Math.max(1, size.height) * 100 : point.y;
@@ -500,9 +536,8 @@ export default function GraphPage() {
         next.delete(id);
         return next;
       });
-      setSaveMessage("位置已保存");
     } catch (error) {
-      setSaveMessage(error instanceof Error ? error.message : "位置保存失败");
+      setSaveError(error instanceof Error ? error.message : "位置保存失败");
     }
   };
   const onWheel: React.WheelEventHandler = (event) => {
@@ -515,7 +550,7 @@ export default function GraphPage() {
     commitViewport({ scale, x: pointerX - worldX * scale, y: pointerY - worldY * scale });
   };
   const relatedPlots = selected ? snapshot.plots.filter((plot) => plot.people.includes(selected)) : [];
-  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{saveMessage && <span className="graph-save-message" role="status">{saveMessage}</span>}{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div
+  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div
     className="graph-canvas"
     ref={wrapRef}
     onWheel={onWheel}
@@ -551,7 +586,7 @@ export default function GraphPage() {
     if (!pointer || !current) return;
     dragInfluenceRef.current = graphDragInfluence(item.entityId, visible.map((person) => person.entityId), relationships);
     const dragStartedAt = performance.now();
-    dragSwayRef.current = { startedAt: dragStartedAt, updatedAt: dragStartedAt, energy: .15, directionX: 1, directionY: 0 };
+    dragSwayRef.current = { updatedAt: dragStartedAt, energy: .15, directionX: 1, directionY: 0 };
     nodeDragRef.current = { id: item.entityId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, offsetX: pointer.x - current.x, offsetY: pointer.y - current.y, lastPoint: current, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }} onPointerMove={(event) => {
@@ -576,7 +611,6 @@ export default function GraphPage() {
     const blendedDirectionY = previousSway.directionY * .68 + rawDirectionY * .32;
     const directionLength = Math.max(.001, Math.hypot(blendedDirectionX, blendedDirectionY));
     dragSwayRef.current = {
-      startedAt: previousSway.startedAt,
       updatedAt: performance.now(),
       energy: .25 + Math.min(.7, distance / 26),
       directionX: blendedDirectionX / directionLength,
@@ -609,5 +643,5 @@ export default function GraphPage() {
     }
     suppressClickRef.current = null;
     center(item.entityId);
-  }}><span style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><strong>{item.name}</strong></button>; })}</div>{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: selectedPerson.gradient || selectedPerson.color }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案{duplicateCharacterNames.has(selectedPerson.name) ? ` · ID ${selectedPerson.id}` : ""}</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}</div>{editing && <Suspense fallback={<div className="dialog-backdrop"><section className="recovery-loading">正在准备图谱编辑器…</section></div>}><GraphEditor onClose={() => setEditing(false)} /></Suspense>}</section>;
+  }}><span style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><strong>{item.name}</strong></button>; })}</div>{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: selectedPerson.gradient || selectedPerson.color }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案{duplicateCharacterNames.has(selectedPerson.name) ? ` · ID ${selectedPerson.id}` : ""}</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}{saveError && <span className="graph-save-error" role="alert">{saveError}</span>}</div>{editing && <Suspense fallback={<div className="dialog-backdrop"><section className="recovery-loading">正在准备图谱编辑器…</section></div>}><GraphEditor onClose={() => setEditing(false)} /></Suspense>}</section>;
 }
