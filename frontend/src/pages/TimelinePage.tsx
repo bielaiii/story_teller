@@ -992,7 +992,6 @@ export default function TimelinePage() {
         }}>
           <TimelineTrackCanvas geometry={editorGeometry} focus={selectedEditLine || null} />
           {editorGeometry.tracks.filter((track) => track.isMain).map((track) => <span key={`${track.id}:editor-origin`} className="timeline-origin" style={{ left: track.x, top: track.startY, "--line-color": track.color } as React.CSSProperties} />)}
-          {dragState && draggedAssignment && <span className="timeline-drag-insertion" style={{ top: editorGeometry.plotY.get(dragState.plotId) || TIMELINE_TOP }} aria-hidden="true"><small>第 {draggedAssignment.chapterNumber} 章</small></span>}
           {editorOrderedAssignments.flatMap((assignment) => assignment.lineIds.map((lineId) => {
             const itemPlot = snapshot.plots.find((item) => item.entityId === assignment.plotId);
             const track = editorGeometry.tracks.find((item) => item.id === lineId);

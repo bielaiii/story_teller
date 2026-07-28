@@ -176,6 +176,35 @@ describe("TimelinePage drag interaction", () => {
     expect(orderedPlotIds).toEqual(["plot:b", "plot:c", "plot:a"]);
   });
 
+  it("keeps a dragged branch node on its branch track without an insertion line", () => {
+    snapshot.timeline.lines.push({
+      entityId: "line:branch", id: "branch", name: "支线", color: "#2b8a72", side: "right",
+      sortKey: "002", startPlotId: "plot:a", endPlotId: "plot:c", revision: 1,
+    });
+    snapshot.timeline.nodes.push({
+      plotId: "plot:a", lineId: "line:branch", storySortKey: "000000000001000000000000",
+    });
+    try {
+      renderTimeline();
+      fireEvent.click(screen.getByRole("button", { name: "编辑时间线" }));
+      const branchNode = document.querySelector(
+        '.timeline-editor-track-node[data-plot-id="plot:a"][data-line-id="line:branch"]',
+      ) as HTMLElement;
+
+      expect(branchNode).toHaveStyle({ left: "442px", top: "158px" });
+      fireEvent.pointerDown(branchNode, { pointerId: 10, button: 0, clientX: 442, clientY: 158 });
+      fireEvent.pointerMove(branchNode, { pointerId: 10, clientX: 442, clientY: 220 });
+
+      expect(branchNode).toHaveClass("is-dragging");
+      expect(branchNode).toHaveStyle({ left: "442px", top: "220px" });
+      expect(document.querySelector(".timeline-drag-insertion")).not.toBeInTheDocument();
+      fireEvent.pointerUp(branchNode, { pointerId: 10, clientX: 442, clientY: 220 });
+    } finally {
+      snapshot.timeline.nodes.pop();
+      snapshot.timeline.lines.pop();
+    }
+  });
+
   it("uses the temporary minimap to jump across content outside the visible preview", () => {
     renderTimeline();
     fireEvent.click(screen.getByRole("button", { name: "编辑时间线" }));

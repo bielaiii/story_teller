@@ -341,11 +341,9 @@
 .timeline-editor-track-node > span { width: 12px; height: 12px; border: 3px solid #ffe8b5; border-radius: 50%; background: var(--node-color); box-shadow: 0 0 0 2px var(--node-color); transition: transform .16s ease, box-shadow .16s ease; }
 .timeline-editor-track-node:hover > span, .timeline-editor-track-node.is-active > span { transform: scale(1.42); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node-color), transparent 54%); }
 .timeline-editor-track-node.is-muted { opacity: .13; }
-.timeline-editor-track-node.is-dragging { opacity: .08; cursor: grabbing; }
+.timeline-editor-track-node.is-dragging { z-index: 4; opacity: 1; cursor: grabbing; }
+.timeline-editor-track-node.is-dragging > span { transform: scale(1.58); box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-color), transparent 46%), 0 8px 18px color-mix(in srgb, var(--node-color), transparent 62%); }
 .timeline-editor-map.is-dragging, .timeline-editor-map.is-dragging * { cursor: grabbing; user-select: none; }
-.timeline-drag-insertion { position: absolute; z-index: 3; left: 18px; right: 18px; height: 2px; transform: translateY(-1px); border-radius: 2px; background: color-mix(in srgb, var(--primary), transparent 24%); pointer-events: none; }
-.timeline-drag-insertion::before { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); border: 3px solid var(--surface-solid); border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
-.timeline-drag-insertion small { position: absolute; right: 46px; bottom: 7px; border-radius: 7px; padding: 3px 7px; background: var(--primary); color: white; font-size: 10px; font-weight: 700; box-shadow: 0 4px 12px rgba(40, 99, 131, .18); }
 .timeline-drag-minimap { position: absolute; z-index: 8; top: 58px; right: 10px; bottom: 14px; width: 28px; border: 1px solid color-mix(in srgb, var(--primary), transparent 66%); border-radius: 10px; background: rgba(255,255,255,.9); box-shadow: 0 8px 22px rgba(40, 99, 131, .16); pointer-events: none; }
 .timeline-drag-minimap::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 50%; width: 2px; transform: translateX(-50%); border-radius: 2px; background: color-mix(in srgb, var(--primary), transparent 74%); }
 .timeline-drag-minimap i { position: absolute; left: 50%; width: 6px; height: 3px; transform: translate(-50%, -50%); border-radius: 2px; background: var(--line-strong); }
