@@ -276,5 +276,16 @@ class GraphUpdate(MutationRequest):
     clusters: list[GraphClusterItem] | None = None
 
 
+class MergeFieldResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    choice: str
+    value: Any | None = None
+
+
+class MergeConflictResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resolutions: dict[str, MergeFieldResolution]
+
+
 def mutation_payload(model: MutationRequest) -> dict[str, Any]:
     return model.model_dump(exclude={"base_revision"}, exclude_unset=True)

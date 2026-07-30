@@ -29,6 +29,13 @@
       ],
       "characterScope": "常驻人物",
       "color": "#2aa79b",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "旧港档案馆修复师，负责整理一批被火烧过的航海日记。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:1",
       "extra": {},
       "facts": {
@@ -36,7 +43,7 @@
         "职业": "档案修复师"
       },
       "gradient": "linear-gradient(135deg, #2aa79b, #3867b7)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "主角团",
       "id": "1",
       "intro": "旧港档案馆修复师，负责整理一批被火烧过的航海日记。",
@@ -55,17 +62,25 @@
       ],
       "revision": 1,
       "side": "主角方",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "常驻人物",
       "color": "#df7655",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "沉默的海事律师，正在追查十五年前失踪船队的赔偿案。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:2",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #df7655, #8e63d8)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "旧案相关",
       "id": "2",
       "intro": "沉默的海事律师，正在追查十五年前失踪船队的赔偿案。",
@@ -84,17 +99,25 @@
       ],
       "revision": 1,
       "side": "主角方",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "常驻人物",
       "color": "#3f7fc1",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "夜航电台主持人，能收到不属于当前时间的求救信号。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:3",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #3f7fc1, #435fb8)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "主角团",
       "id": "3",
       "intro": "夜航电台主持人，能收到不属于当前时间的求救信号。",
@@ -113,17 +136,25 @@
       ],
       "revision": 1,
       "side": "主角方",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "常驻人物",
       "color": "#d65f8f",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "码头修船厂老板，掌握港区地下仓库的钥匙。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:4",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #d65f8f, #d99a2e)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "港区相关",
       "id": "4",
       "intro": "码头修船厂老板，掌握港区地下仓库的钥匙。",
@@ -142,17 +173,25 @@
       ],
       "revision": 1,
       "side": "主角方",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "常驻人物",
       "color": "#68aa5b",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "失踪船长的儿子，表面经营咖啡馆，暗中收集潮汐记录。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:5",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #68aa5b, #d8782e)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "旧案相关",
       "id": "5",
       "intro": "失踪船长的儿子，表面经营咖啡馆，暗中收集潮汐记录。",
@@ -170,17 +209,25 @@
       ],
       "revision": 1,
       "side": "中立",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "常驻人物",
       "color": "#d8b64a",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "城市传说作家，小说内容常常提前写出现实中的事故。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:6",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #d8b64a, #f77f00)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "神秘人物",
       "id": "6",
       "intro": "城市传说作家，小说内容常常提前写出现实中的事故。",
@@ -198,17 +245,25 @@
       ],
       "revision": 1,
       "side": "反派方",
+      "supplementPersona": [],
       "supplements": []
     },
     {
       "aliases": [],
       "characterScope": "一次性角色",
       "color": "#7d6bd6",
+      "corePersona": [
+        {
+          "key": "人物定位",
+          "value": "只在旧港仓库短暂出现的钥匙保管人，目前只和乔鸢有明确关系。"
+        }
+      ],
+      "destinyOutline": "",
       "entityId": "character:7",
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #7d6bd6, #6752c9)",
-      "graphVisible": null,
+      "graphVisible": false,
       "group": "港区相关",
       "id": "7",
       "intro": "只在旧港仓库短暂出现的钥匙保管人，目前只和乔鸢有明确关系。",
@@ -224,6 +279,7 @@
       ],
       "revision": 1,
       "side": "中立",
+      "supplementPersona": [],
       "supplements": []
     }
   ],
@@ -572,7 +628,7 @@
     {
       "accent": "#2aa79b",
       "body": "## 档案馆残页\n\n林秋在档案馆复原出一页船名，烧焦边缘只留下半个船队编号。\n\n## 午夜求救\n\n苏眠的午夜电台同时收到同名船只的求救声，声音却像是从尚未发生的夜晚传来。",
-      "bodyPreview": "## 档案馆残页 林秋在档案馆复原出一页船名，烧焦边缘只留下半个船队编号。 ## 午夜求救 苏眠的午夜电台同时收到同名船只的求救声，声音却像是从尚未发生的夜晚传来。",
+      "bodyPreview": "## 档案馆残页\n\n林秋在档案馆复原出一页船名，烧焦边缘只留下半个船队编号。\n\n## 午夜求救\n\n苏眠的午夜电台同时收到同名船只的求救声，声音却像是从尚未发生的夜晚传来。",
       "chapterId": "chapter:act1",
       "climax": false,
       "entityId": "plot:1",

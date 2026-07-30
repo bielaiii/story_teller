@@ -6,6 +6,7 @@ test("碎片与剧情可以通过编辑器双向放入并保留删除入口", as
   await page.goto("/?project=novel#/fragments");
   await page.getByRole("button", { name: "写灵感碎片" }).click();
   const fragmentEditor = page.locator(".fragment-editor-dialog");
+  await fragmentEditor.getByRole("button", { name: /灵感设置/ }).click();
   await fragmentEditor.getByRole("textbox", { name: "标题" }).fill("转换流程测试");
   await fragmentEditor.locator(".cm-content").fill("## 雨夜\n\n林秋沿着码头继续追查。");
   await fragmentEditor.locator(".cm-content").press(`${primaryKey}+s`);

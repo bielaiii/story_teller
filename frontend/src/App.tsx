@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useRuntime } from "./api/runtime";
 import { GlobalSearch } from "./components/GlobalSearch";
+import { MergeConflictGate } from "./components/MergeConflictGate";
 import { Navigation } from "./components/Navigation";
 import { TransientNotice } from "./components/TransientNotice";
 import { pageLoaders } from "./pageLoaders";
@@ -39,6 +40,7 @@ export default function App() {
         <Suspense fallback={<div className="page-preparing" role="status"><span className="loading-mark" /><p>正在打开页面…</p></div>}><Page /></Suspense>
       </main>
       <TransientNotice />
+      <MergeConflictGate />
     </div>
   );
 }

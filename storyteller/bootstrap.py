@@ -6,7 +6,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from storyteller import SCHEMA_VERSION
 from storyteller.domain.maintenance import MaintenanceService
+from storyteller.domain.merge_conflicts import has_open_merge
 from storyteller.exports import ExportCoordinator
 from storyteller.settings import PROJECT_PATTERN
 from storyteller.storage.connection import Database, schema_version
@@ -14,7 +16,7 @@ from storyteller.storage.legacy import migrate_database_atomic
 
 
 def prepare_project(project_root: Path) -> dict[str, Any]:
-    """Atomically cut one content package over to V3 and repair derived state."""
+    """Atomically migrate one content package and repair derived state."""
 
     root = Path(project_root).expanduser().resolve()
     if not PROJECT_PATTERN.fullmatch(root.name):
@@ -28,7 +30,12 @@ def prepare_project(project_root: Path) -> dict[str, Any]:
     migration = migrate_database_atomic(root)
     database = Database(root)
     database.require_v3()
-    maintenance = MaintenanceService(database, root.name).purge_expired()
+    merge_required = has_open_merge(database, root.name)
+    maintenance = (
+        {"ok": True, "skipped": True, "reason": "merge_required"}
+        if merge_required
+        else MaintenanceService(database, root.name).purge_expired()
+    )
 
     with database.read() as connection:
         state = connection.execute(
@@ -49,26 +56,32 @@ def prepare_project(project_root: Path) -> dict[str, Any]:
         or int(state["exported_revision"]) != revision
         or not snapshot_path.is_file()
     )
-    export = ExportCoordinator(database, root.name).export() if export_needed else {
-        "ok": True,
-        "revision": revision,
-        "status": "ready",
-        "skipped": True,
-    }
+    if merge_required:
+        export = {"ok": True, "status": "blocked", "reason": "merge_required"}
+    elif export_needed:
+        export = ExportCoordinator(database, root.name).export()
+    else:
+        export = {
+            "ok": True,
+            "revision": revision,
+            "status": "ready",
+            "skipped": True,
+        }
     return {
         "ok": True,
         "project": root.name,
         "sourceSchemaVersion": before_version,
-        "schemaVersion": 3,
+        "schemaVersion": SCHEMA_VERSION,
         "migrated": not bool(migration.get("alreadyMigrated")),
         "backup": migration.get("backup", ""),
+        "mergeRequired": merge_required,
         "maintenance": maintenance,
         "export": export,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="准备 Story Teller Schema V3 内容包")
+    parser = argparse.ArgumentParser(description="准备 Story Teller 当前 Schema 内容包")
     parser.add_argument("project_root", type=Path)
     args = parser.parse_args()
     try:

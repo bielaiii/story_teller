@@ -11,4 +11,4 @@ chapterAct3: 水闸篇
 ---
 # Story Data Manifest
 
-本文件由 Story Teller Schema V3 从 SQLite 确定性导出。
+本文件由 Story Teller 从当前 SQLite 结构化数据确定性导出。

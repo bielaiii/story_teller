@@ -54,7 +54,7 @@ class MarkdownExporter:
         manifest_meta.update(project.get("extra", {}))
         files["manifest.md"] = markdown_document(
             manifest_meta,
-            "# Story Data Manifest\n\n本文件由 Story Teller Schema V3 从 SQLite 确定性导出。",
+            "# Story Data Manifest\n\n本文件由 Story Teller 从当前 SQLite 结构化数据确定性导出。",
         ).encode("utf-8")
 
         character_names = {item["entityId"]: item["name"] for item in snapshot["characters"]}
@@ -157,7 +157,7 @@ class MarkdownExporter:
         graph = snapshot["graph"]
         graph_settings = graph.get("settings", {})
         graph_meta = {
-            "description": "人物图谱由 Schema V3 结构化数据生成。",
+            "description": "人物图谱由当前 SQLite 结构化数据生成。",
             "nodeSpacing": graph_settings.get("node_spacing", 116),
             "initialJitter": graph_settings.get("initial_jitter", 38),
             "relationshipDistance": graph_settings.get("relationship_distance", 250),

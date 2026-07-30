@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from storyteller import SCHEMA_VERSION
 from storyteller.bootstrap import prepare_project
 
 
@@ -39,7 +40,10 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(snapshot["readonly"])
         self.assertEqual(len(snapshot["characters"]), 7)
         with sqlite3.connect(self.project_root / "story.db") as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(
+                connection.execute("PRAGMA user_version").fetchone()[0],
+                SCHEMA_VERSION,
+            )
             self.assertFalse(connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
             ).fetchone())
@@ -68,9 +72,42 @@ class BootstrapTests(unittest.TestCase):
             connection.execute("PRAGMA user_version=99")
             connection.execute("UPDATE metadata SET value='99' WHERE key='schema_version'")
         before = digest(database)
-        with self.assertRaisesRegex(ValueError, "只支持迁移 Schema V1/V2"):
+        with self.assertRaisesRegex(ValueError, "只支持迁移 Schema V1/V2/V3"):
             prepare_project(self.project_root)
         self.assertEqual(digest(database), before)
+
+    def test_prepare_upgrades_schema_v3_with_a_recoverable_backup(self) -> None:
+        prepare_project(self.project_root)
+        database = self.project_root / "story.db"
+        with sqlite3.connect(database) as connection:
+            connection.executescript(
+                """
+                DROP TABLE merge_conflicts;
+                DROP TABLE merge_sessions;
+                UPDATE metadata SET value='3' WHERE key='schema_version';
+                PRAGMA user_version=3;
+                """
+            )
+        result = prepare_project(self.project_root)
+
+        self.assertTrue(result["migrated"])
+        self.assertEqual(3, result["sourceSchemaVersion"])
+        backup = Path(result["backup"])
+        self.assertTrue(backup.name.endswith(".v3-backup.db"))
+        self.assertTrue(backup.is_file())
+        with sqlite3.connect(backup) as backup_connection:
+            self.assertEqual(3, backup_connection.execute("PRAGMA user_version").fetchone()[0])
+            backup_count = backup_connection.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(SCHEMA_VERSION, connection.execute("PRAGMA user_version").fetchone()[0])
+            self.assertTrue(connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='merge_sessions'"
+            ).fetchone())
+            self.assertEqual(
+                backup_count,
+                connection.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
+            )
+            self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from storyteller.exports.recovery import RecoveryImporter
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="从 Story Teller 恢复快照重建 Schema V3 数据库")
+    parser = argparse.ArgumentParser(description="从 Story Teller 恢复快照重建当前版本数据库")
     parser.add_argument("source", type=Path, help="包含 recovery.snapshot.json 的导出目录或快照文件")
     parser.add_argument("target", type=Path, help="要创建的 story.db")
     parser.add_argument("--project", required=True)

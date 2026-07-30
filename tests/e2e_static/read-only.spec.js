@@ -14,9 +14,10 @@ test("静态快照可以完整阅读且不会调用本地写入接口", async ({
   await expect(page.getByRole("button", { name: "编辑篇章与阅读顺序" })).toHaveCount(0);
 
   const firstCard = page.locator(".plot-card").first();
-  const title = await firstCard.locator(".plot-card-copy > h2").textContent();
-  await firstCard.click();
-  const reader = page.getByRole("region", { name: `阅读${title}` });
+  const readButton = firstCard.getByRole("button", { name: /^阅读/ });
+  const readerName = await readButton.getAttribute("aria-label");
+  await readButton.click();
+  const reader = page.getByRole("region", { name: readerName });
   await expect(reader).toBeVisible();
   await expect(reader.locator(".story-reader-prose")).not.toBeEmpty();
   await expect(reader.getByRole("button", { name: /^编辑/ })).toHaveCount(0);

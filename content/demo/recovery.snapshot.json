@@ -1,7 +1,7 @@
 {
   "format": "story-teller-recovery",
   "project": "demo",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "tables": {
     "assets": {
       "columns": [
@@ -2280,6 +2280,44 @@
           "{}"
         ]
       ]
+    },
+    "merge_conflicts": {
+      "columns": [
+        "id",
+        "session_id",
+        "table_name",
+        "primary_key_json",
+        "entity_id",
+        "title",
+        "base_json",
+        "ours_json",
+        "theirs_json",
+        "merged_json",
+        "conflict_columns_json",
+        "resolution_json",
+        "status",
+        "created_at",
+        "resolved_at"
+      ],
+      "rows": []
+    },
+    "merge_sessions": {
+      "columns": [
+        "id",
+        "project_id",
+        "source_path",
+        "base_hash",
+        "ours_hash",
+        "theirs_hash",
+        "base_revision",
+        "ours_revision",
+        "theirs_revision",
+        "status",
+        "conflict_count",
+        "created_at",
+        "resolved_at"
+      ],
+      "rows": []
     },
     "operation_changes": {
       "columns": [

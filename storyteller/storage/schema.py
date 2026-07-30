@@ -13,6 +13,45 @@ ENTITY_KINDS = (
     "chapter",
 )
 
+MERGE_SCHEMA_SQL = r"""
+CREATE TABLE merge_sessions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_path TEXT NOT NULL DEFAULT '',
+    base_hash TEXT NOT NULL,
+    ours_hash TEXT NOT NULL,
+    theirs_hash TEXT NOT NULL,
+    base_revision INTEGER NOT NULL DEFAULT 0,
+    ours_revision INTEGER NOT NULL DEFAULT 0,
+    theirs_revision INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'resolved')),
+    conflict_count INTEGER NOT NULL DEFAULT 0 CHECK(conflict_count >= 0),
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER
+);
+CREATE INDEX merge_sessions_status ON merge_sessions(project_id, status, created_at);
+
+CREATE TABLE merge_conflicts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES merge_sessions(id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL,
+    primary_key_json TEXT NOT NULL,
+    entity_id TEXT,
+    title TEXT NOT NULL,
+    base_json TEXT,
+    ours_json TEXT,
+    theirs_json TEXT,
+    merged_json TEXT,
+    conflict_columns_json TEXT NOT NULL,
+    resolution_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'resolved')),
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER,
+    UNIQUE(session_id, table_name, primary_key_json)
+);
+CREATE INDEX merge_conflicts_status ON merge_conflicts(session_id, status, table_name);
+"""
+
 
 SCHEMA_SQL = r"""
 CREATE TABLE metadata (
@@ -339,7 +378,7 @@ CREATE TABLE operation_changes (
     after_revision INTEGER,
     PRIMARY KEY(operation_id, table_name, primary_key_json)
 );
-
+""" + MERGE_SCHEMA_SQL + r"""
 CREATE TABLE export_state (
     project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
     requested_revision INTEGER NOT NULL DEFAULT 0,
@@ -444,3 +483,16 @@ def initialize_schema(connection) -> None:
         (str(SCHEMA_VERSION),),
     )
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def migrate_v3_to_v4(connection) -> None:
+    """Add durable Git merge sessions without rewriting normalized content."""
+    connection.executescript(
+        "BEGIN IMMEDIATE;\n"
+        + MERGE_SCHEMA_SQL
+        + f"""
+        UPDATE metadata SET value='{SCHEMA_VERSION}' WHERE key='schema_version';
+        PRAGMA user_version = {SCHEMA_VERSION};
+        COMMIT;
+        """
+    )
