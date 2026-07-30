@@ -2,7 +2,7 @@
 
 一个用于编写小说剧情、维护人物与设定、编排阅读顺序和故事时间的本地创作工具。
 
-当前运行架构是 React + TypeScript + CodeMirror 6 前端、FastAPI 本地服务和 Schema V3 SQLite。`story.db` 是唯一可写数据源；Markdown、静态 JSON 与恢复快照都由数据库确定性生成。
+当前运行架构是 React + TypeScript + CodeMirror 6 前端、FastAPI 本地服务和 Schema V4 SQLite。`story.db` 是唯一可写数据源；Markdown、静态 JSON 与恢复快照都由数据库确定性生成。Schema V4 在规范化内容之上增加了可持久化的 Git 三方合并会话。
 
 架构决策和验收边界见[《架构升级计划》](docs/architecture-modernization.md)、[《规范化数据与删除架构》](docs/relational-data-deletion-architecture.md)和[《产品功能路线图》](docs/product-feature-roadmap.md)。
 
@@ -34,6 +34,8 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 - `recovery.snapshot.json`：包含实体、引用、顺序、回收站和操作历史的完整灾难恢复快照。
 
 网页写入成功后会更新导出。直接修改导出文件不会改变数据库，后续导出会覆盖这些改动。SQLite 的 `-journal`、`-wal`、`-shm` 文件不要提交。
+
+父仓可用 `.gitattributes` 把 `story.db` 交给 `storyteller.merge_driver`。驱动读取 Git 提供的共同、本地和远程三个数据库：先按行和字段合并，再调用 Git 原生文本合并处理正文；无法自动判断的字段写入 `merge_sessions` / `merge_conflicts`。服务检测到开放会话后只允许读取和解决冲突，完成网页确认及完整性检查前拒绝其他写操作。
 
 从旧 Schema V2 数据库迁移或检查导出：
 
@@ -71,7 +73,8 @@ npm run test:unit
 npm run test:frontend
 npm run build
 npm run test:e2e:v3
+npm run test:e2e:merge
 npm run test:e2e:static
 ```
 
-测试覆盖 Schema V2→V3 迁移、正文哈希、外键、软删除/恢复/永久清理、通用撤销、稳定引用、安全重命名、恢复快照、编辑器状态保持及静态只读模式。
+测试覆盖 Schema V1/V2→V4 与 V3→V4 迁移、SQLite/Git 三方合并、冲突写入门禁和网页解决流程，以及正文哈希、外键、软删除/恢复/永久清理、通用撤销、稳定引用、安全重命名、恢复快照、编辑器状态保持及静态只读模式。

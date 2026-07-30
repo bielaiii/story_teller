@@ -14,8 +14,9 @@ from typing import Any, Iterable
 
 import yaml
 
+from storyteller import SCHEMA_VERSION
 from storyteller.storage.connection import Database, schema_version
-from storyteller.storage.schema import initialize_schema
+from storyteller.storage.schema import initialize_schema, migrate_v3_to_v4
 
 
 FRONTMATTER = re.compile(r"^---\n(?P<meta>[\s\S]*?)\n---(?:\n|$)")
@@ -892,7 +893,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         raise FileNotFoundError(f"数据库不存在：{database}")
     with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as source:
         current_version = schema_version(source)
-    if current_version == 3:
+    if current_version == SCHEMA_VERSION:
         Database(root).require_v3()
         normalized = normalize_graph_visibility(database, root.name)
         return {
@@ -901,8 +902,45 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             "database": str(database),
             "normalizedGraphVisibility": normalized,
         }
+    if current_version == 3:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".story-v3-backup-", suffix=".db", dir=root
+        )
+        os.close(descriptor)
+        temporary_backup = Path(temporary_name)
+        temporary_backup.unlink()
+        try:
+            with sqlite3.connect(database) as source, sqlite3.connect(temporary_backup) as target:
+                source.backup(target)
+            source_digest = file_sha256(temporary_backup)
+            backup = database.with_name(f"story.{source_digest[:12]}.v3-backup.db")
+            if keep_backup:
+                if backup.exists():
+                    temporary_backup.unlink()
+                else:
+                    os.replace(temporary_backup, backup)
+            else:
+                temporary_backup.unlink()
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v3_to_v4(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V4 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V4 迁移后数据库外键检查失败")
+            Database(root).require_v3()
+            return {
+                "ok": True,
+                "alreadyMigrated": False,
+                "database": str(database),
+                "sourceSchemaVersion": 3,
+                "schemaVersion": SCHEMA_VERSION,
+                "backup": str(backup) if keep_backup else "",
+            }
+        finally:
+            temporary_backup.unlink(missing_ok=True)
     if current_version not in {1, 2}:
-        raise ValueError(f"只支持迁移 Schema V1/V2，当前为 V{current_version}")
+        raise ValueError(f"只支持迁移 Schema V1/V2/V3，当前为 V{current_version}")
     source_digest = file_sha256(database)
     # A content package may have gone through an earlier preview or failed cutover.
     # Name the backup from the exact source bytes so an existing stale backup can
@@ -910,7 +948,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
     backup = database.with_name(f"story.{source_digest[:12]}.v2-backup.db")
     if keep_backup and not backup.exists():
         shutil.copy2(database, backup)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".story-v3-", suffix=".db", dir=root)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".story-v4-", suffix=".db", dir=root)
     os.close(descriptor)
     temporary = Path(temporary_name)
     temporary.unlink()

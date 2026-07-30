@@ -17,6 +17,7 @@ from storyteller.api.models import (
     FragmentCreate,
     FragmentPatch,
     GraphUpdate,
+    MergeConflictResolutionRequest,
     MutationRequest,
     PlotCreate,
     PlotPatch,
@@ -29,7 +30,13 @@ from storyteller.api.models import (
     mutation_payload,
 )
 from storyteller.domain.content import ContentService
-from storyteller.domain.errors import ConflictError, DomainError, NotFoundError
+from storyteller.domain.errors import (
+    ConflictError,
+    DomainError,
+    MergeRequiredError,
+    NotFoundError,
+)
+from storyteller.domain.merge_conflicts import MergeConflictService, has_open_merge
 from storyteller.domain.services import EntityService
 from storyteller.domain.structure import StructureService
 from storyteller.domain.uow import UnitOfWork
@@ -44,6 +51,7 @@ FEATURES = [
     "soft-delete-v1", "row-undo-v1", "static-snapshot-v1", "content-mutations-v1",
     "story-structure-v1", "graph-layout-v1", "content-conversion-v1",
     "timeline-drag-chapter-swap-v1",
+    "git-database-merge-v1",
 ]
 
 
@@ -61,9 +69,20 @@ def create_app(settings: Settings) -> FastAPI:
         except (ValueError, RuntimeError, OSError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    def require_write_token(x_story_teller_token: str = Header(default="")) -> None:
+    def require_mutation_token(x_story_teller_token: str = Header(default="")) -> None:
         if not secrets.compare_digest(x_story_teller_token, app.state.mutation_token):
             raise HTTPException(status_code=403, detail="写入授权已失效，请刷新本地服务能力")
+
+    def require_write_token(
+        request: Request,
+        x_story_teller_token: str = Header(default=""),
+    ) -> None:
+        require_mutation_token(x_story_teller_token)
+        project = str(request.path_params.get("project") or "")
+        if project:
+            database = database_for(project)
+            if has_open_merge(database, project):
+                raise MergeRequiredError("数据库仍有合并冲突，请先完成合并")
 
     def finish_mutation(database: Database, project: str, result) -> dict:
         response = ProjectRepository(database, project).mutation_delta(result)
@@ -90,6 +109,13 @@ def create_app(settings: Settings) -> FastAPI:
     async def conflict_handler(_request: Request, error: ConflictError):
         return JSONResponse(status_code=409, content={"ok": False, "error": str(error), "code": "conflict"})
 
+    @app.exception_handler(MergeRequiredError)
+    async def merge_required_handler(_request: Request, error: MergeRequiredError):
+        return JSONResponse(
+            status_code=423,
+            content={"ok": False, "error": str(error), "code": "merge_required"},
+        )
+
     @app.exception_handler(DomainError)
     async def domain_handler(_request: Request, error: DomainError):
         return JSONResponse(status_code=422, content={"ok": False, "error": str(error), "code": "validation"})
@@ -98,6 +124,7 @@ def create_app(settings: Settings) -> FastAPI:
     def meta(project: str = Query(default="")):
         project_id = project or settings.default_project
         writable = False
+        merge_required = False
         project_revision = None
         error = ""
         if project_id:
@@ -107,12 +134,15 @@ def create_app(settings: Settings) -> FastAPI:
                     row = connection.execute("SELECT revision FROM projects WHERE id=?", (project_id,)).fetchone()
                     project_revision = int(row[0]) if row else None
                     writable = row is not None
+                    merge_required = bool(row is not None and has_open_merge(database, project_id))
             except HTTPException as caught:
                 error = str(caught.detail)
         return {
             "apiVersion": API_VERSION,
             "schemaVersion": SCHEMA_VERSION,
             "writable": writable,
+            "contentWritable": writable and not merge_required,
+            "mergeRequired": merge_required,
             "project": project_id,
             "projectRevision": project_revision,
             "features": FEATURES,
@@ -126,12 +156,43 @@ def create_app(settings: Settings) -> FastAPI:
                 "chapters": True, "timeline": True, "graph": True, "plotOrder": True,
                 "storyStructure": True, "contentConversion": True,
                 "timelineChapterSwap": True,
+                "mergeConflicts": True,
             },
         }
 
     @app.get("/api/v1/projects/{project}/snapshot")
     def project_snapshot(project: str):
         return ProjectRepository(database_for(project), project).snapshot()
+
+    @app.get("/api/v1/projects/{project}/merge-conflicts")
+    def merge_conflicts(project: str):
+        database = database_for(project)
+        return MergeConflictService(database, project).current()
+
+    @app.put(
+        "/api/v1/projects/{project}/merge-conflicts/{conflict_id}",
+        dependencies=[Depends(require_mutation_token)],
+    )
+    def resolve_merge_conflict(
+        project: str,
+        conflict_id: str,
+        payload: MergeConflictResolutionRequest,
+    ):
+        database = database_for(project)
+        resolutions = {
+            field: value.model_dump(exclude_none=True)
+            for field, value in payload.resolutions.items()
+        }
+        return MergeConflictService(database, project).save(conflict_id, resolutions)
+
+    @app.post(
+        "/api/v1/projects/{project}/merge-conflicts/{session_id}/finalize",
+        dependencies=[Depends(require_mutation_token)],
+    )
+    def finalize_merge(project: str, session_id: str):
+        database = database_for(project)
+        result = MergeConflictService(database, project).finalize(session_id)
+        return finish_mutation(database, project, result)
 
     @app.get("/api/v1/projects/{project}/changes")
     def project_changes(project: str, since: int = Query(ge=0)):

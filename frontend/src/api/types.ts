@@ -222,12 +222,57 @@ export interface MetaResponse {
   apiVersion: number;
   schemaVersion: number;
   writable: boolean;
+  contentWritable?: boolean;
+  mergeRequired?: boolean;
   project: string;
   projectRevision: number | null;
   features: string[];
   mutationToken: string;
   error: string;
   routes: Record<string, boolean>;
+}
+
+export type MergeResolutionChoice = "ours" | "theirs" | "manual";
+
+export interface MergeFieldResolution {
+  choice: MergeResolutionChoice;
+  value?: string;
+}
+
+export interface MergeConflictField {
+  name: string;
+  label: string;
+  kind: "row" | "binary" | "text" | "value";
+  base: unknown;
+  ours: unknown;
+  theirs: unknown;
+  resolution: MergeFieldResolution | null;
+  manualAllowed: boolean;
+}
+
+export interface MergeConflictItem {
+  id: string;
+  title: string;
+  table: string;
+  entityId: string | null;
+  status: "open" | "resolved";
+  fields: MergeConflictField[];
+}
+
+export interface MergeConflictState {
+  required: boolean;
+  session: {
+    id: string;
+    sourcePath: string;
+    createdAt: number;
+    baseRevision: number;
+    oursRevision: number;
+    theirsRevision: number;
+    conflictCount: number;
+    resolvedFields: number;
+    totalFields: number;
+  } | null;
+  items: MergeConflictItem[];
 }
 
 export type DeltaBucket =

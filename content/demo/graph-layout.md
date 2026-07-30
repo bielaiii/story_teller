@@ -1,5 +1,5 @@
 ---
-description: 人物图谱由 Schema V3 结构化数据生成。
+description: 人物图谱由当前 SQLite 结构化数据生成。
 nodeSpacing: 116.0
 initialJitter: 38.0
 relationshipDistance: 250.0

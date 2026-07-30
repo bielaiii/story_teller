@@ -7,6 +7,7 @@
     "test:unit": "./scripts/python.sh -m unittest discover -s tests/v3 -v",
     "test:frontend": "vitest run",
     "test:e2e:v3": "playwright test --config playwright.v3.config.js",
+    "test:e2e:merge": "playwright test --config playwright.merge.config.js",
     "test:e2e:static": "playwright test --config playwright.static.config.js"
   },
   "devDependencies": {

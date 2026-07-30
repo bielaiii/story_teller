@@ -12,7 +12,10 @@ from storyteller.storage.connection import Database
 
 
 HISTORY_RETENTION_SECONDS = 7 * 24 * 60 * 60
-EXCLUDED_TABLES = {"metadata", "operations", "operation_changes", "export_state", "sqlite_sequence"}
+EXCLUDED_TABLES = {
+    "metadata", "operations", "operation_changes", "merge_sessions",
+    "merge_conflicts", "export_state", "sqlite_sequence",
+}
 IGNORED_COLUMNS = {"projects": {"revision", "updated_at"}}
 
 

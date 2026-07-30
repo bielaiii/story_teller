@@ -1,4 +1,4 @@
-"""Story Teller schema-v3 application package."""
+"""Story Teller local-first application package."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 API_VERSION = 1

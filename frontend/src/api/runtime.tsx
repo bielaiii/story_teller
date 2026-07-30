@@ -51,7 +51,10 @@ export function RuntimeProvider({ children }: { children: React.ReactNode }) {
     api,
     meta: metaQuery.data || null,
     snapshot: snapshotQuery.data,
-    writable: Boolean(metaQuery.data?.writable && !snapshotQuery.data.readonly),
+    writable: Boolean(
+      (metaQuery.data?.contentWritable ?? metaQuery.data?.writable)
+      && !snapshotQuery.data.readonly
+    ),
   };
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }

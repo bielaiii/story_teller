@@ -1,5 +1,7 @@
 import type {
   EntityDetail,
+  MergeConflictState,
+  MergeFieldResolution,
   MetaResponse,
   MutationDelta,
   OperationItem,
@@ -72,6 +74,66 @@ export class StoryApi {
   operations(): Promise<{ items: OperationItem[] }> {
     return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/operations`, { cache: "no-store" })
       .then(parseResponse<{ items: OperationItem[] }>);
+  }
+
+  mergeConflicts(): Promise<MergeConflictState> {
+    return fetch(
+      `/api/v1/projects/${encodeURIComponent(this.project)}/merge-conflicts`,
+      { cache: "no-store" },
+    ).then(parseResponse<MergeConflictState>);
+  }
+
+  private authorizedRequestOnce<T>(
+    path: string,
+    method: "POST" | "PUT",
+    payload?: Record<string, unknown>,
+  ): Promise<T> {
+    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
+      method,
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Story-Teller-Token": this.mutationToken,
+      },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    }).then(parseResponse<T>);
+  }
+
+  private async authorizedRequest<T>(
+    path: string,
+    method: "POST" | "PUT",
+    payload?: Record<string, unknown>,
+  ): Promise<T> {
+    try {
+      return await this.authorizedRequestOnce<T>(path, method, payload);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        await this.refreshMeta();
+        return this.authorizedRequestOnce<T>(path, method, payload);
+      }
+      if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
+        throw new ApiError("本地服务暂时不可用，已经保存的合并选择不会丢失", 0, "api_unavailable");
+      }
+      throw error;
+    }
+  }
+
+  resolveMergeConflict(
+    conflictId: string,
+    resolutions: Record<string, MergeFieldResolution>,
+  ): Promise<MergeConflictState> {
+    return this.authorizedRequest<MergeConflictState>(
+      `/merge-conflicts/${encodeURIComponent(conflictId)}`,
+      "PUT",
+      { resolutions },
+    );
+  }
+
+  finalizeMerge(sessionId: string): Promise<MutationDelta> {
+    return this.authorizedRequest<MutationDelta>(
+      `/merge-conflicts/${encodeURIComponent(sessionId)}/finalize`,
+      "POST",
+    );
   }
 
   private mutationRequest(

@@ -57,6 +57,7 @@ class Database:
         return connection
 
     def require_v3(self, connection: sqlite3.Connection | None = None) -> None:
+        """Require the current schema. The legacy method name remains API-compatible."""
         owns_connection = connection is None
         active = connection or self.connect(readonly=True)
         try:
@@ -67,7 +68,7 @@ class Database:
                 )
             if version < SCHEMA_VERSION:
                 raise RuntimeError(
-                    f"数据库仍是 Schema V{version}，请先执行一次性 V3 迁移"
+                    f"数据库仍是 Schema V{version}，请先运行当前版本的启动迁移"
                 )
             violations = list(active.execute("PRAGMA foreign_key_check"))
             if violations:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from storyteller import SCHEMA_VERSION
 from storyteller.app import create_app
 from storyteller.settings import Settings
 from storyteller.storage.legacy import V3Migrator
@@ -31,7 +32,7 @@ class V3ApiTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_capability_snapshot_delete_preview_restore_and_undo_round_trip(self):
-        self.assertEqual(3, self.meta["schemaVersion"])
+        self.assertEqual(SCHEMA_VERSION, self.meta["schemaVersion"])
         self.assertTrue(self.meta["routes"]["restoreEntity"])
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         revision = snapshot["project"]["revision"]

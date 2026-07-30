@@ -6,5 +6,9 @@ class ConflictError(DomainError):
     """The mutation was based on an outdated revision."""
 
 
+class MergeRequiredError(DomainError):
+    """A persisted database merge must be resolved before ordinary writes."""
+
+
 class NotFoundError(DomainError):
     """The requested entity does not exist in the requested state."""
