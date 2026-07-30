@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from collections import defaultdict
@@ -116,6 +117,20 @@ class ProjectRepository:
                 """
             ):
                 entry_people[str(row["entry_id"])].append(str(row["character_id"]))
+            fragment_references: dict[str, list[str]] = defaultdict(list)
+            for row in connection.execute(
+                """
+                SELECT reference.source_entity_id, reference.target_entity_id
+                FROM active_entity_references reference
+                JOIN active_fragments fragment
+                  ON fragment.entity_id=reference.source_entity_id
+                WHERE reference.context='body'
+                ORDER BY reference.source_entity_id, reference.id
+                """
+            ):
+                fragment_references[str(row["source_entity_id"])].append(
+                    str(row["target_entity_id"])
+                )
             lanes: dict[str, list[str]] = defaultdict(list)
             for row in connection.execute(
                 """
@@ -138,6 +153,8 @@ class ProjectRepository:
             fragments = [self._fragment(row, fragment_tags, include_body=False) for row in connection.execute(
                 "SELECT * FROM active_fragments ORDER BY stable_id"
             )]
+            for fragment in fragments:
+                fragment["references"] = fragment_references.get(fragment["entityId"], [])
             relationships = [dict(self._relationship(row)) for row in connection.execute(
                 "SELECT * FROM active_relationships ORDER BY stable_id"
             )]
@@ -259,6 +276,24 @@ class ProjectRepository:
     @staticmethod
     def _fragment(row, tags, *, include_body: bool) -> dict[str, Any]:
         identifier = str(row["entity_id"])
+        extra = json_value(row["extra_json"], {})
+        if not isinstance(extra, dict):
+            extra = {}
+        fragment_type = str(extra.get("fragmentType") or "chapter")
+        if fragment_type not in {"chapter", "line"}:
+            fragment_type = "chapter"
+        parent_fragment_id = extra.get("parentFragmentId")
+        fragment_order = extra.get("fragmentOrder")
+        chapter_number = extra.get("chapterNumber")
+        if not isinstance(chapter_number, int) or chapter_number <= 0:
+            legacy_match = re.match(r"^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)", str(row["title"]))
+            chapter_number = (
+                int(legacy_match.group(1))
+                if legacy_match
+                else int(fragment_order) + 1
+                if parent_fragment_id and isinstance(fragment_order, int)
+                else None
+            )
         result = {
             "entityId": identifier,
             "id": str(row["stable_id"]),
@@ -268,7 +303,11 @@ class ProjectRepository:
             "tags": tags.get(identifier, []),
             "bodyPreview": preview(row["body_markdown"]),
             "revision": int(row["revision"]),
-            "extra": json_value(row["extra_json"], {}),
+            "fragmentType": fragment_type,
+            "parentFragmentId": str(parent_fragment_id) if parent_fragment_id else None,
+            "fragmentOrder": int(fragment_order) if isinstance(fragment_order, int) else 0,
+            "chapterNumber": chapter_number,
+            "extra": extra,
         }
         if include_body:
             result["body"] = str(row["body_markdown"])

@@ -27,6 +27,12 @@ MARKER_CLASSIFICATIONS = {
     "反派": ("side", "反派方"), "反派方": ("side", "反派方"), "中立": ("side", "中立"),
 }
 PLOT_CHAPTER_TITLE = re.compile(r"^第\s*(\d+)\s*章$")
+FRAGMENT_CHAPTER_HEADING = re.compile(
+    r"^\s*(?:#{1,6}\s*)?第\s*"
+    r"([0-9〇零一二三四五六七八九十百千万亿兆京垓秭穰沟溝涧澗正载載兩两"
+    r"壹贰叁肆伍陆柒捌玖拾佰仟萬億]+)"
+    r"\s*章\s*[：:]\s*(.+?)\s*$"
+)
 PLOT_SPEAKER_LABEL = re.compile(
     r"(?m)^\s*\*\*([^*\r\n：:]{2,20})[：:]\*\*\s*$"
 )
@@ -41,6 +47,170 @@ GENERIC_SPEAKER_LABELS = {
     "搓澡工", "球童", "音响师", "中间人", "规则维护者",
 }
 NON_REFERENCE_CHARACTER_TERMS = {"反派"}
+CHINESE_DIGITS = {
+    "零": 0, "〇": 0,
+    "一": 1, "壹": 1,
+    "二": 2, "贰": 2, "两": 2, "兩": 2,
+    "三": 3, "叁": 3,
+    "四": 4, "肆": 4,
+    "五": 5, "伍": 5,
+    "六": 6, "陆": 6,
+    "七": 7, "柒": 7,
+    "八": 8, "捌": 8,
+    "九": 9, "玖": 9,
+}
+CHINESE_SMALL_UNITS = {
+    "十": 10, "拾": 10,
+    "百": 100, "佰": 100,
+    "千": 1000, "仟": 1000,
+}
+CHINESE_LARGE_UNITS = {
+    "万": 10**4, "萬": 10**4,
+    "亿": 10**8, "億": 10**8,
+    "兆": 10**12,
+    "京": 10**16,
+    "垓": 10**20,
+    "秭": 10**24,
+    "穰": 10**28,
+    "沟": 10**32, "溝": 10**32,
+    "涧": 10**36, "澗": 10**36,
+    "正": 10**40,
+    "载": 10**44, "載": 10**44,
+}
+
+
+def parse_positive_chapter_number(value: str) -> int:
+    source = str(value or "").strip()
+    if source.isdigit():
+        result = int(source)
+    elif source and all(character in CHINESE_DIGITS for character in source):
+        result = int("".join(str(CHINESE_DIGITS[character]) for character in source))
+    else:
+        total = 0
+        section = 0
+        number: int | None = None
+        previous_small_unit = 10**9
+        for character in source:
+            if character in CHINESE_DIGITS:
+                number = CHINESE_DIGITS[character]
+                continue
+            if character in CHINESE_SMALL_UNITS:
+                unit = CHINESE_SMALL_UNITS[character]
+                if unit >= previous_small_unit:
+                    raise DomainError(f"章号“{source}”不是有效的中文数字")
+                section += (1 if number is None else number) * unit
+                number = None
+                previous_small_unit = unit
+                continue
+            if character in CHINESE_LARGE_UNITS:
+                unit = CHINESE_LARGE_UNITS[character]
+                section += 0 if number is None else number
+                if section:
+                    total += section * unit
+                elif total:
+                    total *= unit
+                else:
+                    total = unit
+                section = 0
+                number = None
+                previous_small_unit = 10**9
+                continue
+            raise DomainError(f"章号“{source}”不是有效的正整数")
+        result = total + section + (0 if number is None else number)
+    if result <= 0:
+        raise DomainError("章号必须是正整数")
+    return result
+
+
+def _clipboard_title_and_body(text: str) -> tuple[str, str]:
+    lines = text.splitlines()
+    first_index = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first_index is None:
+        raise DomainError("剪贴板里没有可导入的文字")
+    first = lines[first_index].strip()
+    markdown_title = re.fullmatch(r"#{1,6}\s+(.+?)\s*#*\s*", first)
+    clean_first = (markdown_title.group(1) if markdown_title else first).strip()
+    clean_first = re.sub(r"^[《「『【](.*)[》」』】]$", r"\1", clean_first).strip()
+    if markdown_title or len(clean_first) <= 80:
+        body = "\n".join(lines[:first_index] + lines[first_index + 1:]).strip()
+        title = clean_first
+    else:
+        body = text.strip()
+        title = clean_first[:36].rstrip() + ("…" if len(clean_first) > 36 else "")
+    return clean_text(title, "自动读取的标题", required=True), clean_body(body, "碎片正文")
+
+
+def parse_fragment_clipboard(text: str) -> dict[str, Any]:
+    source = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not source:
+        raise DomainError("剪贴板里没有可导入的文字")
+    lines = source.splitlines()
+    headings: list[tuple[int, int, str]] = []
+    for index, line in enumerate(lines):
+        match = FRAGMENT_CHAPTER_HEADING.fullmatch(line)
+        if not match:
+            continue
+        number = parse_positive_chapter_number(match.group(1))
+        title = clean_text(match.group(2), f"第 {number} 章标题", 100, required=True)
+        headings.append((index, number, title))
+    if not headings:
+        title, body = _clipboard_title_and_body(source)
+        return {"kind": "chapter", "title": title, "body": body}
+
+    numbers = [number for _, number, _ in headings]
+    duplicates = sorted({number for number in numbers if numbers.count(number) > 1})
+    if duplicates:
+        labels = "、".join(str(number) for number in duplicates)
+        raise DomainError(f"章号不能重复：第 {labels} 章")
+
+    preamble = "\n".join(lines[:headings[0][0]]).strip()
+    overview = ""
+    if preamble:
+        line_title, overview = _clipboard_title_and_body(preamble)
+    else:
+        first_title = headings[0][2]
+        last_title = headings[-1][2]
+        line_title = (
+            f"{first_title} · 故事线"
+            if len(headings) == 1
+            else f"{first_title}—{last_title}"
+        )
+        line_title = clean_text(line_title[:120], "剧情线标题", required=True)
+
+    chapters = []
+    for heading_index, (line_index, number, title) in enumerate(headings):
+        next_line = headings[heading_index + 1][0] if heading_index + 1 < len(headings) else len(lines)
+        body = clean_body(
+            "\n".join(lines[line_index + 1:next_line]).strip(),
+            f"第 {number} 章正文",
+        )
+        chapters.append({
+            "number": number,
+            "title": title,
+            "body": body,
+        })
+    chapters.sort(key=lambda item: int(item["number"]))
+    return {
+        "kind": "line",
+        "title": line_title,
+        "body": overview,
+        "chapters": chapters,
+    }
+
+
+def stored_fragment_chapter_number(
+    extra: dict[str, Any],
+    title: str,
+    fragment_order: int,
+    parent_id: str | None,
+) -> int | None:
+    raw = extra.get("chapterNumber")
+    if isinstance(raw, int) and raw > 0:
+        return raw
+    match = re.match(r"^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)", str(title or ""))
+    if match:
+        return int(match.group(1))
+    return fragment_order + 1 if parent_id else None
 
 
 def entity_id(kind: str, stable_id: object) -> str:
@@ -435,18 +605,33 @@ class ContentService:
         )
 
     @staticmethod
-    def _automatic_plot_people(
+    def _appearance_text(
         connection: sqlite3.Connection,
         identifier: str,
         payload: dict[str, Any],
-    ) -> list[str]:
+        kind: str,
+    ) -> str:
+        if kind == "plot":
+            row = connection.execute(
+                "SELECT body_markdown, summary FROM plots WHERE entity_id=?", (identifier,)
+            ).fetchone()
+            return "\n".join((
+                str(payload.get("summary", row["summary"] if row else "") or ""),
+                str(payload.get("body", row["body_markdown"] if row else "") or ""),
+            ))
         row = connection.execute(
-            "SELECT body_markdown, summary FROM plots WHERE entity_id=?", (identifier,)
+            "SELECT body_markdown FROM fragments WHERE entity_id=?", (identifier,)
         ).fetchone()
-        text = "\n".join((
-            str(payload.get("summary", row["summary"] if row else "") or ""),
-            str(payload.get("body", row["body_markdown"] if row else "") or ""),
-        ))
+        return str(payload.get("body", row["body_markdown"] if row else "") or "")
+
+    def _automatic_text_people(
+        self,
+        connection: sqlite3.Connection,
+        identifier: str,
+        payload: dict[str, Any],
+        kind: str,
+    ) -> list[str]:
+        text = self._appearance_text(connection, identifier, payload, kind)
         if "references" in payload:
             stable_references = set(clean_values(payload["references"], "正文引用", 500))
         else:
@@ -459,6 +644,17 @@ class ContentService:
                     (identifier,),
                 )
             }
+        explicit_people = (
+            self._require_targets(
+                connection,
+                clean_values(payload["people"], "出场人物", 200),
+                "active_characters",
+                "出场人物",
+            )
+            if "people" in payload
+            else []
+        )
+        stable_references.update(explicit_people)
         characters: dict[str, list[str]] = {}
         for item in connection.execute(
             """
@@ -499,7 +695,168 @@ class ContentService:
                 if len(term_owners) == 1 or character_id in stable_references:
                     result.append(character_id)
                     break
+        for character_id in explicit_people:
+            if character_id in result:
+                continue
+            row = connection.execute(
+                "SELECT name FROM active_characters WHERE entity_id=?",
+                (character_id,),
+            ).fetchone()
+            display_name = str(row[0]) if row else character_id
+            raise DomainError(f"出场人物“{display_name}”没有出现在当前正文中")
         return result
+
+    def _create_one_time_character(
+        self,
+        connection: sqlite3.Connection,
+        name: str,
+        source_title: str,
+        source_id: str,
+        archive_source: str,
+        now: int,
+    ) -> str:
+        stable = self._next_numeric_id(connection, self.project_id, "character")
+        character_id = self._create_entity(connection, "character", stable, name, now)
+        intro = f"首次出场：{source_title}\n\n由正文中的出场人物自动归档。"
+        connection.execute(
+            """
+            INSERT INTO characters(
+                entity_id, name, intro_markdown, narrative_role, character_scope, side,
+                main_plot_impact, color, gradient, group_name, graph_visible
+            ) VALUES(?, ?, ?, '配角', '一次性角色', '中立', 0, '#8b95a7', '', '一次性角色', 0)
+            """,
+            (character_id, name, intro),
+        )
+        connection.executemany(
+            """
+            INSERT INTO character_markers(character_id, marker, position)
+            VALUES(?, ?, ?)
+            """,
+            (
+                (character_id, "配角", 0),
+                (character_id, "一次性角色", 1),
+                (character_id, "中立", 2),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO character_facts(character_id, fact_key, fact_value, position)
+            VALUES(?, '首次出场', ?, 0)
+            """,
+            (character_id, source_title),
+        )
+        connection.execute(
+            "UPDATE entities SET extra_json=? WHERE id=?",
+            (
+                json.dumps(
+                    {
+                        "autoArchived": True,
+                        "archiveSource": archive_source,
+                        "sourceEntityId": source_id,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                character_id,
+            ),
+        )
+        return character_id
+
+    def _archive_manual_people(
+        self,
+        connection: sqlite3.Connection,
+        identifier: str,
+        payload: dict[str, Any],
+        kind: str,
+        now: int,
+    ) -> list[str]:
+        if "appearance_names" not in payload:
+            return []
+        names = clean_values(payload["appearance_names"], "出场人物", 200)
+        if not names:
+            return []
+        text = self._appearance_text(connection, identifier, payload, kind)
+        known_labels = {
+            str(item[0]).strip()
+            for item in connection.execute(
+                """
+                SELECT name FROM active_characters
+                UNION
+                SELECT alias FROM character_aliases a
+                JOIN active_characters c ON c.entity_id=a.character_id
+                """
+            )
+            if str(item[0]).strip()
+        }
+        source_title = self._title(identifier)
+        created: list[str] = []
+        for name in names:
+            if name not in text:
+                raise DomainError(f"出场人物“{name}”没有出现在当前正文中")
+            if name in known_labels:
+                continue
+            if name in GENERIC_SPEAKER_LABELS:
+                raise DomainError(f"“{name}”是通用称谓，请填写正文中出现的具体人名")
+            if not re.fullmatch(
+                r"[\u3400-\u9fffA-Za-z][\u3400-\u9fffA-Za-z·•._ -]{1,39}",
+                name,
+            ):
+                raise DomainError(f"“{name}”不像有效的人名")
+            character_id = self._create_one_time_character(
+                connection,
+                name,
+                source_title,
+                identifier,
+                f"{kind}-appearance",
+                now,
+            )
+            known_labels.add(name)
+            created.append(character_id)
+        return created
+
+    @staticmethod
+    def _sync_character_references(
+        connection: sqlite3.Connection,
+        identifier: str,
+        character_ids: list[str],
+    ) -> None:
+        existing = [
+            str(row[0]) for row in connection.execute(
+                """
+                SELECT r.target_entity_id
+                FROM entity_references r
+                JOIN characters c ON c.entity_id=r.target_entity_id
+                WHERE r.source_entity_id=? AND r.context='body'
+                ORDER BY r.id
+                """,
+                (identifier,),
+            )
+        ]
+        desired = set(character_ids)
+        connection.executemany(
+            """
+            DELETE FROM entity_references
+            WHERE source_entity_id=? AND target_entity_id=? AND context='body'
+            """,
+            [
+                (identifier, character_id)
+                for character_id in existing
+                if character_id not in desired
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO entity_references(
+                source_entity_id, target_entity_id, context, marker, source
+            ) VALUES(?, ?, 'body', ?, 'automatic')
+            """,
+            [
+                (identifier, character_id, character_id)
+                for character_id in character_ids
+                if character_id not in existing
+            ],
+        )
 
     def _archive_unknown_plot_speakers(
         self,
@@ -552,51 +909,13 @@ class ContentService:
             plot_title = str(row["title"] if row else "").strip() or "未命名剧情"
         created: list[str] = []
         for name in names:
-            stable = self._next_numeric_id(connection, self.project_id, "character")
-            character_id = self._create_entity(connection, "character", stable, name, now)
-            intro = f"首次出场：{plot_title}\n\n由剧情正文中的角色台词自动归档。"
-            connection.execute(
-                """
-                INSERT INTO characters(
-                    entity_id, name, intro_markdown, narrative_role, character_scope, side,
-                    main_plot_impact, color, gradient, group_name, graph_visible
-                ) VALUES(?, ?, ?, '配角', '一次性角色', '中立', 0, '#8b95a7', '', '一次性角色', 0)
-                """,
-                (character_id, name, intro),
-            )
-            connection.executemany(
-                """
-                INSERT INTO character_markers(character_id, marker, position)
-                VALUES(?, ?, ?)
-                """,
-                (
-                    (character_id, "配角", 0),
-                    (character_id, "一次性角色", 1),
-                    (character_id, "中立", 2),
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO character_facts(character_id, fact_key, fact_value, position)
-                VALUES(?, '首次出场', ?, 0)
-                """,
-                (character_id, plot_title),
-            )
-            connection.execute(
-                "UPDATE entities SET extra_json=? WHERE id=?",
-                (
-                    json.dumps(
-                        {
-                            "autoArchived": True,
-                            "archiveSource": "plot-speaker",
-                            "sourcePlotId": identifier,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
-                    character_id,
-                ),
+            character_id = self._create_one_time_character(
+                connection,
+                name,
+                plot_title,
+                identifier,
+                "plot-speaker",
+                now,
             )
             known_labels.add(name)
             created.append(character_id)
@@ -864,8 +1183,13 @@ class ContentService:
                     clean_color(payload.get("accent")), int(bool(payload.get("key"))), int(bool(payload.get("climax"))),
                 ),
             )
-            self._replace_plot_collections(connection, identifier, payload, rank, now)
+            automatic_people = self._replace_plot_collections(
+                connection, identifier, payload, rank, now
+            )
             self._replace_entity_references(connection, identifier, payload)
+            self._sync_character_references(
+                connection, identifier, automatic_people
+            )
             if chapter_number is not None:
                 self._apply_plot_chapter_number(
                     connection, identifier, int(chapter_number), bool(payload.get("shift_following")), now
@@ -910,8 +1234,13 @@ class ContentService:
                     f"UPDATE plots SET {', '.join(column+'=?' for column in updates)} WHERE entity_id=?",
                     tuple(updates.values()) + (identifier,),
                 )
-            self._replace_plot_collections(connection, identifier, payload, str(row["sort_key"]), now)
+            automatic_people = self._replace_plot_collections(
+                connection, identifier, payload, str(row["sort_key"]), now
+            )
             self._replace_entity_references(connection, identifier, payload)
+            self._sync_character_references(
+                connection, identifier, automatic_people
+            )
             if chapter_number is not None:
                 self._apply_plot_chapter_number(
                     connection, identifier, int(chapter_number), bool(payload.get("shift_following")), now
@@ -984,6 +1313,9 @@ class ContentService:
                             "convertedFrom": identifier,
                             "convertedFromKind": "plot",
                             "plotSummary": str(row["summary"]),
+                            "fragmentType": "chapter",
+                            "parentFragmentId": None,
+                            "fragmentOrder": 0,
                         },
                         ensure_ascii=False,
                         sort_keys=True,
@@ -1011,7 +1343,10 @@ class ContentService:
         source_title = self._title(identifier)
 
         def mutation(connection: sqlite3.Connection):
-            self._active_entity(connection, identifier, "fragment")
+            entity = self._active_entity(connection, identifier, "fragment")
+            fragment_extra = self._extra_dict(entity["extra_json"])
+            if fragment_extra.get("fragmentType") == "line":
+                raise DomainError("剧情线容器不能直接放入剧情，请展开后选择具体章节")
             row = connection.execute(
                 "SELECT * FROM fragments WHERE entity_id=?", (identifier,)
             ).fetchone()
@@ -1048,7 +1383,25 @@ class ContentService:
             active_count = int(connection.execute(
                 "SELECT COUNT(*) FROM active_plots"
             ).fetchone()[0])
-            chapter_number = max(numbered + [active_count], default=0) + 1
+            planned_chapter_number: int | None = None
+            parent_id = fragment_extra.get("parentFragmentId")
+            parent_extra: dict[str, Any] | None = None
+            if parent_id:
+                parent = connection.execute(
+                    "SELECT extra_json FROM active_fragments WHERE entity_id=?",
+                    (str(parent_id),),
+                ).fetchone()
+                if parent:
+                    parent_extra = self._extra_dict(parent["extra_json"])
+                    plan = parent_extra.get("plotChapterPlan")
+                    planned = plan.get(identifier) if isinstance(plan, dict) else None
+                    if isinstance(planned, int) and 1 <= planned <= 99999:
+                        planned_chapter_number = planned
+            chapter_number = (
+                planned_chapter_number
+                if planned_chapter_number is not None
+                else max(numbered + [active_count], default=0) + 1
+            )
             title = f"第 {chapter_number} 章"
             stable = self._next_numeric_id(connection, self.project_id, "plot")
             target_id = self._create_entity(connection, "plot", stable, title, now)
@@ -1076,10 +1429,18 @@ class ContentService:
                 "references": references,
                 "chapter_number": chapter_number,
             }
-            self._replace_plot_collections(
+            automatic_people = self._replace_plot_collections(
                 connection, target_id, target_payload, rank, now
             )
             self._replace_entity_references(connection, target_id, target_payload)
+            if planned_chapter_number is not None:
+                self._apply_plot_chapter_number(
+                    connection,
+                    target_id,
+                    planned_chapter_number,
+                    True,
+                    now,
+                )
             connection.execute(
                 "UPDATE entities SET extra_json=? WHERE id=?",
                 (
@@ -1096,6 +1457,32 @@ class ContentService:
                 ),
             )
             self._move_references_and_assets(connection, identifier, target_id)
+            self._sync_character_references(
+                connection, target_id, automatic_people
+            )
+            if parent_id and parent_extra is not None:
+                plan = parent_extra.get("plotChapterPlan")
+                if isinstance(plan, dict) and identifier in plan:
+                    parent_extra["plotChapterPlan"] = {
+                        key: value for key, value in plan.items() if key != identifier
+                    }
+                    connection.execute(
+                        """
+                        UPDATE entities
+                        SET extra_json=?, revision=revision+1, updated_at=?
+                        WHERE id=?
+                        """,
+                        (
+                            json.dumps(
+                                parent_extra,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                            now,
+                            str(parent_id),
+                        ),
+                    )
             self._soft_delete_converted_source(connection, identifier, "fragment", now)
             return {
                 "entityId": target_id,
@@ -1116,11 +1503,14 @@ class ContentService:
     def _replace_plot_collections(
         self, connection: sqlite3.Connection, identifier: str, payload: dict[str, Any],
         story_rank: str, now: int,
-    ) -> None:
+    ) -> list[str]:
         if "tags" in payload:
             self._replace_values(connection, "plot_tags", "plot_id", identifier, "tag", clean_values(payload["tags"], "剧情标签"))
+        self._archive_manual_people(connection, identifier, payload, "plot", now)
         self._archive_unknown_plot_speakers(connection, identifier, payload, now)
-        automatic_people = self._automatic_plot_people(connection, identifier, payload)
+        automatic_people = self._automatic_text_people(
+            connection, identifier, payload, "plot"
+        )
         connection.execute("DELETE FROM plot_characters WHERE plot_id=?", (identifier,))
         connection.executemany(
             "INSERT INTO plot_characters(plot_id, character_id, source) VALUES(?, ?, 'body')",
@@ -1148,6 +1538,7 @@ class ContentService:
                 "INSERT INTO plot_timeline_lines(plot_id, line_id, story_sort_key) VALUES(?, ?, ?)",
                 [(identifier, value, story_rank) for value in values],
             )
+        return automatic_people
 
     def create_entry(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         return self._create_text_record("entry", base_revision, payload)
@@ -1160,6 +1551,316 @@ class ContentService:
 
     def update_fragment(self, identifier: str, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         return self._update_text_record("fragment", identifier, base_revision, payload)
+
+    def import_fragments_from_clipboard(self, base_revision: int, text: str) -> MutationResult:
+        parsed = parse_fragment_clipboard(text)
+        now = int(time.time())
+
+        def insert_fragment(
+            connection: sqlite3.Connection,
+            *,
+            title: str,
+            body: str,
+            fragment_type: str,
+            parent_id: str | None,
+            fragment_order: int,
+            chapter_number: int | None = None,
+        ) -> str:
+            clean_title = clean_text(title, "碎片标题", required=True)
+            stable = self._next_numeric_id(connection, self.project_id, "fragment")
+            identifier = self._create_entity(
+                connection,
+                "fragment",
+                stable,
+                clean_title,
+                now,
+            )
+            connection.execute(
+                """
+                INSERT INTO fragments(entity_id, body_markdown, status, accent)
+                VALUES(?, ?, '灵感', '#d65f8f')
+                """,
+                (identifier, clean_body(body, "碎片正文")),
+            )
+            extra = self._fragment_metadata(
+                connection,
+                {
+                    "fragment_type": fragment_type,
+                    "parent_fragment_id": parent_id,
+                    "fragment_order": fragment_order,
+                    "chapter_number": chapter_number,
+                },
+                identifier=identifier,
+                creating=True,
+            )
+            connection.execute(
+                "UPDATE entities SET extra_json=? WHERE id=?",
+                (
+                    json.dumps(extra, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                    identifier,
+                ),
+            )
+            return identifier
+
+        def mutation(connection: sqlite3.Connection):
+            if parsed["kind"] == "chapter":
+                identifier = insert_fragment(
+                    connection,
+                    title=str(parsed["title"]),
+                    body=str(parsed["body"]),
+                    fragment_type="chapter",
+                    parent_id=None,
+                    fragment_order=0,
+                    chapter_number=None,
+                )
+                return {
+                    "kind": "chapter",
+                    "fragmentId": identifier,
+                    "chapterCount": 1,
+                }
+
+            line_id = insert_fragment(
+                connection,
+                title=str(parsed["title"]),
+                body=str(parsed["body"]),
+                fragment_type="line",
+                parent_id=None,
+                fragment_order=0,
+                chapter_number=None,
+            )
+            chapter_ids = []
+            for order, chapter in enumerate(parsed["chapters"]):
+                chapter_ids.append(insert_fragment(
+                    connection,
+                    title=str(chapter["title"]),
+                    body=str(chapter["body"]),
+                    fragment_type="chapter",
+                    parent_id=line_id,
+                    fragment_order=order,
+                    chapter_number=int(chapter["number"]),
+                ))
+            return {
+                "kind": "line",
+                "fragmentId": line_id,
+                "chapterIds": chapter_ids,
+                "chapterCount": len(chapter_ids),
+            }
+
+        chapter_count = len(parsed.get("chapters", [])) if parsed["kind"] == "line" else 1
+        return self.uow.mutate(
+            base_revision=base_revision,
+            label=(
+                f"从剪贴板导入剧情线：{parsed['title']}"
+                if parsed["kind"] == "line"
+                else f"从剪贴板导入灵感：{parsed['title']}"
+            ),
+            action="import",
+            entity_kind="fragment",
+            callback=mutation,
+            details={
+                "source": "clipboard",
+                "fragmentType": parsed["kind"],
+                "chapterCount": chapter_count,
+            },
+        )
+
+    @staticmethod
+    def _extra_dict(value: object) -> dict[str, Any]:
+        try:
+            parsed = json.loads(str(value or "{}"))
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _fragment_metadata(
+        self,
+        connection: sqlite3.Connection,
+        payload: dict[str, Any],
+        *,
+        identifier: str,
+        current_extra: object = "{}",
+        creating: bool = False,
+    ) -> dict[str, Any]:
+        extra = self._extra_dict(current_extra)
+        fragment_type = str(
+            payload.get("fragment_type")
+            if "fragment_type" in payload
+            else extra.get("fragmentType") or "chapter"
+        )
+        if fragment_type not in {"chapter", "line"}:
+            raise DomainError("碎片类型只能是单章或剧情线")
+        parent_id = (
+            payload.get("parent_fragment_id")
+            if "parent_fragment_id" in payload
+            else extra.get("parentFragmentId")
+        )
+        parent_id = clean_text(parent_id, "所属剧情线", 120) or None
+        if fragment_type == "line":
+            parent_id = None
+        elif parent_id:
+            if parent_id == identifier:
+                raise DomainError("碎片不能归入自身")
+            parent = connection.execute(
+                """
+                SELECT entity_id, extra_json FROM active_fragments
+                WHERE entity_id=?
+                """,
+                (parent_id,),
+            ).fetchone()
+            if not parent or self._extra_dict(parent["extra_json"]).get("fragmentType") != "line":
+                raise DomainError("所属剧情线不存在或已失效")
+
+        if not creating and extra.get("fragmentType") == "line" and fragment_type != "line":
+            has_children = any(
+                self._extra_dict(row["extra_json"]).get("parentFragmentId") == identifier
+                for row in connection.execute(
+                    "SELECT extra_json FROM active_fragments WHERE entity_id<>?",
+                    (identifier,),
+                )
+            )
+            if has_children:
+                raise DomainError("剧情线中仍有章节，请先将章节移出后再改为单章")
+
+        raw_order = payload.get("fragment_order") if "fragment_order" in payload else extra.get("fragmentOrder")
+        if raw_order is None:
+            if parent_id:
+                sibling_orders = [
+                    int(sibling_extra.get("fragmentOrder") or 0)
+                    for row in connection.execute(
+                        "SELECT extra_json FROM active_fragments WHERE entity_id<>?",
+                        (identifier,),
+                    )
+                    if (
+                        sibling_extra := self._extra_dict(row["extra_json"])
+                    ).get("parentFragmentId") == parent_id
+                ]
+                fragment_order = max(sibling_orders, default=-1) + 1
+            else:
+                fragment_order = 0
+        else:
+            fragment_order = int(raw_order)
+            if fragment_order < 0:
+                raise DomainError("章节顺序不能小于 0")
+
+        chapter_number: int | None = None
+        if fragment_type == "chapter" and parent_id:
+            siblings: list[dict[str, Any]] = []
+            for row in connection.execute(
+                "SELECT entity_id, title, extra_json FROM active_fragments WHERE entity_id<>?",
+                (identifier,),
+            ):
+                sibling_extra = self._extra_dict(row["extra_json"])
+                if sibling_extra.get("parentFragmentId") != parent_id:
+                    continue
+                sibling_order = int(sibling_extra.get("fragmentOrder") or 0)
+                sibling_number = stored_fragment_chapter_number(
+                    sibling_extra,
+                    str(row["title"]),
+                    sibling_order,
+                    parent_id,
+                )
+                if sibling_number is not None:
+                    siblings.append(
+                        {
+                            "id": str(row["entity_id"]),
+                            "number": sibling_number,
+                            "extra": sibling_extra,
+                        }
+                    )
+            sibling_numbers = [item["number"] for item in siblings]
+
+            raw_chapter_number = (
+                payload.get("chapter_number")
+                if "chapter_number" in payload
+                else extra.get("chapterNumber")
+            )
+            if raw_chapter_number is not None:
+                chapter_number = int(raw_chapter_number)
+            elif creating:
+                chapter_number = max(sibling_numbers, default=0) + 1
+            else:
+                current_title_row = connection.execute(
+                    "SELECT title FROM entities WHERE id=?",
+                    (identifier,),
+                ).fetchone()
+                chapter_number = stored_fragment_chapter_number(
+                    extra,
+                    str(current_title_row["title"]) if current_title_row else "",
+                    fragment_order,
+                    parent_id,
+                ) or max(sibling_numbers, default=0) + 1
+            if chapter_number <= 0:
+                raise DomainError("章号必须是正整数")
+            if chapter_number in sibling_numbers:
+                if not bool(payload.get("shift_following")):
+                    raise DomainError(f"同一条剧情线中已经存在第 {chapter_number} 章")
+                occupied = {item["number"]: item for item in siblings}
+                displaced: list[dict[str, Any]] = []
+                available_number = chapter_number
+                while available_number in occupied:
+                    item = occupied[available_number]
+                    displaced.append(item)
+                    available_number += 1
+                now = int(time.time())
+                for item in reversed(displaced):
+                    item["extra"]["chapterNumber"] = item["number"] + 1
+                    connection.execute(
+                        """
+                        UPDATE entities
+                        SET extra_json=?, revision=revision+1, updated_at=?
+                        WHERE id=?
+                        """,
+                        (
+                            json.dumps(
+                                item["extra"],
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                            now,
+                            item["id"],
+                        ),
+                    )
+        extra.update(
+            {
+                "fragmentType": fragment_type,
+                "parentFragmentId": parent_id,
+                "fragmentOrder": fragment_order,
+                "chapterNumber": chapter_number,
+            }
+        )
+        if fragment_type == "line":
+            if "plot_chapter_plan" in payload:
+                raw_plan = payload.get("plot_chapter_plan") or {}
+                if not isinstance(raw_plan, dict):
+                    raise DomainError("正式剧情章号规划格式不正确")
+                child_ids = {
+                    str(row["entity_id"])
+                    for row in connection.execute(
+                        "SELECT entity_id, extra_json FROM active_fragments WHERE entity_id<>?",
+                        (identifier,),
+                    )
+                    if self._extra_dict(row["extra_json"]).get("parentFragmentId") == identifier
+                }
+                plan: dict[str, int] = {}
+                occupied: set[int] = set()
+                for child_id, raw_number in raw_plan.items():
+                    child_id = str(child_id)
+                    if child_id not in child_ids:
+                        continue
+                    number = int(raw_number)
+                    if number < 1 or number > 99999:
+                        raise DomainError("正式剧情章号必须在 1 到 99999 之间")
+                    if number in occupied:
+                        raise DomainError(f"正式剧情第 {number} 章被重复规划")
+                    occupied.add(number)
+                    plan[child_id] = number
+                extra["plotChapterPlan"] = plan
+            elif creating:
+                extra["plotChapterPlan"] = {}
+        else:
+            extra.pop("plotChapterPlan", None)
+        return extra
 
     def _create_text_record(self, kind: str, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         now = int(time.time())
@@ -1191,8 +1892,28 @@ class ContentService:
                     "INSERT INTO fragments(entity_id, body_markdown, status, accent) VALUES(?, ?, ?, ?)",
                     (identifier, clean_body(payload.get("body", ""), "碎片正文"), clean_text(payload.get("status", ""), "状态", 40), clean_color(payload.get("accent"))),
                 )
+                extra = self._fragment_metadata(
+                    connection, payload, identifier=identifier, creating=True
+                )
+                connection.execute(
+                    "UPDATE entities SET extra_json=? WHERE id=?",
+                    (
+                        json.dumps(extra, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                        identifier,
+                    ),
+                )
             self._replace_text_collections(connection, kind, identifier, payload)
             self._replace_entity_references(connection, identifier, payload)
+            if kind == "fragment":
+                self._archive_manual_people(
+                    connection, identifier, payload, "fragment", now
+                )
+                automatic_people = self._automatic_text_people(
+                    connection, identifier, payload, "fragment"
+                )
+                self._sync_character_references(
+                    connection, identifier, automatic_people
+                )
             return {"entityId": identifier}
 
         return self.uow.mutate(
@@ -1246,6 +1967,29 @@ class ContentService:
                 )
             self._replace_text_collections(connection, kind, identifier, payload)
             self._replace_entity_references(connection, identifier, payload)
+            if kind == "fragment":
+                self._archive_manual_people(
+                    connection, identifier, payload, "fragment", now
+                )
+                automatic_people = self._automatic_text_people(
+                    connection, identifier, payload, "fragment"
+                )
+                self._sync_character_references(
+                    connection, identifier, automatic_people
+                )
+                extra = self._fragment_metadata(
+                    connection,
+                    payload,
+                    identifier=identifier,
+                    current_extra=entity["extra_json"],
+                )
+                connection.execute(
+                    "UPDATE entities SET extra_json=? WHERE id=?",
+                    (
+                        json.dumps(extra, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                        identifier,
+                    ),
+                )
             connection.execute("UPDATE entities SET revision=revision+1, updated_at=? WHERE id=?", (now, identifier))
             return {"entityId": identifier, "title": title_value or entity["title"]}
 

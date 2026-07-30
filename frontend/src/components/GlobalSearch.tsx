@@ -18,6 +18,33 @@ function searchable(value: string, phoneticSearch: PhoneticSearch | null) {
   return `${value.toLowerCase()} ${phoneticSearch?.(value) || ""}`;
 }
 
+export function searchMatchContext(source: string, query: string, radius = 54): string {
+  const plain = source
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#|~-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return "";
+  const matchAt = plain.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (matchAt < 0) return plain.length > radius * 2 ? `${plain.slice(0, radius * 2).trim()}…` : plain;
+  const start = Math.max(0, matchAt - radius);
+  const end = Math.min(plain.length, matchAt + query.length + radius);
+  return `${start ? "…" : ""}${plain.slice(start, end).trim()}${end < plain.length ? "…" : ""}`;
+}
+
+function SearchSnippet({ source, query }: { source: string; query: string }) {
+  const context = searchMatchContext(source, query);
+  if (!context) return null;
+  const matchAt = context.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (matchAt < 0) return <p>{context}</p>;
+  return <p>
+    {context.slice(0, matchAt)}
+    <mark>{context.slice(matchAt, matchAt + query.length)}</mark>
+    {context.slice(matchAt + query.length)}
+  </p>;
+}
+
 export function GlobalSearch() {
   const { snapshot } = useRuntime();
   const [open, setOpen] = useState(false);
@@ -28,13 +55,14 @@ export function GlobalSearch() {
   const selectCharacter = useUiStore((state) => state.selectCharacter);
   const selectPlot = useUiStore((state) => state.selectPlot);
   const selectEntry = useUiStore((state) => state.selectEntry);
+  const selectFragment = useUiStore((state) => state.selectFragment);
   const results = useMemo(() => {
     if (!deferred) return [];
     const candidates = [
-      ...snapshot.characters.map((item) => ({ id: item.entityId, label: item.name, detail: `人物 · ${item.characterScope} · ID ${item.id}`, page: "characters" as const, search: [item.name, item.id, ...item.aliases].join(" ") })),
-      ...snapshot.plots.map((item) => ({ id: item.entityId, label: item.title, detail: `剧情 · 第 ${item.sequence} 篇`, page: "story" as const, search: `${item.title} ${item.summary} ${item.bodyPreview}` })),
-      ...snapshot.entries.map((item) => ({ id: item.entityId, label: item.name, detail: `设定 · ${item.type}`, page: "entries" as const, search: [item.name, ...item.aliases, ...item.tags].join(" ") })),
-      ...snapshot.fragments.map((item) => ({ id: item.entityId, label: item.title, detail: "灵感碎片", page: "fragments" as const, search: `${item.title} ${item.bodyPreview}` })),
+      ...snapshot.characters.map((item) => ({ id: item.entityId, label: item.name, detail: `人物 · ${item.characterScope} · ID ${item.id}`, page: "characters" as const, search: [item.name, item.id, ...item.aliases, item.introPreview].join(" "), preview: item.introPreview })),
+      ...snapshot.plots.map((item) => ({ id: item.entityId, label: item.title, detail: `剧情 · 第 ${item.sequence} 篇`, page: "story" as const, search: `${item.title} ${item.summary} ${item.bodyPreview}`, preview: `${item.summary}\n${item.bodyPreview}` })),
+      ...snapshot.entries.map((item) => ({ id: item.entityId, label: item.name, detail: `设定 · ${item.type}`, page: "entries" as const, search: [item.name, ...item.aliases, ...item.tags, item.bodyPreview].join(" "), preview: item.bodyPreview })),
+      ...snapshot.fragments.map((item) => ({ id: item.entityId, label: item.title, detail: "灵感碎片", page: "fragments" as const, search: `${item.title} ${item.bodyPreview}`, preview: item.bodyPreview })),
     ];
     return candidates.filter((item) => searchable(item.search, phoneticSearch).includes(deferred)).slice(0, 12);
   }, [deferred, phoneticSearch, snapshot]);
@@ -50,6 +78,7 @@ export function GlobalSearch() {
     if (item.page === "characters") selectCharacter(item.id);
     if (item.page === "story") selectPlot(item.id);
     if (item.page === "entries") selectEntry(item.id);
+    if (item.page === "fragments") selectFragment(item.id);
     setOpen(false);
     setQuery("");
   };
@@ -59,7 +88,7 @@ export function GlobalSearch() {
       {open && <div className="command-panel">
         <label><Icon name="search" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、剧情、设定和正文" /></label>
         <div className="command-results">
-          {results.map((item) => <button key={`${item.page}:${item.id}`} onClick={() => void choose(item)}><strong>{item.label}</strong><small>{item.detail}</small></button>)}
+          {results.map((item) => <button key={`${item.page}:${item.id}`} onClick={() => void choose(item)}><span><strong>{item.label}</strong><SearchSnippet source={item.preview} query={deferred} /></span><small>{item.detail}</small></button>)}
           {deferred && !results.length && <p>没有找到匹配内容</p>}
         </div>
       </div>}

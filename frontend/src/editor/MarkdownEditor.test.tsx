@@ -52,12 +52,30 @@ describe("MarkdownEditor shortcuts", () => {
     expect(onChange).toHaveBeenLastCalledWith("第一段");
 
     const workspace = container.querySelector(".markdown-workspace")!;
-    fireEvent.click(screen.getByRole("button", { name: "切换正文目录" }));
     expect(workspace).toHaveClass("outline-hidden");
+    expect(screen.getByRole("button", { name: "切换正文目录" })).toBeDisabled();
+    expect(screen.queryByRole("complementary", { name: "正文目录" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多编辑工具" }));
     expect(screen.getByRole("button", { name: /有序列表/ }).querySelector("svg")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /快捷键帮助/ }));
     expect(screen.getByRole("dialog", { name: "编辑器快捷键" })).toHaveTextContent("全拼和首字母");
+  });
+
+  it("shows the outline only when the article contains Markdown headings", () => {
+    const { container } = render(<MarkdownEditor
+      value={"# 第一节\n正文\n\n## 第二节\n更多正文"}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      characters={[]}
+      entries={[]}
+    />);
+    const workspace = container.querySelector(".markdown-workspace")!;
+    expect(workspace).not.toHaveClass("outline-hidden");
+    expect(screen.getByRole("complementary", { name: "正文目录" })).toHaveTextContent("第一节");
+
+    fireEvent.click(screen.getByRole("button", { name: "切换正文目录" }));
+    expect(workspace).toHaveClass("outline-hidden");
+    expect(screen.queryByRole("complementary", { name: "正文目录" })).toBeNull();
   });
 
   it("leaves composition input to CodeMirror instead of synthesizing duplicate characters", () => {

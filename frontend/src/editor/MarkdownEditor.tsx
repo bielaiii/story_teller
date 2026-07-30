@@ -500,6 +500,8 @@ export function MarkdownEditor({
     const match = /^(#{1,6})\s+(.+)$/.exec(line);
     return match ? { line: index + 1, level: match[1].length, title: match[2] } : null;
   }).filter(Boolean) as Array<{ line: number; level: number; title: string }>, [value]);
+  const outlineVisible = showOutline && outline.length > 0;
+  useEffect(() => { viewRef.current?.requestMeasure(); }, [outlineVisible]);
   const activeHeadingLine = outline.filter((item) => item.line <= cursorLine).at(-1)?.line;
   const counts = useMemo(() => {
     const compact = value.trim();
@@ -532,7 +534,7 @@ export function MarkdownEditor({
   };
 
   return (
-    <section className={`markdown-workspace${immersive ? " is-immersive" : ""}${showPreview ? "" : " preview-hidden"}${showOutline ? "" : " outline-hidden"}`}>
+    <section className={`markdown-workspace${immersive ? " is-immersive" : ""}${showPreview ? "" : " preview-hidden"}${outlineVisible ? "" : " outline-hidden"}`}>
       <header className="editor-toolbar" aria-label="编辑器快捷工具">
         <div className="editor-toolbar-context"><span className="editor-label">{label}</span><small>第 {cursorLine} 行 · {counts.characters} 字 · {counts.paragraphs} 段</small></div>
         <div className="editor-tools" role="toolbar" onPointerDown={(event) => {
@@ -553,7 +555,7 @@ export function MarkdownEditor({
             <ToolButton label="设定拼音检索（/ / Alt+/）" icon="book" action={() => openReferenceCommand("/")} />
           </span>
           <span className="editor-tool-group" aria-label="视图与保存">
-            <ToolButton label="切换正文目录" icon="sidebar" pressed={showOutline} action={() => setShowOutline((current) => !current)} />
+            <ToolButton label="切换正文目录" icon="sidebar" pressed={outlineVisible} disabled={!outline.length} action={() => setShowOutline((current) => !current)} />
             <ToolButton label={`切换预览（${primaryKey}+Shift+P）`} icon="preview" pressed={showPreview} action={() => setShowPreview((current) => !current)} />
             <ToolButton label={immersive ? `退出沉浸模式（Esc / ${primaryKey}+Shift+M）` : `进入沉浸模式（${primaryKey}+Shift+M）`} icon={immersive ? "collapse" : "expand"} pressed={immersive} action={() => setImmersive((current) => !current)} />
             <span className="editor-more-tools" ref={moreToolsRef}>
@@ -574,17 +576,17 @@ export function MarkdownEditor({
         </div>
       </header>
       <div className="editor-body">
-        <aside className="editor-outline" aria-label="正文目录">
+        {outlineVisible && <aside className="editor-outline" aria-label="正文目录">
           <strong>目录</strong>
-          {outline.length ? outline.map((item) => (
+          {outline.map((item) => (
             <button
               key={`${item.line}-${item.title}`}
               className={activeHeadingLine === item.line ? "is-active" : undefined}
               style={{ paddingLeft: `${(item.level - 1) * 10 + 8}px` }}
               onClick={() => scrollToLine(item.line)}
             >{item.title}</button>
-          )) : <small>使用 Markdown 标题后会显示目录</small>}
-        </aside>
+          ))}
+        </aside>}
         <section className="editor-pane editor-source-pane"><header><span>源码</span><small>Markdown</small></header><div className="codemirror-host" ref={hostRef} /></section>
         <section className="editor-pane editor-preview-pane"><header><span>预览</span><small>同步滚动</small></header><article
             className="markdown-preview prose"

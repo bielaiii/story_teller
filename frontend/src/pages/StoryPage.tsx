@@ -7,6 +7,7 @@ import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraf
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { EntityDetail, Plot } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { AppearancePeopleField, detectedCharacterIds, missingAppearanceNames } from "../components/AppearancePeopleField";
 import { EditorSettingsSection } from "../components/EditorSettingsSection";
 import { FilterChips } from "../components/FilterChips";
 import { Icon } from "../components/Icon";
@@ -27,6 +28,7 @@ interface PlotDraft {
   accent: string;
   tags: string[];
   people: string[];
+  appearanceNames: string[];
   entries: string[];
   lanes: string[];
   references: string[];
@@ -36,13 +38,14 @@ interface PlotDraft {
 
 const emptyDraft: PlotDraft = {
   chapterNumber: "1", chapterId: "", summary: "", body: "", status: "草稿", accent: "#3f7fc1",
-  tags: [], people: [], entries: [], lanes: [], references: [], key: false, climax: false,
+  tags: [], people: [], appearanceNames: [], entries: [], lanes: [], references: [], key: false, climax: false,
 };
 
 function draftFrom(plot: Plot): PlotDraft {
   return {
     chapterNumber: String(plotChapterNumber(plot.title, plot.sequence)), chapterId: plot.chapterId, summary: plot.summary, body: plot.body || "",
     status: plot.status, accent: plot.accent, tags: [...plot.tags], people: [...plot.people],
+    appearanceNames: [],
     entries: [...plot.entries], lanes: [...plot.lanes],
     references: [...new Set([...(plot.references || []), ...plot.people, ...plot.entries])],
     key: plot.key, climax: plot.climax,
@@ -91,6 +94,9 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   const supportsConversion = Boolean(
     meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
   );
+  const supportsAppearancePeople = Boolean(
+    meta?.routes.appearancePeople || meta?.features.includes("appearance-people-v1")
+  );
 
   useEffect(() => {
     if (currentId === "new") {
@@ -138,7 +144,29 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
     try {
       const title = plotChapterTitle(chapterNumber);
       const { chapterNumber: _chapterNumberText, ...draftFields } = draft;
-      const payload = { ...draftFields, chapterNumber, title, shiftFollowing } as unknown as Record<string, unknown>;
+      const appearanceText = `${draft.summary}\n${draft.body}`;
+      const missingNames = missingAppearanceNames(draft.appearanceNames, appearanceText);
+      if (missingNames.length) {
+        setMessage(`出场人物“${missingNames[0]}”没有出现在当前正文中`);
+        return;
+      }
+      const people = supportsAppearancePeople
+        ? detectedCharacterIds(snapshot.characters, appearanceText, draft.people)
+        : draft.people;
+      const characterIds = new Set(snapshot.characters.map((item) => item.entityId));
+      const references = [
+        ...draft.references.filter((identifier) => !characterIds.has(identifier)),
+        ...people,
+      ];
+      const payload = {
+        ...draftFields,
+        people,
+        references,
+        chapterNumber,
+        title,
+        shiftFollowing,
+      } as unknown as Record<string, unknown>;
+      if (!supportsAppearancePeople) delete payload.appearanceNames;
       const result = await mutation.mutateAsync({
         path: currentId === "new" ? "/plots" : `/plots/${encodeURIComponent(currentId)}`,
         method: currentId === "new" ? "POST" : "PATCH",
@@ -152,6 +180,11 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       const savedDraft = {
         ...draft,
         people: Array.isArray(changedPlot?.people) ? changedPlot.people.map(String) : draft.people,
+        appearanceNames: [],
+        references: [
+          ...references.filter((identifier) => !characterIds.has(identifier)),
+          ...(Array.isArray(changedPlot?.people) ? changedPlot.people.map(String) : people),
+        ],
       };
       if (currentId === "new") {
         const created = changedPlot;
@@ -242,6 +275,14 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
           <label><span>强调色</span><input type="color" value={draft.accent} onChange={(event) => change("accent", event.target.value)} /></label>
           <label className="wide"><span>摘要</span><input value={draft.summary} onChange={(event) => change("summary", event.target.value)} /></label>
           <label className="wide"><span>标签（逗号分隔）</span><input value={draft.tags.join("，")} onChange={(event) => change("tags", event.target.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean))} /></label>
+          {supportsAppearancePeople && <AppearancePeopleField
+            characters={snapshot.characters}
+            text={`${draft.summary}\n${draft.body}`}
+            people={draft.people}
+            appearanceNames={draft.appearanceNames}
+            onPeopleChange={(people) => change("people", people)}
+            onAppearanceNamesChange={(names) => change("appearanceNames", names)}
+          />}
           <label className="check"><input type="checkbox" checked={draft.key} onChange={(event) => change("key", event.target.checked)} />关键剧情</label>
           <label className="check"><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} />高潮剧情</label>
         </EditorSettingsSection>

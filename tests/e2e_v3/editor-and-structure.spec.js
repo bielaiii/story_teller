@@ -489,6 +489,127 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   await expect(dialog).not.toBeVisible();
 });
 
+test("删除碎片章节会压缩连续章号且不会残留整线删除确认框", async ({ page }) => {
+  const meta = await (await page.request.get("/api/v1/meta?project=novel")).json();
+  const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const lineTitle = "删除顺延浏览器验证线";
+  const imported = await page.request.post(
+    "/api/v1/projects/novel/fragments/import-clipboard",
+    {
+      headers: { "X-Story-Teller-Token": meta.mutationToken },
+      data: {
+        baseRevision: before.project.revision,
+        text: [
+          `# ${lineTitle}`,
+          "",
+          "第 3 章：第三节点",
+          "第三章正文。",
+          "",
+          "第 4 章：第四节点",
+          "第四章正文。",
+          "",
+          "第 6 章：第六节点",
+          "第六章正文。",
+        ].join("\n"),
+      },
+    },
+  );
+  expect(imported.ok()).toBe(true);
+
+  await page.goto("/?project=novel#/fragments");
+  const lineCard = page.locator(".fragment-card-new.is-line").filter({ hasText: lineTitle });
+  await lineCard.click();
+  const expanded = page.getByRole("region", { name: `${lineTitle}的章节` });
+  await expanded.getByRole("button", { name: "编辑第三节点", exact: true }).click();
+
+  const dialog = page.getByRole("dialog", { name: "编辑整条剧情线" });
+  await dialog.getByRole("button", { name: "删除碎片", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "移入回收站" }).click();
+
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.locator(".fragment-line-authoring-list button").filter({ hasText: "第四节点" }),
+  ).toContainText("第 3 章");
+  await expect(
+    dialog.locator(".fragment-line-authoring-list button").filter({ hasText: "第六节点" }),
+  ).toContainText("第 6 章");
+
+  const after = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const line = after.fragments.find((item) => item.title === lineTitle);
+  const children = after.fragments
+    .filter((item) => item.parentFragmentId === line.entityId)
+    .sort((left, right) => left.chapterNumber - right.chapterNumber);
+  expect(children.map((item) => [item.title, item.chapterNumber])).toEqual([
+    ["第四节点", 3],
+    ["第六节点", 6],
+  ]);
+});
+
+test("剧情线可逐章规划不连续的正式剧情位置并按规划转正", async ({ page }) => {
+  const meta = await (await page.request.get("/api/v1/meta?project=novel")).json();
+  const before = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const lineTitle = "正式剧情位置浏览器验证线";
+  const imported = await page.request.post(
+    "/api/v1/projects/novel/fragments/import-clipboard",
+    {
+      headers: { "X-Story-Teller-Token": meta.mutationToken },
+      data: {
+        baseRevision: before.project.revision,
+        text: [
+          `# ${lineTitle}`,
+          "",
+          "第 1 章：远港来信",
+          "第一章正文。",
+          "",
+          "第 2 章：旧仓回声",
+          "第二章正文。",
+        ].join("\n"),
+      },
+    },
+  );
+  expect(imported.ok()).toBe(true);
+
+  await page.goto("/?project=novel#/fragments");
+  const lineCard = page.locator(".fragment-card-new.is-line").filter({ hasText: lineTitle });
+  await lineCard.click();
+  const expanded = page.getByRole("region", { name: `${lineTitle}的章节` });
+  await expanded.getByRole("button", { name: `编辑${lineTitle}剧情线` }).click();
+
+  const dialog = page.getByRole("dialog", { name: "编辑整条剧情线" });
+  await dialog.getByRole("spinbutton", { name: "远港来信的正式剧情章号" }).fill("931");
+  await dialog.getByRole("spinbutton", { name: "旧仓回声的正式剧情章号" }).fill("947");
+  await dialog.getByRole("button", { name: "保存设置" }).click();
+  await expect(dialog.locator(".editor-footer")).toContainText("已保存");
+
+  const plannedSnapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  const line = plannedSnapshot.fragments.find((item) => item.title === lineTitle);
+  const first = plannedSnapshot.fragments.find((item) =>
+    item.parentFragmentId === line.entityId && item.title === "远港来信"
+  );
+  const second = plannedSnapshot.fragments.find((item) =>
+    item.parentFragmentId === line.entityId && item.title === "旧仓回声"
+  );
+  expect(line.extra.plotChapterPlan).toEqual({
+    [first.entityId]: 931,
+    [second.entityId]: 947,
+  });
+
+  await dialog.getByRole("button", { name: "把远港来信放入剧情" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "放入剧情" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "把远港来信放入剧情" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "把旧仓回声放入剧情" })).toBeVisible();
+
+  const convertedSnapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
+  expect(convertedSnapshot.plots.some((item) =>
+    item.title === "第 931 章" && item.summary === "远港来信"
+  )).toBe(true);
+  expect(convertedSnapshot.fragments.some((item) => item.entityId === first.entityId)).toBe(false);
+  const convertedLine = convertedSnapshot.fragments.find((item) => item.entityId === line.entityId);
+  expect(convertedLine.extra.plotChapterPlan).toEqual({ [second.entityId]: 947 });
+});
+
 test("正文原位保存并保持编辑器、折叠状态和页面实例", async ({ page }) => {
   await page.goto("/?project=novel#/story");
   await expect(page.getByRole("heading", { name: "雾港纪事", exact: true })).toBeVisible();

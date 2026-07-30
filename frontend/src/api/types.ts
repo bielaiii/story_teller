@@ -94,6 +94,11 @@ export interface Fragment {
   body?: string;
   references?: string[];
   revision: number;
+  fragmentType?: "chapter" | "line";
+  parentFragmentId?: string | null;
+  fragmentOrder?: number;
+  chapterNumber?: number | null;
+  plotChapterPlan?: Record<string, number>;
   extra: Record<string, unknown>;
 }
 

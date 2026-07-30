@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from storyteller.domain.content import ContentService
-from storyteller.domain.errors import ConflictError
+from storyteller.domain.errors import ConflictError, DomainError
 from storyteller.domain.maintenance import MaintenanceService
 from storyteller.domain.services import EntityService
 from storyteller.domain.uow import UnitOfWork
@@ -75,6 +75,131 @@ class V3TransactionTests(unittest.TestCase):
         self.service.restore("plot:4", deleted.project_revision, now=2_000_001)
         restored = self.repository.snapshot()["plots"]
         self.assertEqual(list(before), [item["entityId"] for item in restored])
+
+    def test_plot_delete_compacts_only_the_following_contiguous_chapter_chain(self):
+        created_ids: dict[int, str] = {}
+        revision = self.revision()
+        for chapter_number in (900, 901, 903):
+            created = self.content.create_plot(
+                revision,
+                {
+                    "title": f"第 {chapter_number} 章",
+                    "chapter_number": chapter_number,
+                    "body": f"第 {chapter_number} 章正文",
+                },
+            )
+            revision = created.project_revision
+            created_ids[chapter_number] = created.callback_result["entityId"]
+
+        deleted = self.service.delete(
+            created_ids[900],
+            revision,
+            now=2_100_000,
+        )
+        active_by_id = {
+            item["entityId"]: item
+            for item in self.repository.snapshot()["plots"]
+        }
+        self.assertEqual(
+            "第 900 章",
+            active_by_id[created_ids[901]]["title"],
+        )
+        self.assertEqual(
+            "第 903 章",
+            active_by_id[created_ids[903]]["title"],
+        )
+        self.assertIn(created_ids[901], deleted.changed_entity_ids)
+        self.assertNotIn(created_ids[903], deleted.changed_entity_ids)
+
+        restored = self.service.restore(
+            created_ids[900],
+            deleted.project_revision,
+            now=2_100_001,
+        )
+        restored_by_id = {
+            item["entityId"]: item
+            for item in self.repository.snapshot()["plots"]
+        }
+        self.assertEqual(
+            "第 900 章",
+            restored_by_id[created_ids[900]]["title"],
+        )
+        self.assertEqual(
+            "第 901 章",
+            restored_by_id[created_ids[901]]["title"],
+        )
+        self.assertEqual(
+            "第 903 章",
+            restored_by_id[created_ids[903]]["title"],
+        )
+        self.assertIn(created_ids[901], restored.changed_entity_ids)
+
+    def test_fragment_delete_compacts_only_siblings_in_the_same_contiguous_chain(self):
+        line = self.content.create_fragment(
+            self.revision(),
+            {
+                "title": "删除顺延测试线",
+                "fragment_type": "line",
+            },
+        )
+        line_id = line.callback_result["entityId"]
+        revision = line.project_revision
+        created_ids: dict[int, str] = {}
+        for chapter_number in (3, 4, 6):
+            created = self.content.create_fragment(
+                revision,
+                {
+                    "title": f"节点 {chapter_number}",
+                    "fragment_type": "chapter",
+                    "parent_fragment_id": line_id,
+                    "chapter_number": chapter_number,
+                },
+            )
+            revision = created.project_revision
+            created_ids[chapter_number] = created.callback_result["entityId"]
+
+        deleted = self.service.delete(
+            created_ids[3],
+            revision,
+            now=2_200_000,
+        )
+        active_by_id = {
+            item["entityId"]: item
+            for item in self.repository.snapshot()["fragments"]
+        }
+        self.assertEqual(
+            3,
+            active_by_id[created_ids[4]]["chapterNumber"],
+        )
+        self.assertEqual(
+            6,
+            active_by_id[created_ids[6]]["chapterNumber"],
+        )
+        self.assertIn(created_ids[4], deleted.changed_entity_ids)
+        self.assertNotIn(created_ids[6], deleted.changed_entity_ids)
+
+        restored = self.service.restore(
+            created_ids[3],
+            deleted.project_revision,
+            now=2_200_001,
+        )
+        restored_by_id = {
+            item["entityId"]: item
+            for item in self.repository.snapshot()["fragments"]
+        }
+        self.assertEqual(
+            3,
+            restored_by_id[created_ids[3]]["chapterNumber"],
+        )
+        self.assertEqual(
+            4,
+            restored_by_id[created_ids[4]]["chapterNumber"],
+        )
+        self.assertEqual(
+            6,
+            restored_by_id[created_ids[6]]["chapterNumber"],
+        )
+        self.assertIn(created_ids[4], restored.changed_entity_ids)
 
     def test_transaction_failure_rolls_back_every_row_and_revision(self):
         revision = self.revision()
@@ -154,6 +279,92 @@ class V3TransactionTests(unittest.TestCase):
             1,
             sum(item["name"] == "方启年" for item in self.repository.snapshot()["characters"]),
         )
+
+    def test_fragment_automatically_links_known_people_and_manual_names_create_one_time_people(self):
+        created = self.content.create_fragment(
+            self.revision(),
+            {
+                "title": "人物识别测试",
+                "body": "林秋在门口见到了顾闻川。",
+                "appearance_names": ["顾闻川"],
+            },
+        )
+        fragment_id = created.callback_result["entityId"]
+        snapshot = self.repository.snapshot()
+        lin_qiu = next(item for item in snapshot["characters"] if item["name"] == "林秋")
+        temporary = next(item for item in snapshot["characters"] if item["name"] == "顾闻川")
+        self.assertEqual("一次性角色", temporary["characterScope"])
+        self.assertFalse(temporary["graphVisible"])
+        detail = self.repository.entity_detail(fragment_id)["data"]
+        self.assertIn(lin_qiu["entityId"], detail["references"])
+        self.assertIn(temporary["entityId"], detail["references"])
+
+    def test_story_line_fragment_chapter_uses_the_same_people_recognition(self):
+        line = self.content.create_fragment(
+            self.revision(),
+            {
+                "title": "人物识别剧情线",
+                "fragment_type": "line",
+            },
+        )
+        line_id = line.callback_result["entityId"]
+        chapter = self.content.create_fragment(
+            line.project_revision,
+            {
+                "title": "线内章节",
+                "body": "苏眠把文件交给周既明。",
+                "fragment_type": "chapter",
+                "parent_fragment_id": line_id,
+                "fragment_order": 0,
+                "chapter_number": 1,
+                "appearance_names": ["周既明"],
+            },
+        )
+        detail = self.repository.entity_detail(chapter.callback_result["entityId"])["data"]
+        people = {
+            item["entityId"]: item for item in self.repository.snapshot()["characters"]
+        }
+        referenced_names = {
+            people[identifier]["name"]
+            for identifier in detail["references"]
+            if identifier in people
+        }
+        self.assertEqual({"苏眠", "周既明"}, referenced_names)
+
+    def test_manual_appearance_name_must_exist_in_current_body(self):
+        before = len(self.repository.snapshot()["characters"])
+        with self.assertRaisesRegex(
+            DomainError,
+            "出场人物“顾闻川”没有出现在当前正文中",
+        ):
+            self.content.create_fragment(
+                self.revision(),
+                {
+                    "title": "无效人物",
+                    "body": "这里只有一间空房。",
+                    "appearance_names": ["顾闻川"],
+                },
+            )
+        self.assertEqual(before, len(self.repository.snapshot()["characters"]))
+
+    def test_plot_people_are_rescanned_and_removed_when_the_name_leaves_the_body(self):
+        mentioned = self.content.update_plot(
+            "plot:3",
+            self.revision(),
+            {"body": "林秋走进会议室。", "people": ["character:1"]},
+        )
+        detail = self.repository.entity_detail("plot:3")["data"]
+        self.assertIn("character:1", detail["people"])
+        self.assertIn("character:1", detail["references"])
+
+        self.content.update_plot(
+            "plot:3",
+            mentioned.project_revision,
+            {"body": "会议室里已经没有其他人。", "people": []},
+        )
+        detail = self.repository.entity_detail("plot:3")["data"]
+        self.assertNotIn("character:1", detail["people"])
+        self.assertNotIn("character:1", detail["references"])
 
     def test_removing_character_from_plot_body_removes_related_plot_without_touching_character(self):
         character_before = self.repository.entity_detail("character:1")["data"]

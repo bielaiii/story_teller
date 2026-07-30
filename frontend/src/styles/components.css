@@ -42,13 +42,17 @@
 .global-command { position: relative; }
 .global-command > .icon-button { width: 52px; height: 52px; border-radius: 50%; color: var(--ink); background: rgba(255,255,255,.9); box-shadow: 0 18px 52px rgba(61,91,145,.14); backdrop-filter: blur(18px); }
 .global-command.is-open > .icon-button { color: white; background: var(--nav-accent); }
-.command-panel { position: absolute; top: 48px; right: 0; width: 420px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-solid); box-shadow: var(--shadow); }
+.command-panel { position: absolute; top: calc(100% + 10px); right: 0; width: 440px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-solid); box-shadow: var(--shadow); }
 .command-panel > label, .rail-search { display: flex; align-items: center; gap: 9px; padding: 12px 14px; color: var(--muted); }
 .command-panel input, .rail-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); }
 .command-results { border-top: 1px solid var(--line); max-height: 440px; overflow: auto; padding: 7px; }
-.command-results button { width: 100%; border: 0; background: transparent; border-radius: 11px; display: flex; justify-content: space-between; gap: 10px; padding: 10px; cursor: pointer; text-align: left; }
+.command-results button { width: 100%; border: 0; background: transparent; border-radius: 11px; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 10px; cursor: pointer; text-align: left; }
 .command-results button:hover { background: var(--primary-soft); }
-.command-results small { color: var(--muted); }
+.command-results button > span { min-width: 0; display: grid; gap: 4px; }
+.command-results button strong { color: var(--ink); }
+.command-results button p { margin: 0; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.command-results button mark { padding: 0 2px; border-radius: 3px; color: var(--ink); background: color-mix(in srgb, var(--gold) 32%, white); }
+.command-results small { flex: 0 0 auto; color: var(--muted); white-space: nowrap; }
 .page-host { padding: 76px 0 0; }
 .workspace-page { max-width: none; min-height: calc(100vh - 94px); margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 26px; background: var(--paper); box-shadow: var(--shadow); }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 22px; }
@@ -468,6 +472,34 @@
 .editor-settings label, .profile-editor-grid label { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; }
 .editor-settings label.wide, .profile-editor-grid label.wide { grid-column: span 2; }
 .editor-settings label.check { display: flex; align-items: center; padding-top: 18px; }
+.appearance-people-field { grid-column: 1 / -1; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 11px; }
+.appearance-people-field > header { display: flex; align-items: center; gap: 9px; }
+.appearance-people-field > header > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--primary-soft); color: var(--primary); }
+.appearance-people-field > header > span .icon { width: 17px; height: 17px; }
+.appearance-people-field > header > div { min-width: 0; display: grid; gap: 1px; }
+.appearance-people-field > header strong { color: var(--ink); font-size: 13px; }
+.appearance-people-field > header small { color: var(--muted); font-size: 10px; }
+.appearance-people-field > header em { margin-left: auto; color: var(--primary); font-size: 11px; font-style: normal; font-weight: 750; }
+.appearance-people-list { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.appearance-people-list > p { margin: 0; color: var(--muted); font-size: 11px; }
+.appearance-people-list > span { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 9px; padding: 4px 8px 4px 5px; background: var(--surface-solid); }
+.appearance-people-list > span.is-new { border-color: color-mix(in srgb, var(--primary) 40%, var(--line)); background: var(--primary-soft); }
+.appearance-people-list > span.is-invalid { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); background: color-mix(in srgb, var(--danger) 7%, var(--surface-solid)); }
+.appearance-people-list i { width: 25px; height: 25px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: var(--surface-mint); color: white; font-size: 10px; font-style: normal; font-weight: 750; }
+.appearance-people-list i .icon { width: 14px; height: 14px; }
+.appearance-people-list b { color: var(--ink); font-size: 11px; }
+.appearance-people-list small { color: var(--muted); font-size: 9px; }
+.appearance-people-list button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.appearance-people-list button:hover { background: var(--surface-rose); color: var(--danger); }
+.appearance-people-list button .icon { width: 13px; height: 13px; }
+.appearance-people-input { display: grid; grid-template-columns: minmax(0, 320px) 34px; gap: 7px; align-items: center; }
+.appearance-people-input input { min-width: 0; }
+.appearance-people-input button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--primary); color: white; cursor: pointer; box-shadow: 0 5px 12px rgba(26, 146, 142, .16); }
+.appearance-people-input button:hover { transform: translateY(-1px); }
+.appearance-people-input button .icon { width: 16px; height: 16px; }
+.appearance-people-field > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.appearance-people-field > footer small { color: var(--muted); font-size: 9px; }
+.appearance-people-field > footer span { color: var(--danger); font-size: 10px; }
 .chapter-number-field { display: grid; grid-template-columns: auto minmax(70px, 1fr) auto; align-items: center; gap: 7px; color: var(--ink); }
 .chapter-number-field input { width: 100%; }
 .chapter-number-field.is-invalid-pulse input {

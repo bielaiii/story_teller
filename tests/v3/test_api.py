@@ -419,6 +419,445 @@ class V3ApiTests(unittest.TestCase):
         )
         self.assertRegex(created_fragment["entityId"], r"^fragment:\d+$")
 
+    def test_fragment_story_lines_persist_children_and_protect_the_container(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        line_response = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "码头追踪线",
+                "body": "从失踪货单一路追到旧仓库。",
+                "fragmentType": "line",
+                "tags": ["悬疑"],
+            },
+        )
+        self.assertEqual(200, line_response.status_code, line_response.text)
+        line = next(
+            item for item in line_response.json()["changed"]["fragments"]
+            if item["title"] == "码头追踪线"
+        )
+        self.assertEqual("line", line["fragmentType"])
+        self.assertIsNone(line["parentFragmentId"])
+
+        child_response = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": line_response.json()["projectRevision"],
+                "title": "仓库里的第二把锁",
+                "body": "她发现门锁刚刚被换过。",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+            },
+        )
+        self.assertEqual(200, child_response.status_code, child_response.text)
+        child = next(
+            item for item in child_response.json()["changed"]["fragments"]
+            if item["title"] == "仓库里的第二把锁"
+        )
+        self.assertEqual(line["entityId"], child["parentFragmentId"])
+        self.assertEqual(1, child["chapterNumber"])
+        self.assertEqual(
+            line["entityId"],
+            self.client.get(
+                f"/api/v1/projects/demo/entities/{child['entityId']}"
+            ).json()["data"]["parentFragmentId"],
+        )
+
+        delete_line = self.client.request(
+            "DELETE",
+            f"/api/v1/projects/demo/entities/{line['entityId']}",
+            headers=self.headers,
+            json={"baseRevision": child_response.json()["projectRevision"]},
+        )
+        self.assertEqual(200, delete_line.status_code, delete_line.text)
+        self.assertIn(line["entityId"], delete_line.json()["removed"]["fragments"])
+        self.assertIn(child["entityId"], delete_line.json()["removed"]["fragments"])
+
+        restored_line = self.client.post(
+            f"/api/v1/projects/demo/entities/{line['entityId']}/restore",
+            headers=self.headers,
+            json={"baseRevision": delete_line.json()["projectRevision"]},
+        )
+        self.assertEqual(200, restored_line.status_code, restored_line.text)
+        restored_fragments = restored_line.json()["changed"]["fragments"]
+        self.assertEqual(
+            {line["entityId"], child["entityId"]},
+            {item["entityId"] for item in restored_fragments},
+        )
+        restored_child = next(
+            item for item in restored_fragments
+            if item["entityId"] == child["entityId"]
+        )
+        self.assertEqual(line["entityId"], restored_child["parentFragmentId"])
+
+        renumbered = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{child['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": restored_line.json()["projectRevision"],
+                "chapterNumber": 25,
+                "title": "仓库里的第二把锁",
+            },
+        )
+        self.assertEqual(200, renumbered.status_code, renumbered.text)
+        renumbered_child = next(
+            item for item in renumbered.json()["changed"]["fragments"]
+            if item["entityId"] == child["entityId"]
+        )
+        self.assertEqual(25, renumbered_child["chapterNumber"])
+        self.assertEqual("仓库里的第二把锁", renumbered_child["title"])
+
+        earlier = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": renumbered.json()["projectRevision"],
+                "title": "提前出现的账本",
+                "body": "章号可以留出空档。",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+                "chapterNumber": 3,
+            },
+        )
+        self.assertEqual(200, earlier.status_code, earlier.text)
+        earlier_child = next(
+            item for item in earlier.json()["changed"]["fragments"]
+            if item["title"] == "提前出现的账本"
+        )
+        self.assertEqual(3, earlier_child["chapterNumber"])
+
+        duplicate_number = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{earlier_child['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": earlier.json()["projectRevision"],
+                "chapterNumber": 25,
+            },
+        )
+        self.assertEqual(422, duplicate_number.status_code, duplicate_number.text)
+        self.assertIn("已经存在第 25 章", duplicate_number.text)
+
+        inserted_at_three = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": earlier.json()["projectRevision"],
+                "title": "插入第三章",
+                "body": "原第三章应向后顺延，空档仍然保留。",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+                "chapterNumber": 3,
+                "shiftFollowing": True,
+            },
+        )
+        self.assertEqual(200, inserted_at_three.status_code, inserted_at_three.text)
+        shifted_child = next(
+            item for item in inserted_at_three.json()["changed"]["fragments"]
+            if item["entityId"] == earlier_child["entityId"]
+        )
+        self.assertEqual(4, shifted_child["chapterNumber"])
+        after_insert = self.client.get("/api/v1/projects/demo/snapshot").json()
+        line_children = sorted(
+            (
+                item for item in after_insert["fragments"]
+                if item["parentFragmentId"] == line["entityId"]
+            ),
+            key=lambda item: item["chapterNumber"],
+        )
+        self.assertEqual(
+            [
+                ("插入第三章", 3),
+                ("提前出现的账本", 4),
+                ("仓库里的第二把锁", 25),
+            ],
+            [(item["title"], item["chapterNumber"]) for item in line_children],
+        )
+
+        inserted_at_four = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": inserted_at_three.json()["projectRevision"],
+                "title": "再插入第四章",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+                "chapterNumber": 4,
+                "shiftFollowing": True,
+            },
+        )
+        self.assertEqual(200, inserted_at_four.status_code, inserted_at_four.text)
+        after_chain_insert = self.client.get("/api/v1/projects/demo/snapshot").json()
+        line_children = sorted(
+            (
+                item for item in after_chain_insert["fragments"]
+                if item["parentFragmentId"] == line["entityId"]
+            ),
+            key=lambda item: item["chapterNumber"],
+        )
+        self.assertEqual(
+            [
+                ("插入第三章", 3),
+                ("再插入第四章", 4),
+                ("提前出现的账本", 5),
+                ("仓库里的第二把锁", 25),
+            ],
+            [(item["title"], item["chapterNumber"]) for item in line_children],
+        )
+
+        convert_line = self.client.post(
+            f"/api/v1/projects/demo/fragments/{line['entityId']}/to-plot",
+            headers=self.headers,
+            json={"baseRevision": inserted_at_four.json()["projectRevision"]},
+        )
+        self.assertEqual(422, convert_line.status_code, convert_line.text)
+        self.assertIn("不能直接放入剧情", convert_line.text)
+
+        detached = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{child['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": inserted_at_four.json()["projectRevision"],
+                "parentFragmentId": None,
+            },
+        )
+        self.assertEqual(200, detached.status_code, detached.text)
+        detached_child = next(
+            item for item in detached.json()["changed"]["fragments"]
+            if item["entityId"] == child["entityId"]
+        )
+        self.assertIsNone(detached_child["parentFragmentId"])
+
+        deleted = self.client.request(
+            "DELETE",
+            f"/api/v1/projects/demo/entities/{line['entityId']}",
+            headers=self.headers,
+            json={"baseRevision": detached.json()["projectRevision"]},
+        )
+        self.assertEqual(200, deleted.status_code, deleted.text)
+
+    def test_fragment_line_plans_independent_plot_numbers_and_uses_them_on_conversion(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        line_response = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "非连续转正规划",
+                "fragmentType": "line",
+            },
+        )
+        line = next(
+            item for item in line_response.json()["changed"]["fragments"]
+            if item["title"] == "非连续转正规划"
+        )
+        first_response = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": line_response.json()["projectRevision"],
+                "title": "碎片内第一章",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+                "chapterNumber": 1,
+            },
+        )
+        first = next(
+            item for item in first_response.json()["changed"]["fragments"]
+            if item["title"] == "碎片内第一章"
+        )
+        second_response = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": first_response.json()["projectRevision"],
+                "title": "碎片内第二章",
+                "fragmentType": "chapter",
+                "parentFragmentId": line["entityId"],
+                "chapterNumber": 2,
+            },
+        )
+        second = next(
+            item for item in second_response.json()["changed"]["fragments"]
+            if item["title"] == "碎片内第二章"
+        )
+        existing_numbers = [
+            int(match.group(1))
+            for plot in snapshot["plots"]
+            if (match := re.fullmatch(r"第\s*(\d+)\s*章", plot["title"]))
+        ]
+        first_target = max(existing_numbers, default=0) + 7
+        second_target = first_target + 11
+        planned = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{line['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": second_response.json()["projectRevision"],
+                "plotChapterPlan": {
+                    first["entityId"]: first_target,
+                    second["entityId"]: second_target,
+                },
+            },
+        )
+        self.assertEqual(200, planned.status_code, planned.text)
+        planned_line = next(
+            item for item in planned.json()["changed"]["fragments"]
+            if item["entityId"] == line["entityId"]
+        )
+        self.assertEqual(
+            {
+                first["entityId"]: first_target,
+                second["entityId"]: second_target,
+            },
+            planned_line["extra"]["plotChapterPlan"],
+        )
+
+        duplicate = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{line['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": planned.json()["projectRevision"],
+                "plotChapterPlan": {
+                    first["entityId"]: first_target,
+                    second["entityId"]: first_target,
+                },
+            },
+        )
+        self.assertEqual(422, duplicate.status_code, duplicate.text)
+        self.assertIn("被重复规划", duplicate.text)
+
+        converted = self.client.post(
+            f"/api/v1/projects/demo/fragments/{first['entityId']}/to-plot",
+            headers=self.headers,
+            json={"baseRevision": planned.json()["projectRevision"]},
+        )
+        self.assertEqual(200, converted.status_code, converted.text)
+        created_plot = next(
+            item for item in converted.json()["changed"]["plots"]
+            if item["title"] == f"第 {first_target} 章"
+        )
+        self.assertEqual("碎片内第一章", created_plot["summary"])
+        reloaded = self.client.get("/api/v1/projects/demo/snapshot").json()
+        self.assertIn(
+            f"第 {first_target} 章",
+            {item["title"] for item in reloaded["plots"]},
+        )
+        self.assertNotIn(
+            first["entityId"],
+            {item["entityId"] for item in reloaded["fragments"]},
+        )
+        reloaded_line = next(
+            item for item in reloaded["fragments"]
+            if item["entityId"] == line["entityId"]
+        )
+        self.assertEqual(
+            {second["entityId"]: second_target},
+            reloaded_line["extra"]["plotChapterPlan"],
+        )
+
+    def test_clipboard_import_builds_unlimited_story_lines_and_single_fragments_atomically(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        source = "# 海港暗线\n总览：线索从旧仓库延伸到远洋船。\n\n" + "\n\n".join(
+            f"第 {number} 章：节点 {number}\n这是第 {number} 章的正文。"
+            for number in range(1, 37)
+        )
+        imported = self.client.post(
+            "/api/v1/projects/demo/fragments/import-clipboard",
+            headers=self.headers,
+            json={"baseRevision": snapshot["project"]["revision"], "text": source},
+        )
+        self.assertEqual(200, imported.status_code, imported.text)
+        imported_fragments = imported.json()["changed"]["fragments"]
+        line = next(item for item in imported_fragments if item["fragmentType"] == "line")
+        self.assertEqual("海港暗线", line["title"])
+        children = sorted(
+            (
+                item for item in imported_fragments
+                if item["parentFragmentId"] == line["entityId"]
+            ),
+            key=lambda item: item["fragmentOrder"],
+        )
+        self.assertEqual(36, len(children))
+        self.assertEqual("节点 1", children[0]["title"])
+        self.assertEqual(1, children[0]["chapterNumber"])
+        self.assertEqual("节点 36", children[-1]["title"])
+        self.assertEqual(36, children[-1]["chapterNumber"])
+        first_detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{children[0]['entityId']}"
+        ).json()["data"]
+        self.assertEqual("这是第 1 章的正文。", first_detail["body"])
+
+        chinese = self.client.post(
+            "/api/v1/projects/demo/fragments/import-clipboard",
+            headers=self.headers,
+            json={
+                "baseRevision": imported.json()["projectRevision"],
+                "text": (
+                    "第 一万零三 章：高塔回声\n第一万零三章正文。\n\n"
+                    "第三百零六章：旧港回潮\n第三百零六章正文。"
+                ),
+            },
+        )
+        self.assertEqual(200, chinese.status_code, chinese.text)
+        chinese_fragments = chinese.json()["changed"]["fragments"]
+        chinese_line = next(item for item in chinese_fragments if item["fragmentType"] == "line")
+        chinese_children = sorted(
+            (
+                item for item in chinese_fragments
+                if item["parentFragmentId"] == chinese_line["entityId"]
+            ),
+            key=lambda item: item["fragmentOrder"],
+        )
+        self.assertEqual(
+            ["旧港回潮", "高塔回声"],
+            [item["title"] for item in chinese_children],
+        )
+        self.assertEqual(
+            [306, 10003],
+            [item["chapterNumber"] for item in chinese_children],
+        )
+
+        standalone = self.client.post(
+            "/api/v1/projects/demo/fragments/import-clipboard",
+            headers=self.headers,
+            json={
+                "baseRevision": chinese.json()["projectRevision"],
+                "text": "## 玻璃房里的电话\n\n电话只响了半声，门外却出现了脚步。",
+            },
+        )
+        self.assertEqual(200, standalone.status_code, standalone.text)
+        standalone_fragments = standalone.json()["changed"]["fragments"]
+        self.assertEqual(1, len(standalone_fragments))
+        self.assertEqual("chapter", standalone_fragments[0]["fragmentType"])
+        self.assertIsNone(standalone_fragments[0]["chapterNumber"])
+        self.assertEqual("玻璃房里的电话", standalone_fragments[0]["title"])
+        standalone_detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{standalone_fragments[0]['entityId']}"
+        ).json()["data"]
+        self.assertEqual("电话只响了半声，门外却出现了脚步。", standalone_detail["body"])
+
+        before_duplicate = self.client.get("/api/v1/projects/demo/snapshot").json()
+        duplicate = self.client.post(
+            "/api/v1/projects/demo/fragments/import-clipboard",
+            headers=self.headers,
+            json={
+                "baseRevision": before_duplicate["project"]["revision"],
+                "text": "第一章：开场\nA\n\n第1章：重复\nB",
+            },
+        )
+        self.assertEqual(422, duplicate.status_code, duplicate.text)
+        self.assertIn("章号不能重复", duplicate.text)
+        after_duplicate = self.client.get("/api/v1/projects/demo/snapshot").json()
+        self.assertEqual(
+            before_duplicate["project"]["revision"],
+            after_duplicate["project"]["revision"],
+        )
+        self.assertEqual(
+            len(before_duplicate["fragments"]),
+            len(after_duplicate["fragments"]),
+        )
+
     def test_character_lifecycle_delta_includes_derived_relationships_and_references(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         deleted = self.client.request(
@@ -831,6 +1270,54 @@ class V3ApiTests(unittest.TestCase):
             if item["entityId"] == fragment_id
         )
         self.assertEqual(["character:1", "entry:archive"], restored_fragment["references"])
+
+    def test_fragment_appearance_people_api_creates_and_links_a_temporary_character(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        created = self.client.post(
+            "/api/v1/projects/demo/fragments",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "出场人物接口测试",
+                "body": "林秋在走廊遇见顾闻川。",
+                "appearanceNames": ["顾闻川"],
+            },
+        )
+        self.assertEqual(200, created.status_code, created.text)
+        payload = created.json()
+        fragment = next(
+            item for item in payload["changed"]["fragments"]
+            if item["title"] == "出场人物接口测试"
+        )
+        temporary = next(
+            item for item in payload["changed"]["characters"]
+            if item["name"] == "顾闻川"
+        )
+        self.assertEqual("一次性角色", temporary["characterScope"])
+        detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{fragment['entityId']}"
+        ).json()["data"]
+        self.assertIn("character:1", detail["references"])
+        self.assertIn(temporary["entityId"], detail["references"])
+        refreshed = self.client.get("/api/v1/projects/demo/snapshot").json()
+        refreshed_fragment = next(
+            item for item in refreshed["fragments"]
+            if item["entityId"] == fragment["entityId"]
+        )
+        self.assertIn("character:1", refreshed_fragment["references"])
+        self.assertIn(temporary["entityId"], refreshed_fragment["references"])
+
+        invalid = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{fragment['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": payload["projectRevision"],
+                "body": "走廊里已经没有其他人。",
+                "appearanceNames": ["周既明"],
+            },
+        )
+        self.assertEqual(422, invalid.status_code, invalid.text)
+        self.assertIn("没有出现在当前正文中", invalid.json()["error"])
 
     def test_safe_rename_updates_only_stably_referenced_bodies_and_undoes_atomically(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()

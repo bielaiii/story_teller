@@ -14,6 +14,7 @@ from storyteller.api.models import (
     ChaptersUpdate,
     EntryCreate,
     EntryPatch,
+    FragmentClipboardImport,
     FragmentCreate,
     FragmentPatch,
     GraphUpdate,
@@ -51,6 +52,10 @@ FEATURES = [
     "soft-delete-v1", "row-undo-v1", "static-snapshot-v1", "content-mutations-v1",
     "story-structure-v1", "graph-layout-v1", "content-conversion-v1",
     "timeline-drag-chapter-swap-v1",
+    "fragment-stacks-v1",
+    "fragment-clipboard-import-v1",
+    "fragment-plot-planning-v1",
+    "appearance-people-v1",
     "git-database-merge-v1",
 ]
 
@@ -156,6 +161,10 @@ def create_app(settings: Settings) -> FastAPI:
                 "chapters": True, "timeline": True, "graph": True, "plotOrder": True,
                 "storyStructure": True, "contentConversion": True,
                 "timelineChapterSwap": True,
+                "fragmentStacks": True,
+                "fragmentClipboardImport": True,
+                "fragmentPlotPlanning": True,
+                "appearancePeople": True,
                 "mergeConflicts": True,
             },
         }
@@ -265,6 +274,18 @@ def create_app(settings: Settings) -> FastAPI:
     def create_fragment(project: str, payload: FragmentCreate):
         database = database_for(project)
         result = ContentService(database, project).create_fragment(payload.base_revision, mutation_payload(payload))
+        return finish_mutation(database, project, result)
+
+    @app.post(
+        "/api/v1/projects/{project}/fragments/import-clipboard",
+        dependencies=[Depends(require_write_token)],
+    )
+    def import_fragments_from_clipboard(project: str, payload: FragmentClipboardImport):
+        database = database_for(project)
+        result = ContentService(database, project).import_fragments_from_clipboard(
+            payload.base_revision,
+            payload.text,
+        )
         return finish_mutation(database, project, result)
 
     @app.patch("/api/v1/projects/{project}/fragments/{entity_id:path}", dependencies=[Depends(require_write_token)])

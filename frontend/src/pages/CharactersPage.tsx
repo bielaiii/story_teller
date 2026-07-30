@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Character } from "../api/types";
+import type { Character, Fragment, Plot } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
@@ -358,6 +358,7 @@ export default function CharactersPage() {
   const selected = useUiStore((state) => state.selectedCharacterId);
   const select = useUiStore((state) => state.selectCharacter);
   const openPlotFromCharacter = useUiStore((state) => state.openPlotFromCharacter);
+  const selectFragment = useUiStore((state) => state.selectFragment);
   const [editor, setEditor] = useState<string | "new" | null>(null);
   const [relationshipEditor, setRelationshipEditor] = useState<string | "new" | null>(null);
   const [query, setQuery] = useState("");
@@ -375,7 +376,19 @@ export default function CharactersPage() {
     if (!selected && characters[0]) select(characters[0].entityId);
   }, [characters, select, selected]);
   const current = snapshot.characters.find((item) => item.entityId === selected) || characters[0];
-  const relatedPlots = current ? snapshot.plots.filter((plot) => plot.people.includes(current.entityId)) : [];
+  const relatedStories: Array<
+    { kind: "plot"; item: Plot } | { kind: "fragment"; item: Fragment }
+  > = current ? [
+    ...snapshot.plots
+      .filter((plot) => plot.people.includes(current.entityId))
+      .map((item) => ({ kind: "plot" as const, item })),
+    ...snapshot.fragments
+      .filter((fragment) =>
+        fragment.fragmentType !== "line"
+        && fragment.references?.includes(current.entityId)
+      )
+      .map((item) => ({ kind: "fragment" as const, item })),
+  ] : [];
   const relationships = current ? snapshot.relationships.filter((item) => item.from === current.entityId || item.to === current.entityId) : [];
   return <section className="workspace-page character-page-new">
     <header className="page-header"><div><small>Character Workspace</small><h1>人物管理中心</h1><p>集中查看人物定位、剧情参与和关系；临时角色仍收在次级抽屉中。</p></div><div className="page-actions"><button className={`minor-toggle${minorOpen ? " is-active" : ""}`} aria-pressed={minorOpen} title={minorOpen ? "返回主要角色" : "查看临时角色"} onClick={() => setMinorOpen((value) => !value)}>{minorOpen ? "主要角色" : "临时角色"} <strong>{minorOpen ? major.length : minor.length}</strong></button>{writable && <button className="icon-button character-create-button" aria-label="新建人物" title="创建人物档案" onClick={() => setEditor("new")}><Icon name="person-add" /></button>}</div></header>
@@ -387,7 +400,7 @@ export default function CharactersPage() {
         {Boolean(current.destinyOutline?.trim()) && <section className="character-outline-detail"><h3>人物大纲</h3><p>{current.destinyOutline}</p></section>}
         <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
         {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl></section>}
-        <section><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards character-related-plots" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { openPlotFromCharacter(plot.entityId, current.entityId); useUiStore.getState().navigate("story"); }}><span><strong>{plot.title}</strong><CompleteBlockPreview source={compactStoryPreview(plot.summary || plot.bodyPreview || "还没有剧情摘要")} className="character-related-plot-preview content-card-preview" /></span><small>第 {plot.sequence} 章</small></button>} /></section>
+        <section><h3>相关剧情</h3><CollapsibleList items={relatedStories} itemKey={(story) => `${story.kind}:${story.item.entityId}`} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards character-related-plots" emptyText="还没有相关剧情或碎片" renderItem={(story) => story.kind === "plot" ? <button onClick={() => { openPlotFromCharacter(story.item.entityId, current.entityId); useUiStore.getState().navigate("story"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.summary || story.item.bodyPreview || "还没有剧情摘要")} className="character-related-plot-preview content-card-preview" /></span><small>剧情 · 第 {story.item.sequence} 章</small></button> : <button onClick={() => { selectFragment(story.item.entityId); useUiStore.getState().navigate("fragments"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.bodyPreview || "还没有碎片正文")} className="character-related-plot-preview content-card-preview" /></span><small>{story.item.parentFragmentId ? `剧情线碎片${story.item.chapterNumber ? ` · 第 ${story.item.chapterNumber} 章` : ""}` : "灵感碎片"}</small></button>} /></section>
         <section><div className="section-heading"><h3>人物关系</h3>{writable && <button className="icon-button" aria-label={`为${current.name}建立人物关系`} title="建立人物关系" onClick={() => setRelationshipEditor("new")}><Icon name="plus" /></button>}</div><CollapsibleList items={relationships} itemKey={(relation) => relation.entityId} resetKey={current.entityId} label={`${current.name}的人物关系`} className="relationship-list-new" emptyText="还没有记录人物关系" renderItem={(relation) => { const otherId = relation.from === current.entityId ? relation.to : relation.from; const other = snapshot.characters.find((item) => item.entityId === otherId); return <article><button className="relationship-target" onClick={() => other && select(other.entityId)}><span style={{ background: relation.color }} /><strong>{other?.name || "已删除人物"}</strong><small>{relation.label || relation.type || "未命名关系"}</small></button>{writable && <button className="icon-button" aria-label={`编辑${relation.label || "人物关系"}`} title="编辑人物关系" onClick={() => setRelationshipEditor(relation.entityId)}><Icon name="edit" /></button>}</article>; }} /></section>
       </> : <div className="empty-state"><Icon name="person" /><h2>选择一个人物</h2></div>}</article>
     </div>

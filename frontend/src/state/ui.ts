@@ -9,6 +9,7 @@ interface UiState {
   selectedPlotId: string | null;
   storyReturnCharacterId: string | null;
   selectedEntryId: string | null;
+  selectedFragmentId: string | null;
   graphViewport: { x: number; y: number; scale: number };
   timelineFocusId: string | null;
   filters: Record<string, string[]>;
@@ -20,6 +21,7 @@ interface UiState {
   openPlotFromCharacter: (plotId: string, characterId: string) => void;
   clearStoryReturn: () => void;
   selectEntry: (id: string | null) => void;
+  selectFragment: (id: string | null) => void;
   setGraphViewport: (viewport: UiState["graphViewport"]) => void;
   setTimelineFocus: (id: string | null) => void;
   setFilter: (key: string, values: string[]) => void;
@@ -49,6 +51,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedPlotId: initialPlotId,
   storyReturnCharacterId: null,
   selectedEntryId: null,
+  selectedFragmentId: null,
   graphViewport: { x: 0, y: 0, scale: 1 },
   timelineFocusId: null,
   filters: {},
@@ -73,6 +76,7 @@ export const useUiStore = create<UiState>((set) => ({
   }),
   clearStoryReturn: () => set({ storyReturnCharacterId: null }),
   selectEntry: (selectedEntryId) => set({ selectedEntryId }),
+  selectFragment: (selectedFragmentId) => set({ selectedFragmentId }),
   setGraphViewport: (graphViewport) => set({ graphViewport }),
   setTimelineFocus: (timelineFocusId) => set({ timelineFocusId }),
   setFilter: (key, values) => set((state) => ({ filters: { ...state.filters, [key]: values } })),
