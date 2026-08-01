@@ -113,7 +113,7 @@ class StructureService:
                     "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
                     (f"第 {index} 章", now, identifier),
                 )
-            ContentService._sync_plot_timeline_story_sort_keys(connection)
+            ContentService._sync_follow_reading_story_sort_keys(connection)
 
         return self.uow.mutate(
             base_revision=base_revision, label="调整剧情阅读顺序", action="reorder",
@@ -233,7 +233,7 @@ class StructureService:
                     "UPDATE entities SET deleted_at=?, purge_at=?, revision=revision+1, updated_at=? WHERE id=?",
                     (now, now + 7 * 24 * 60 * 60, now, identifier),
                 )
-            ContentService._sync_plot_timeline_story_sort_keys(connection)
+            ContentService._sync_follow_reading_story_sort_keys(connection)
             return {"chapterIds": retained, "plotIds": submitted_ids}
 
         return self.uow.mutate(
@@ -352,6 +352,10 @@ class StructureService:
             active_plots = {str(row[0]) for row in connection.execute("SELECT entity_id FROM active_plots")}
             submitted: set[str] = set()
             occupied_story_keys: set[tuple[str, str]] = set()
+            current_story_keys = {
+                str(row["entity_id"]): str(row["story_sort_key"])
+                for row in connection.execute("SELECT entity_id, story_sort_key FROM active_plots")
+            }
             connection.execute(
                 "DELETE FROM plot_timeline_lines WHERE plot_id IN (SELECT entity_id FROM active_plots)"
             )
@@ -363,11 +367,29 @@ class StructureService:
                     raise DomainError("时间线节点重复或引用了不存在的剧情")
                 submitted.add(plot_id)
                 line_ids = list(dict.fromkeys(str(value) for value in item.get("line_ids", [])))
+                if not line_ids:
+                    line_ids = [main_line_id]
                 if any(value not in retained for value in line_ids):
                     raise DomainError("时间线节点引用了不存在的剧情线")
                 story_key = str(item.get("story_sort_key") or "")
                 if not story_key.isdigit():
-                    story_key = rank(int(item.get("story_order") or len(submitted)))
+                    story_key = current_story_keys.get(plot_id) or rank(int(item.get("story_order") or len(submitted)))
+                story_key = f"{int(story_key):024d}"
+                requested_mode = str(item.get("story_order_mode") or "")
+                if requested_mode not in {"", "follow_reading", "fixed"}:
+                    raise DomainError("时间线故事顺序模式无效")
+                if story_key != current_story_keys.get(plot_id):
+                    connection.execute(
+                        """
+                        UPDATE plots
+                        SET story_sort_key=?,
+                            story_order_mode=CASE WHEN ?='fixed' THEN 'fixed' ELSE story_order_mode END,
+                            story_anchor_plot_id=CASE WHEN ?='fixed' THEN NULL ELSE story_anchor_plot_id END,
+                            story_anchor_side=CASE WHEN ?='fixed' THEN NULL ELSE story_anchor_side END
+                        WHERE entity_id=?
+                        """,
+                        (story_key, requested_mode, requested_mode, requested_mode, plot_id),
+                    )
                 for line_id in line_ids:
                     key = (line_id, story_key)
                     if key in occupied_story_keys:
@@ -383,6 +405,7 @@ class StructureService:
                 self._apply_timeline_chapter_numbers(
                     connection, chapter_numbers, active_plots, now
                 )
+                ContentService._sync_follow_reading_story_sort_keys(connection)
             connection.execute(
                 """
                 UPDATE timeline_settings SET main_line_id=?, line_spacing=?, top_padding=?,

@@ -1233,6 +1233,56 @@ class V3ApiTests(unittest.TestCase):
         )
         self.assertEqual(set(spacing_slots.values()), set(keys_after_structure.values()))
 
+    def test_story_position_defaults_to_mainline_and_fixed_anchor_survives_reading_reorder(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        created = self.client.post(
+            "/api/v1/projects/demo/plots",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "title": "倒叙锚点",
+                "body": "十年前发生的事情",
+                "storyPositionMode": "before",
+                "storyAnchorPlotId": "plot:1",
+            },
+        )
+        self.assertEqual(200, created.status_code, created.text)
+        saved = self.client.get("/api/v1/projects/demo/snapshot").json()
+        created_plot = next(item for item in saved["plots"] if item["entityId"] not in {plot["entityId"] for plot in snapshot["plots"]})
+        self.assertEqual("fixed", created_plot["storyOrderMode"])
+        self.assertEqual("plot:1", created_plot["storyAnchorPlotId"])
+        self.assertEqual("before", created_plot["storyAnchorSide"])
+        main_line = saved["timeline"]["mainLineId"]
+        self.assertIn(
+            {"plotId": created_plot["entityId"], "lineId": main_line, "storySortKey": created_plot["storySortKey"]},
+            saved["timeline"]["nodes"],
+        )
+        fixed_key = created_plot["storySortKey"]
+        ordered = [plot["entityId"] for plot in reversed(saved["plots"])]
+        reordered = self.client.put(
+            "/api/v1/projects/demo/plots/order",
+            headers=self.headers,
+            json={"baseRevision": saved["project"]["revision"], "plotIds": ordered},
+        )
+        self.assertEqual(200, reordered.status_code, reordered.text)
+        after = self.client.get("/api/v1/projects/demo/snapshot").json()
+        after_plot = next(item for item in after["plots"] if item["entityId"] == created_plot["entityId"])
+        self.assertEqual(fixed_key, after_plot["storySortKey"])
+        self.assertEqual("plot:1", after_plot["storyAnchorPlotId"])
+        edited = self.client.patch(
+            f"/api/v1/projects/demo/plots/{created_plot['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": after["project"]["revision"],
+                "body": "十年前发生的事情（修订）",
+            },
+        )
+        self.assertEqual(200, edited.status_code, edited.text)
+        final = self.client.get("/api/v1/projects/demo/snapshot").json()
+        final_plot = next(item for item in final["plots"] if item["entityId"] == created_plot["entityId"])
+        self.assertEqual("fixed", final_plot["storyOrderMode"])
+        self.assertIn("timeline_line:", next(node["lineId"] for node in final["timeline"]["nodes"] if node["plotId"] == created_plot["entityId"]))
+
     def test_editor_references_persist_and_follow_target_lifecycle(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         fragment_id = snapshot["fragments"][0]["entityId"]

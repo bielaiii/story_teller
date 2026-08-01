@@ -31,6 +31,9 @@ interface PlotDraft {
   appearanceNames: string[];
   entries: string[];
   lanes: string[];
+  storyPositionMode: "follow_reading" | "before" | "after" | "fixed";
+  storyAnchorPlotId: string;
+  storySortKey: string;
   references: string[];
   key: boolean;
   climax: boolean;
@@ -39,6 +42,7 @@ interface PlotDraft {
 const emptyDraft: PlotDraft = {
   chapterNumber: "1", chapterId: "", summary: "", body: "", status: "草稿", accent: "#3f7fc1",
   tags: [], people: [], appearanceNames: [], entries: [], lanes: [], references: [], key: false, climax: false,
+  storyPositionMode: "follow_reading", storyAnchorPlotId: "", storySortKey: "",
 };
 
 function draftFrom(plot: Plot): PlotDraft {
@@ -47,6 +51,9 @@ function draftFrom(plot: Plot): PlotDraft {
     status: plot.status, accent: plot.accent, tags: [...plot.tags], people: [...plot.people],
     appearanceNames: [],
     entries: [...plot.entries], lanes: [...plot.lanes],
+    storyPositionMode: plot.storyOrderMode === "fixed" ? (plot.storyAnchorSide || "fixed") : "follow_reading",
+    storyAnchorPlotId: plot.storyAnchorPlotId || "",
+    storySortKey: plot.storySortKey || plot.sortKey,
     references: [...new Set([...(plot.references || []), ...plot.people, ...plot.entries])],
     key: plot.key, climax: plot.climax,
   };
@@ -114,12 +121,20 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const close = () => dirty ? setConfirmClose(true) : onClose();
   const change = <K extends keyof PlotDraft>(key: K, value: PlotDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const changeStoryPositionMode = (mode: PlotDraft["storyPositionMode"]) => setDraft((current) => ({
+    ...current,
+    storyPositionMode: mode,
+    storyAnchorPlotId: (mode === "before" || mode === "after")
+      ? (current.storyAnchorPlotId || storyAnchorOptions[0]?.entityId || "")
+      : current.storyAnchorPlotId,
+  }));
   const chapterNumber = Number(draft.chapterNumber);
   const chapterNumberIsValid = draft.chapterNumber.trim() !== ""
     && Number.isInteger(chapterNumber)
     && chapterNumber >= 1
     && chapterNumber <= 99999;
   const currentChapterTitle = chapterNumberIsValid ? plotChapterTitle(chapterNumber) : "未设置章号";
+  const storyAnchorOptions = snapshot.plots.filter((item) => item.entityId !== currentId);
   const rejectInvalidChapter = () => {
     setChapterErrorPulse((current) => current + 1);
     setMessage("请填写 1 至 99999 之间的整数章号");
@@ -271,6 +286,9 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
         <EditorSettingsSection label="剧情设置">
           <label><span>章节</span><span key={chapterErrorPulse} className={`chapter-number-field${chapterErrorPulse ? " is-invalid-pulse" : ""}`}>第 <input type="number" min="1" max="99999" step="1" aria-label="章号" aria-invalid={!chapterNumberIsValid} value={draft.chapterNumber} onChange={(event) => change("chapterNumber", event.target.value)} /> 章</span></label>
           <label><span>篇</span><select value={draft.chapterId} onChange={(event) => change("chapterId", event.target.value)}><option value="">主线</option>{snapshot.chapters.map((item) => <option key={item.entityId} value={item.entityId}>{item.label}</option>)}</select></label>
+          <label className="wide"><span>故事时间位置</span><select value={draft.storyPositionMode} onChange={(event) => changeStoryPositionMode(event.target.value as PlotDraft["storyPositionMode"])}><option value="follow_reading">按阅读顺序（正序自动同步）</option><option value="before">发生在某剧情之前</option><option value="after">发生在某剧情之后</option><option value="fixed">指定故事位置</option></select></label>
+          {(draft.storyPositionMode === "before" || draft.storyPositionMode === "after") && <label className="wide"><span>{draft.storyPositionMode === "before" ? "发生在" : "发生在"}</span><select value={draft.storyAnchorPlotId} onChange={(event) => change("storyAnchorPlotId", event.target.value)}><option value="">选择参考剧情</option>{storyAnchorOptions.map((item) => <option key={item.entityId} value={item.entityId}>第 {item.sequence} 章 · {item.title}</option>)}</select><small>{draft.storyPositionMode === "before" ? "之前" : "之后"}</small></label>}
+          {draft.storyPositionMode === "fixed" && <label className="wide"><span>故事位置</span><input inputMode="numeric" value={draft.storySortKey} onChange={(event) => change("storySortKey", event.target.value.replace(/\D/g, ""))} placeholder="填写故事时间序号" /><small>数字越小，故事发生得越早</small></label>}
           <label><span>状态</span><select value={draft.status} onChange={(event) => change("status", event.target.value)}>{plotStatusOptions(draft.status).map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
           <label><span>强调色</span><input type="color" value={draft.accent} onChange={(event) => change("accent", event.target.value)} /></label>
           <label className="wide"><span>摘要</span><input value={draft.summary} onChange={(event) => change("summary", event.target.value)} /></label>

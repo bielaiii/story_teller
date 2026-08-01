@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -80,6 +80,9 @@ class PlotCreate(MutationRequest):
     appearance_names: list[str] = Field(default=[], alias="appearanceNames")
     entries: list[str] = []
     lanes: list[str] = []
+    story_position_mode: Literal["follow_reading", "before", "after", "fixed"] = Field(default="follow_reading", alias="storyPositionMode")
+    story_anchor_plot_id: str | None = Field(default=None, alias="storyAnchorPlotId")
+    story_sort_key: str | None = Field(default=None, alias="storySortKey")
     references: list[str] = []
 
 
@@ -99,6 +102,9 @@ class PlotPatch(MutationRequest):
     appearance_names: list[str] | None = Field(default=None, alias="appearanceNames")
     entries: list[str] | None = None
     lanes: list[str] | None = None
+    story_position_mode: Literal["follow_reading", "before", "after", "fixed"] | None = Field(default=None, alias="storyPositionMode")
+    story_anchor_plot_id: str | None = Field(default=None, alias="storyAnchorPlotId")
+    story_sort_key: str | None = Field(default=None, alias="storySortKey")
     references: list[str] | None = None
 
 
@@ -234,6 +240,7 @@ class TimelineAssignment(BaseModel):
     plot_id: str = Field(alias="plotId")
     line_ids: list[str] = Field(default=[], alias="lineIds")
     story_sort_key: str = Field(default="", alias="storySortKey")
+    story_order_mode: Literal["follow_reading", "fixed"] | None = Field(default=None, alias="storyOrderMode")
     story_order: int | None = Field(default=None, alias="storyOrder")
 
 

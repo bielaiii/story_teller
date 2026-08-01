@@ -25,6 +25,7 @@ interface AssignmentDraft {
   storySortKey: string;
   storyPosition: number;
   chapterNumber: number;
+  storyOrderMode?: "follow_reading" | "fixed";
 }
 
 interface TimelineDragState {
@@ -105,9 +106,11 @@ export function moveTimelineAssignment(
     dragged.storySortKey = neighbor.storySortKey;
     dragged.storyPosition = neighbor.storyPosition;
     dragged.chapterNumber = neighbor.chapterNumber;
+    dragged.storyOrderMode = "fixed";
     neighbor.storySortKey = draggedStoryKey;
     neighbor.storyPosition = draggedStoryPosition;
     neighbor.chapterNumber = draggedChapterNumber;
+    neighbor.storyOrderMode = "fixed";
     dragged.lineIds.forEach((id) => affectedLineIds.add(id));
     neighbor.lineIds.forEach((id) => affectedLineIds.add(id));
     swapPreview = {
@@ -579,6 +582,7 @@ export default function TimelinePage() {
         storySortKey: nodes.map((node) => node.storySortKey).sort()[0] || rank(index + 1),
         storyPosition: TIMELINE_TOP + index * TIMELINE_STEP,
         chapterNumber: plotChapterNumber(plot.title, plot.sequence),
+        storyOrderMode: plot.storyOrderMode,
       };
     });
     const orderedAssignments = [...nextAssignments].sort((left, right) => left.storySortKey.localeCompare(right.storySortKey));
@@ -709,7 +713,7 @@ export default function TimelinePage() {
     );
     if (!reordered && Math.abs(nextPosition - ordered[index].storyPosition) < .1) return;
     nextAssignments = nextAssignments.map((item) => (
-      item.plotId === current.plotId ? { ...item, storyPosition: nextPosition } : item
+      item.plotId === current.plotId ? { ...item, storyPosition: nextPosition, storyOrderMode: "fixed" as const } : item
     )).map((item) => ({
       ...item,
       storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
@@ -902,6 +906,7 @@ export default function TimelinePage() {
             plotId: item.plotId,
             lineIds: item.lineIds,
             storySortKey: timelineSortKeyFromPosition(item.storyPosition, editorSortBaseRef.current),
+            storyOrderMode: item.storyOrderMode,
           })),
           chapterNumbers: chapterNumbersChanged ? assignments.map((item) => ({
             plotId: item.plotId,
