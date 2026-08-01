@@ -47,6 +47,10 @@ export interface Plot {
   title: string;
   chapterId: string;
   sortKey: string;
+  storySortKey?: string;
+  storyOrderMode?: "follow_reading" | "fixed";
+  storyAnchorPlotId?: string | null;
+  storyAnchorSide?: "before" | "after" | null;
   sequence: number;
   summary: string;
   bodyPreview: string;

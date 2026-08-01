@@ -232,6 +232,10 @@ class ProjectRepository:
             "title": str(row["title"]),
             "chapterId": str(row["chapter_id"] or ""),
             "sortKey": str(row["sort_key"]),
+            "storySortKey": str(row["story_sort_key"]),
+            "storyOrderMode": str(row["story_order_mode"]),
+            "storyAnchorPlotId": str(row["story_anchor_plot_id"]) if row["story_anchor_plot_id"] else None,
+            "storyAnchorSide": str(row["story_anchor_side"]) if row["story_anchor_side"] else None,
             "sequence": int(row["display_sequence"]),
             "summary": str(row["summary"]),
             "bodyPreview": preview(row["body_markdown"]),
@@ -354,7 +358,14 @@ class ProjectRepository:
         ]
         nodes = [
             {"plotId": str(row["plot_id"]), "lineId": str(row["line_id"]), "storySortKey": str(row["story_sort_key"])}
-            for row in connection.execute("SELECT * FROM active_timeline_nodes ORDER BY line_id, story_sort_key")
+            for row in connection.execute(
+                """
+                SELECT node.plot_id, node.line_id, plot.story_sort_key
+                FROM active_timeline_nodes node
+                JOIN active_plots plot ON plot.entity_id=node.plot_id
+                ORDER BY node.line_id, plot.story_sort_key, node.plot_id
+                """
+            )
         ]
         return {
             "mainLineId": str(settings["main_line_id"] or "") if settings else "",

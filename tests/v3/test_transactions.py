@@ -456,6 +456,38 @@ class V3TransactionTests(unittest.TestCase):
         self.assertIn("plot:3", {item["entityId"] for item in restored["plots"]})
         self.assertNotIn(target_id, {item["entityId"] for item in restored["fragments"]})
 
+    def test_converted_plot_timeline_slots_do_not_block_future_plot_creates(self):
+        converted = self.content.move_plot_to_fragment(
+            "plot:6", self.revision()
+        )
+
+        created = self.content.create_plot(
+            converted.project_revision,
+            {
+                "title": "转换后的新剧情",
+                "body": "回收站中的时间线排序槽不会阻止这次保存。",
+                "lanes": [],
+            },
+        )
+
+        self.assertEqual(converted.project_revision + 1, created.project_revision)
+        self.assertIn(
+            created.callback_result["entityId"],
+            {item["entityId"] for item in self.repository.snapshot()["plots"]},
+        )
+        with self.database.read() as connection:
+            duplicate_count = int(connection.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT line_id, story_sort_key
+                    FROM plot_timeline_lines
+                    GROUP BY line_id, story_sort_key
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()[0])
+        self.assertEqual(0, duplicate_count)
+
     def test_fragment_can_move_to_next_mainline_plot(self):
         created = self.content.create_fragment(
             self.revision(),

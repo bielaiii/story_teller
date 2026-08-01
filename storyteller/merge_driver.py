@@ -23,7 +23,7 @@ from storyteller.domain.uow import (
     encode_value,
 )
 from storyteller.storage.connection import Database, schema_version
-from storyteller.storage.schema import migrate_v3_to_v4
+from storyteller.storage.schema import migrate_v3_to_v4, migrate_v4_to_v5
 
 
 TRANSIENT_COLUMNS = {
@@ -136,6 +136,10 @@ def ensure_current_schema(path: Path) -> None:
         if version == 3:
             connection.execute("PRAGMA foreign_keys=ON")
             migrate_v3_to_v4(connection)
+            version = schema_version(connection)
+        if version == 4:
+            connection.execute("PRAGMA foreign_keys=ON")
+            migrate_v4_to_v5(connection)
             version = schema_version(connection)
         if version != SCHEMA_VERSION:
             raise ValueError(

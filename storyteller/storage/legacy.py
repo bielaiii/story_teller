@@ -16,7 +16,7 @@ import yaml
 
 from storyteller import SCHEMA_VERSION
 from storyteller.storage.connection import Database, schema_version
-from storyteller.storage.schema import initialize_schema, migrate_v3_to_v4
+from storyteller.storage.schema import initialize_schema, migrate_v3_to_v4, migrate_v4_to_v5
 
 
 FRONTMATTER = re.compile(r"^---\n(?P<meta>[\s\S]*?)\n---(?:\n|$)")
@@ -515,11 +515,12 @@ class V3Migrator:
             self.warnings.append(f"{document.path} 引用的篇章不存在，已迁入未安排区域")
         connection.execute(
             """
-            INSERT INTO plots(entity_id, chapter_id, sort_key, summary, body_markdown, status, accent, is_key, is_climax)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO plots(entity_id, chapter_id, sort_key, story_sort_key, story_order_mode, summary, body_markdown, status, accent, is_key, is_climax)
+            VALUES(?, ?, ?, ?, 'follow_reading', ?, ?, ?, ?, ?, ?)
             """,
             (
                 identifier, chapter, self.plot_sort_keys.get(document.path, sort_key(fallback * RANK_STEP)),
+                self.plot_sort_keys.get(document.path, sort_key(fallback * RANK_STEP)),
                 str(data.get("summary") or ""), document.body, str(data.get("status") or "草稿"),
                 normalize_color(data.get("accent")), int(bool(data.get("key"))), int(bool(data.get("climax"))),
             ),
@@ -902,6 +903,32 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             "database": str(database),
             "normalizedGraphVisibility": normalized,
         }
+    if current_version == 4:
+        source_digest = file_sha256(database)
+        backup = database.with_name(f"story.{source_digest[:12]}.v4-backup.db")
+        if keep_backup and not backup.exists():
+            shutil.copy2(database, backup)
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v4_to_v5(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V5 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V5 迁移后数据库外键检查失败")
+        except Exception:
+            if keep_backup and backup.exists():
+                shutil.copy2(backup, database)
+            raise
+        Database(root).require_v3()
+        return {
+            "ok": True,
+            "alreadyMigrated": False,
+            "database": str(database),
+            "sourceSchemaVersion": 4,
+            "schemaVersion": SCHEMA_VERSION,
+            "backup": str(backup) if keep_backup else "",
+        }
     if current_version == 3:
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".story-v3-backup-", suffix=".db", dir=root
@@ -940,7 +967,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         finally:
             temporary_backup.unlink(missing_ok=True)
     if current_version not in {1, 2}:
-        raise ValueError(f"只支持迁移 Schema V1/V2/V3，当前为 V{current_version}")
+        raise ValueError(f"只支持迁移 Schema V1/V2/V3/V4，当前为 V{current_version}")
     source_digest = file_sha256(database)
     # A content package may have gone through an earlier preview or failed cutover.
     # Name the backup from the exact source bytes so an existing stale backup can

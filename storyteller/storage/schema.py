@@ -183,6 +183,10 @@ CREATE TABLE plots (
     entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     chapter_id TEXT REFERENCES chapters(entity_id),
     sort_key TEXT NOT NULL,
+    story_sort_key TEXT NOT NULL DEFAULT '',
+    story_order_mode TEXT NOT NULL DEFAULT 'follow_reading' CHECK(story_order_mode IN ('follow_reading', 'fixed')),
+    story_anchor_plot_id TEXT REFERENCES plots(entity_id),
+    story_anchor_side TEXT CHECK(story_anchor_side IS NULL OR story_anchor_side IN ('before', 'after')),
     summary TEXT NOT NULL DEFAULT '',
     body_markdown TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '草稿',
@@ -495,4 +499,19 @@ def migrate_v3_to_v4(connection) -> None:
         PRAGMA user_version = {SCHEMA_VERSION};
         COMMIT;
         """
+    )
+
+
+def migrate_v4_to_v5(connection) -> None:
+    """Persist story chronology separately from reading order."""
+    connection.executescript(
+        "BEGIN IMMEDIATE;\n"
+        "ALTER TABLE plots ADD COLUMN story_sort_key TEXT NOT NULL DEFAULT '';\n"
+        "ALTER TABLE plots ADD COLUMN story_order_mode TEXT NOT NULL DEFAULT 'follow_reading' CHECK(story_order_mode IN ('follow_reading', 'fixed'));\n"
+        "ALTER TABLE plots ADD COLUMN story_anchor_plot_id TEXT REFERENCES plots(entity_id);\n"
+        "ALTER TABLE plots ADD COLUMN story_anchor_side TEXT CHECK(story_anchor_side IS NULL OR story_anchor_side IN ('before', 'after'));\n"
+        "UPDATE plots SET story_sort_key = COALESCE((SELECT MIN(story_sort_key) FROM plot_timeline_lines WHERE plot_id=plots.entity_id), sort_key) WHERE story_sort_key='';\n"
+        f"UPDATE metadata SET value='{SCHEMA_VERSION}' WHERE key='schema_version';\n"
+        f"PRAGMA user_version = {SCHEMA_VERSION};\n"
+        "COMMIT;"
     )

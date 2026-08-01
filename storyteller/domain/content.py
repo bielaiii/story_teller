@@ -15,6 +15,7 @@ HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 STABLE_TEXT = re.compile(r"^[A-Za-z0-9_-]+$")
 RANK_STEP = 10**12
 TRASH_RETENTION_SECONDS = 7 * 24 * 60 * 60
+STORY_POSITION_MODES = {"follow_reading", "before", "after", "fixed"}
 NARRATIVE_ROLES = {"主角", "配角"}
 CHARACTER_SCOPES = {"主线人物", "常驻人物", "待定角色", "一次性角色"}
 CHARACTER_SIDES = {"主角方", "中立", "反派方"}
@@ -359,6 +360,248 @@ class ContentService:
             return ContentService._rank_after(connection, table, owner_id)
         return f"{(lower + upper) // 2:024d}"
 
+    @staticmethod
+    def _main_line_id(connection: sqlite3.Connection) -> str | None:
+        row = connection.execute(
+            "SELECT main_line_id FROM timeline_settings LIMIT 1"
+        ).fetchone()
+        return str(row[0]) if row and row[0] else None
+
+    @staticmethod
+    def _story_key(value: Any, label: str = "故事时间位置") -> str:
+        text = str(value or "").strip()
+        if not text.isdigit():
+            raise DomainError(f"{label}必须是非负整数位置")
+        return f"{int(text):024d}"
+
+    @staticmethod
+    def _story_reserved_keys(connection: sqlite3.Connection) -> set[str]:
+        return {
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT ptl.story_sort_key
+                FROM plot_timeline_lines ptl
+                JOIN entities plot_entity ON plot_entity.id=ptl.plot_id
+                WHERE plot_entity.deleted_at IS NOT NULL
+                """
+            )
+            if str(row[0]).isdigit()
+        }
+
+    @staticmethod
+    def _resequence_story_keys(connection: sqlite3.Connection) -> None:
+        """Compact story positions without consulting reading order."""
+        rows = list(connection.execute(
+            "SELECT entity_id, story_sort_key FROM active_plots ORDER BY story_sort_key, entity_id"
+        ))
+        reserved = ContentService._story_reserved_keys(connection)
+        target: dict[str, str] = {}
+        index = 1
+        for row in rows:
+            candidate = f"{index * RANK_STEP:024d}"
+            while candidate in reserved:
+                index += 1
+                candidate = f"{index * RANK_STEP:024d}"
+            target[str(row["entity_id"])] = candidate
+            index += 1
+        active_nodes = list(connection.execute(
+            "SELECT plot_id, line_id FROM active_timeline_nodes ORDER BY line_id, plot_id"
+        ))
+        for index, row in enumerate(active_nodes, start=1):
+            connection.execute(
+                "UPDATE plot_timeline_lines SET story_sort_key=? WHERE plot_id=? AND line_id=?",
+                (f"~story-resequence-{index:06d}", row["plot_id"], row["line_id"]),
+            )
+        for plot_id, story_key in target.items():
+            connection.execute(
+                "UPDATE plots SET story_sort_key=? WHERE entity_id=?",
+                (story_key, plot_id),
+            )
+        for plot_id, story_key in target.items():
+            connection.execute(
+                "UPDATE plot_timeline_lines SET story_sort_key=? WHERE plot_id=?",
+                (story_key, plot_id),
+            )
+
+    @staticmethod
+    def _story_key_before_or_after(
+        connection: sqlite3.Connection, anchor_id: str, side: str, exclude_id: str | None = None
+    ) -> str:
+        rows = list(connection.execute(
+            """
+            SELECT entity_id, story_sort_key
+            FROM active_plots
+            WHERE (? IS NULL OR entity_id<>?)
+            ORDER BY story_sort_key, entity_id
+            """, (exclude_id, exclude_id)
+        ))
+        anchor_index = next((index for index, row in enumerate(rows) if str(row["entity_id"]) == anchor_id), None)
+        if anchor_index is None:
+            raise DomainError("故事时间锚点不存在")
+        if side == "before":
+            upper = int(rows[anchor_index]["story_sort_key"])
+            lower = int(rows[anchor_index - 1]["story_sort_key"]) if anchor_index else 0
+        else:
+            lower = int(rows[anchor_index]["story_sort_key"])
+            upper = int(rows[anchor_index + 1]["story_sort_key"]) if anchor_index + 1 < len(rows) else lower + RANK_STEP
+        if upper - lower <= 1:
+            ContentService._resequence_story_keys(connection)
+            return ContentService._story_key_before_or_after(connection, anchor_id, side, exclude_id)
+        candidate = (lower + upper) // 2
+        reserved = ContentService._story_reserved_keys(connection)
+        while str(candidate).zfill(24) in reserved:
+            candidate += 1
+            if candidate >= upper:
+                ContentService._resequence_story_keys(connection)
+                return ContentService._story_key_before_or_after(connection, anchor_id, side, exclude_id)
+        return f"{candidate:024d}"
+
+    @staticmethod
+    def _sync_follow_reading_story_sort_keys(connection: sqlite3.Connection) -> None:
+        """Synchronize only plots explicitly following reading order."""
+        ordered = [
+            str(row["entity_id"])
+            for row in connection.execute("SELECT entity_id FROM active_plots ORDER BY sort_key, entity_id")
+        ]
+        if not ordered:
+            return
+        rows = {
+            str(row["entity_id"]): row
+            for row in connection.execute(
+                """
+                SELECT p.entity_id, p.story_sort_key, p.story_order_mode,
+                       COALESCE(MIN(ptl.story_sort_key), p.story_sort_key) AS effective_story_sort_key
+                FROM active_plots p
+                LEFT JOIN active_timeline_nodes ptl ON ptl.plot_id=p.entity_id
+                GROUP BY p.entity_id
+                """
+            )
+        }
+        fixed_keys = {
+            str(row["story_sort_key"])
+            for row in rows.values()
+            if str(row["story_order_mode"]) == "fixed" and str(row["story_sort_key"]).isdigit()
+        }
+        existing_keys = {
+            str(row["effective_story_sort_key"])
+            for row in rows.values()
+            if str(row["effective_story_sort_key"]).isdigit()
+        }
+        slots = sorted(existing_keys | fixed_keys, key=lambda value: (int(value), value))
+        reserved = ContentService._story_reserved_keys(connection)
+        next_index = 1
+        while len(slots) < len(ordered):
+            candidate = f"{next_index * RANK_STEP:024d}"
+            next_index += 1
+            if candidate not in reserved and candidate not in slots:
+                slots.append(candidate)
+                slots.sort(key=lambda value: (int(value), value))
+        if len(slots) > len(ordered):
+            slots = sorted(fixed_keys | set(slots[:len(ordered)]), key=lambda value: (int(value), value))[:len(ordered)]
+            while len(slots) < len(ordered):
+                candidate = f"{next_index * RANK_STEP:024d}"
+                next_index += 1
+                if candidate not in reserved and candidate not in slots:
+                    slots.append(candidate)
+                    slots.sort(key=lambda value: (int(value), value))
+        target = {
+            plot_id: rows[plot_id]["story_sort_key"]
+            for plot_id in ordered
+            if str(rows[plot_id]["story_order_mode"]) == "fixed"
+        }
+        available = [slot for slot in slots if slot not in set(target.values())]
+        for plot_id in ordered:
+            if plot_id not in target:
+                target[plot_id] = available.pop(0)
+        changed = [
+            plot_id for plot_id in ordered
+            if str(rows[plot_id]["story_sort_key"]) != str(target[plot_id])
+            or str(rows[plot_id]["effective_story_sort_key"]) != str(target[plot_id])
+        ]
+        if not changed:
+            return
+        active_nodes = list(connection.execute(
+            "SELECT plot_id, line_id FROM active_timeline_nodes ORDER BY line_id, plot_id"
+        ))
+        for index, row in enumerate(active_nodes, start=1):
+            if str(row["plot_id"]) in changed:
+                connection.execute(
+                    "UPDATE plot_timeline_lines SET story_sort_key=? WHERE plot_id=? AND line_id=?",
+                    (f"~story-sync-{index:06d}", row["plot_id"], row["line_id"]),
+                )
+        for plot_id in changed:
+            connection.execute("UPDATE plots SET story_sort_key=? WHERE entity_id=?", (target[plot_id], plot_id))
+            connection.execute("UPDATE plot_timeline_lines SET story_sort_key=? WHERE plot_id=?", (target[plot_id], plot_id))
+        ContentService._refresh_story_anchors(connection)
+
+    @staticmethod
+    def _refresh_story_anchors(connection: sqlite3.Connection) -> None:
+        anchored = list(connection.execute(
+            """
+            SELECT entity_id, story_anchor_plot_id, story_anchor_side, story_sort_key
+            FROM active_plots
+            WHERE story_order_mode='fixed' AND story_anchor_plot_id IS NOT NULL
+            ORDER BY story_sort_key, entity_id
+            """
+        ))
+        for row in anchored:
+            anchor = connection.execute(
+                "SELECT story_sort_key FROM active_plots WHERE entity_id=?",
+                (row["story_anchor_plot_id"],),
+            ).fetchone()
+            if not anchor:
+                continue
+            current = int(row["story_sort_key"])
+            anchor_key = int(anchor[0])
+            side = str(row["story_anchor_side"] or "")
+            if (side == "before" and current < anchor_key) or (side == "after" and current > anchor_key):
+                continue
+            next_key = ContentService._story_key_before_or_after(
+                connection, str(row["story_anchor_plot_id"]), side, str(row["entity_id"])
+            )
+            connection.execute("UPDATE plots SET story_sort_key=? WHERE entity_id=?", (next_key, row["entity_id"]))
+            connection.execute("UPDATE plot_timeline_lines SET story_sort_key=? WHERE plot_id=?", (next_key, row["entity_id"]))
+
+    def _apply_story_position(
+        self,
+        connection: sqlite3.Connection,
+        identifier: str,
+        payload: dict[str, Any],
+        default_key: str,
+        *,
+        is_create: bool,
+    ) -> None:
+        existing = connection.execute(
+            "SELECT story_sort_key, story_order_mode, story_anchor_plot_id, story_anchor_side FROM plots WHERE entity_id=?",
+            (identifier,),
+        ).fetchone()
+        requested = payload.get("story_position_mode")
+        mode = str(requested or ("follow_reading" if is_create else existing["story_order_mode"] or "follow_reading"))
+        if mode not in STORY_POSITION_MODES:
+            raise DomainError("故事时间位置选项无效")
+        if mode == "follow_reading":
+            connection.execute(
+                "UPDATE plots SET story_sort_key=?, story_order_mode='follow_reading', story_anchor_plot_id=NULL, story_anchor_side=NULL WHERE entity_id=?",
+                (default_key, identifier),
+            )
+            return
+        anchor_id = str(payload.get("story_anchor_plot_id") or "")
+        side = mode if mode in {"before", "after"} else None
+        if side:
+            if not anchor_id or anchor_id == identifier:
+                raise DomainError("请选择有效的故事时间锚点剧情")
+            if not connection.execute("SELECT 1 FROM active_plots WHERE entity_id=?", (anchor_id,)).fetchone():
+                raise DomainError("故事时间锚点不存在或已删除")
+            story_key = self._story_key_before_or_after(connection, anchor_id, side, identifier)
+        else:
+            story_key = self._story_key(payload.get("story_sort_key") or (existing["story_sort_key"] if existing else default_key))
+            anchor_id = ""
+        connection.execute(
+            "UPDATE plots SET story_sort_key=?, story_order_mode='fixed', story_anchor_plot_id=?, story_anchor_side=? WHERE entity_id=?",
+            (story_key, anchor_id or None, side, identifier),
+        )
+
     def _create_entity(
         self, connection: sqlite3.Connection, kind: str, stable_id: str, title: str, now: int
     ) -> str:
@@ -493,60 +736,7 @@ class ContentService:
                     "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
                     (next_title, now, item["id"]),
                 )
-        ContentService._sync_plot_timeline_story_sort_keys(connection)
-
-    @staticmethod
-    def _sync_plot_timeline_story_sort_keys(connection: sqlite3.Connection) -> None:
-        """Align timeline order with plot order while preserving the existing spacing slots."""
-        ordered_plot_ids = [
-            str(row["entity_id"])
-            for row in connection.execute(
-                "SELECT entity_id FROM active_plots ORDER BY sort_key, entity_id"
-            )
-        ]
-        existing_keys_by_plot: dict[str, str] = {}
-        for row in connection.execute(
-            """
-            SELECT plot_id, MIN(story_sort_key) AS story_sort_key
-            FROM plot_timeline_lines
-            GROUP BY plot_id
-            """
-        ):
-            story_key = str(row["story_sort_key"])
-            if story_key.isdigit():
-                existing_keys_by_plot[str(row["plot_id"])] = story_key
-        spacing_slots = sorted(
-            existing_keys_by_plot.values(),
-            key=lambda value: (int(value), value),
-        )
-        if len(spacing_slots) != len(ordered_plot_ids) or len(set(spacing_slots)) != len(spacing_slots):
-            spacing_slots = [f"{index * RANK_STEP:024d}" for index in range(1, len(ordered_plot_ids) + 1)]
-        target_key_by_plot = dict(zip(ordered_plot_ids, spacing_slots, strict=True))
-        rows = list(connection.execute(
-            """
-            SELECT ptl.plot_id, ptl.line_id
-            FROM plot_timeline_lines ptl
-            JOIN active_plots p ON p.entity_id=ptl.plot_id
-            ORDER BY ptl.line_id, p.sort_key, ptl.plot_id
-            """
-        ))
-        for index, row in enumerate(rows, start=1):
-            connection.execute(
-                """
-                UPDATE plot_timeline_lines SET story_sort_key=?
-                WHERE plot_id=? AND line_id=?
-                """,
-                (f"~plot-rank-sync-{index:06d}", row["plot_id"], row["line_id"]),
-            )
-        for row in rows:
-            connection.execute(
-                """
-                UPDATE plot_timeline_lines SET story_sort_key=?
-                WHERE plot_id=? AND line_id=?
-                """,
-                (target_key_by_plot[str(row["plot_id"])], row["plot_id"], row["line_id"]),
-            )
-
+        ContentService._sync_follow_reading_story_sort_keys(connection)
     @staticmethod
     def _replace_values(
         connection: sqlite3.Connection, table: str, owner_column: str, owner_id: str,
@@ -933,7 +1123,7 @@ class ContentService:
         if not old_name or old_name == new_name:
             return []
         sources = [str(row[0]) for row in connection.execute(
-            "SELECT DISTINCT source_entity_id FROM entity_references WHERE target_entity_id=?",
+            "SELECT DISTINCT source_entity_id FROM entity_references WHERE target_entity_id=? AND source='editor'",
             (target_id,),
         )]
         locations = {
@@ -1174,17 +1364,18 @@ class ContentService:
             rank = self._rank_after(connection, "plots", payload.get("after_entity_id"))
             connection.execute(
                 """
-                INSERT INTO plots(entity_id, chapter_id, sort_key, summary, body_markdown, status, accent, is_key, is_climax)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO plots(entity_id, chapter_id, sort_key, story_sort_key, story_order_mode, summary, body_markdown, status, accent, is_key, is_climax)
+                VALUES(?, ?, ?, ?, 'follow_reading', ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    identifier, chapter, rank, clean_text(payload.get("summary", ""), "剧情摘要", 1000),
+                    identifier, chapter, rank, rank, clean_text(payload.get("summary", ""), "剧情摘要", 1000),
                     body, clean_text(payload.get("status", "草稿"), "剧情状态", 40, required=True),
                     clean_color(payload.get("accent")), int(bool(payload.get("key"))), int(bool(payload.get("climax"))),
                 ),
             )
+            self._apply_story_position(connection, identifier, payload, rank, is_create=True)
             automatic_people = self._replace_plot_collections(
-                connection, identifier, payload, rank, now
+                connection, identifier, payload, rank, now, default_main_line=True
             )
             self._replace_entity_references(connection, identifier, payload)
             self._sync_character_references(
@@ -1234,6 +1425,8 @@ class ContentService:
                     f"UPDATE plots SET {', '.join(column+'=?' for column in updates)} WHERE entity_id=?",
                     tuple(updates.values()) + (identifier,),
                 )
+            if any(key in payload for key in ("story_position_mode", "story_anchor_plot_id", "story_sort_key")):
+                self._apply_story_position(connection, identifier, payload, str(row["sort_key"]), is_create=False)
             automatic_people = self._replace_plot_collections(
                 connection, identifier, payload, str(row["sort_key"]), now
             )
@@ -1409,12 +1602,13 @@ class ContentService:
             connection.execute(
                 """
                 INSERT INTO plots(
-                    entity_id, chapter_id, sort_key, summary, body_markdown,
+                    entity_id, chapter_id, sort_key, story_sort_key, story_order_mode, summary, body_markdown,
                     status, accent, is_key, is_climax
-                ) VALUES(?, NULL, ?, ?, ?, '草稿', ?, 0, 0)
+                ) VALUES(?, NULL, ?, ?, 'follow_reading', ?, ?, '草稿', ?, 0, 0)
                 """,
                 (
                     target_id,
+                    rank,
                     rank,
                     source_title,
                     str(row["body_markdown"]),
@@ -1430,7 +1624,7 @@ class ContentService:
                 "chapter_number": chapter_number,
             }
             automatic_people = self._replace_plot_collections(
-                connection, target_id, target_payload, rank, now
+                connection, target_id, target_payload, rank, now, default_main_line=True
             )
             self._replace_entity_references(connection, target_id, target_payload)
             if planned_chapter_number is not None:
@@ -1502,7 +1696,7 @@ class ContentService:
 
     def _replace_plot_collections(
         self, connection: sqlite3.Connection, identifier: str, payload: dict[str, Any],
-        story_rank: str, now: int,
+        story_rank: str, now: int, *, default_main_line: bool = False,
     ) -> list[str]:
         if "tags" in payload:
             self._replace_values(connection, "plot_tags", "plot_id", identifier, "tag", clean_values(payload["tags"], "剧情标签"))
@@ -1528,16 +1722,45 @@ class ContentService:
                 f"INSERT INTO {table}(plot_id, {target_column}) VALUES(?, ?)",
                 [(identifier, value) for value in values],
             )
-        if "lanes" in payload:
+        if "lanes" in payload or default_main_line:
             values = self._require_targets(
-                connection, clean_values(payload["lanes"], "剧情线"), "active_timeline_lines", "剧情线"
+                connection, clean_values(payload.get("lanes", []), "剧情线"), "active_timeline_lines", "剧情线"
             )
-            self._sync_plot_timeline_story_sort_keys(connection)
-            connection.execute("DELETE FROM plot_timeline_lines WHERE plot_id=?", (identifier,))
-            connection.executemany(
-                "INSERT INTO plot_timeline_lines(plot_id, line_id, story_sort_key) VALUES(?, ?, ?)",
-                [(identifier, value, story_rank) for value in values],
-            )
+            if not values and default_main_line:
+                main_line_id = self._main_line_id(connection)
+                if main_line_id:
+                    values = [main_line_id]
+            if not values and not default_main_line:
+                return automatic_people
+            existing = {
+                str(row["line_id"]): str(row["story_sort_key"])
+                for row in connection.execute(
+                    "SELECT line_id, story_sort_key FROM plot_timeline_lines WHERE plot_id=?",
+                    (identifier,),
+                )
+            }
+            current_story_key = str(connection.execute(
+                "SELECT story_sort_key FROM plots WHERE entity_id=?", (identifier,)
+            ).fetchone()[0])
+            for line_id in values:
+                conflict = connection.execute(
+                    """
+                    SELECT ptl.plot_id
+                    FROM plot_timeline_lines ptl
+                    JOIN active_plots p ON p.entity_id=ptl.plot_id
+                    WHERE ptl.line_id=? AND ptl.story_sort_key=? AND ptl.plot_id<>?
+                    LIMIT 1
+                    """,
+                    (line_id, current_story_key, identifier),
+                ).fetchone()
+                if conflict:
+                    raise DomainError("这个故事时间位置在所选剧情线上已经被占用")
+            if set(existing) != set(values) or any(value != current_story_key for value in existing.values()):
+                connection.execute("DELETE FROM plot_timeline_lines WHERE plot_id=?", (identifier,))
+                connection.executemany(
+                    "INSERT INTO plot_timeline_lines(plot_id, line_id, story_sort_key) VALUES(?, ?, ?)",
+                    [(identifier, value, current_story_key) for value in values],
+                )
         return automatic_people
 
     def create_entry(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
