@@ -201,6 +201,31 @@ class V3TransactionTests(unittest.TestCase):
         )
         self.assertIn(created_ids[4], restored.changed_entity_ids)
 
+    def test_fragments_are_listed_by_creation_time_descending(self):
+        created_ids: list[str] = []
+        revision = self.revision()
+        for title in ("较早碎片", "最新碎片", "中间碎片"):
+            created = self.content.create_fragment(
+                revision,
+                {"title": title, "body": title},
+            )
+            revision = created.project_revision
+            created_ids.append(created.callback_result["entityId"])
+
+        with self.database.write() as connection:
+            for identifier, created_at in zip(created_ids, (100, 300, 200)):
+                connection.execute(
+                    "UPDATE entities SET created_at=? WHERE id=?",
+                    (created_at, identifier),
+                )
+
+        visible_ids = [
+            item["entityId"]
+            for item in self.repository.snapshot()["fragments"]
+            if item["entityId"] in created_ids
+        ]
+        self.assertEqual([created_ids[1], created_ids[2], created_ids[0]], visible_ids)
+
     def test_transaction_failure_rolls_back_every_row_and_revision(self):
         revision = self.revision()
 
@@ -487,6 +512,54 @@ class V3TransactionTests(unittest.TestCase):
                 """
             ).fetchone()[0])
         self.assertEqual(0, duplicate_count)
+
+    def test_saving_follow_reading_plot_repairs_stale_timeline_story_key(self):
+        snapshot = self.repository.snapshot()
+        target = snapshot["plots"][0]
+        donor = snapshot["plots"][1]
+        line_id = target["lanes"][0]
+
+        # Simulate a database written before follow-reading keys were kept in
+        # sync. The target's timeline row still has its old key, while the
+        # plot row has drifted onto another plot's key.
+        with self.database.write() as connection:
+            connection.execute(
+                "UPDATE plots SET story_sort_key=? WHERE entity_id=?",
+                (donor["storySortKey"], target["entityId"]),
+            )
+
+        result = self.content.update_plot(
+            target["entityId"],
+            self.revision(),
+            {
+                "body": "保存时修复故事时间排序键。",
+                "lanes": [line_id],
+                "story_position_mode": "follow_reading",
+            },
+        )
+
+        self.assertEqual(self.revision(), result.project_revision)
+        with self.database.read() as connection:
+            duplicate_count = int(connection.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT line_id, story_sort_key
+                    FROM plot_timeline_lines
+                    GROUP BY line_id, story_sort_key
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()[0])
+            target_key = str(connection.execute(
+                "SELECT story_sort_key FROM plots WHERE entity_id=?",
+                (target["entityId"],),
+            ).fetchone()[0])
+            target_node_key = str(connection.execute(
+                "SELECT story_sort_key FROM plot_timeline_lines WHERE plot_id=? AND line_id=?",
+                (target["entityId"], line_id),
+            ).fetchone()[0])
+        self.assertEqual(0, duplicate_count)
+        self.assertEqual(target_key, target_node_key)
 
     def test_fragment_can_move_to_next_mainline_plot(self):
         created = self.content.create_fragment(

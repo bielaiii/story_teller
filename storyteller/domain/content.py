@@ -1427,6 +1427,13 @@ class ContentService:
                 )
             if any(key in payload for key in ("story_position_mode", "story_anchor_plot_id", "story_sort_key")):
                 self._apply_story_position(connection, identifier, payload, str(row["sort_key"]), is_create=False)
+            # A legacy database (or a previous reorder) may leave a
+            # follow-reading plot's stored story key out of sync with its
+            # reading position. Reconcile all follow-reading plots before
+            # replacing this plot's timeline memberships, otherwise the
+            # unique (line_id, story_sort_key) constraint can fail while the
+            # current plot is being reinserted.
+            self._sync_follow_reading_story_sort_keys(connection)
             automatic_people = self._replace_plot_collections(
                 connection, identifier, payload, str(row["sort_key"]), now
             )

@@ -43,7 +43,7 @@
         "职业": "档案修复师"
       },
       "gradient": "linear-gradient(135deg, #2aa79b, #3867b7)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "主角团",
       "id": "1",
       "intro": "旧港档案馆修复师，负责整理一批被火烧过的航海日记。",
@@ -60,7 +60,7 @@
         "plot:3",
         "plot:6"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "主角方",
       "supplementPersona": [],
       "supplements": []
@@ -80,7 +80,7 @@
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #df7655, #8e63d8)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "旧案相关",
       "id": "2",
       "intro": "沉默的海事律师，正在追查十五年前失踪船队的赔偿案。",
@@ -97,7 +97,7 @@
         "plot:4",
         "plot:7"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "主角方",
       "supplementPersona": [],
       "supplements": []
@@ -117,7 +117,7 @@
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #3f7fc1, #435fb8)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "主角团",
       "id": "3",
       "intro": "夜航电台主持人，能收到不属于当前时间的求救信号。",
@@ -134,7 +134,7 @@
         "plot:5",
         "plot:8"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "主角方",
       "supplementPersona": [],
       "supplements": []
@@ -154,7 +154,7 @@
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #d65f8f, #d99a2e)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "港区相关",
       "id": "4",
       "intro": "码头修船厂老板，掌握港区地下仓库的钥匙。",
@@ -171,7 +171,7 @@
         "plot:5",
         "plot:9"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "主角方",
       "supplementPersona": [],
       "supplements": []
@@ -191,7 +191,7 @@
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #68aa5b, #d8782e)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "旧案相关",
       "id": "5",
       "intro": "失踪船长的儿子，表面经营咖啡馆，暗中收集潮汐记录。",
@@ -207,7 +207,7 @@
         "plot:6",
         "plot:9"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "中立",
       "supplementPersona": [],
       "supplements": []
@@ -227,7 +227,7 @@
       "extra": {},
       "facts": {},
       "gradient": "linear-gradient(135deg, #d8b64a, #f77f00)",
-      "graphVisible": false,
+      "graphVisible": true,
       "group": "神秘人物",
       "id": "6",
       "intro": "城市传说作家，小说内容常常提前写出现实中的事故。",
@@ -243,7 +243,7 @@
         "plot:7",
         "plot:8"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "反派方",
       "supplementPersona": [],
       "supplements": []
@@ -277,7 +277,7 @@
       "references": [
         "plot:3"
       ],
-      "revision": 1,
+      "revision": 2,
       "side": "中立",
       "supplementPersona": [],
       "supplements": []
@@ -991,7 +991,7 @@
     "extra": {},
     "eyebrow": "Story Teller",
     "id": "demo",
-    "revision": 0,
+    "revision": 1,
     "title": "雾港纪事"
   },
   "readonly": true,

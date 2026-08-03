@@ -1,6 +1,15 @@
 import { useLayoutEffect, useRef } from "react";
 import { RenderedMarkdown } from "./RenderedMarkdown";
 
+export function previewBlockHiddenStates(bottoms: number[], availableBottom: number): boolean[] {
+  let overflowing = false;
+  return bottoms.map((bottom, index) => {
+    const hidden = overflowing || (index > 0 && bottom > availableBottom);
+    if (bottom > availableBottom) overflowing = true;
+    return hidden;
+  });
+}
+
 export function CompleteBlockPreview({ source, className = "" }: { source: string; className?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -14,13 +23,11 @@ export function CompleteBlockPreview({ source, className = "" }: { source: strin
       const blocks = [...rendered.children] as HTMLElement[];
       blocks.forEach((block) => { block.hidden = false; });
       const availableBottom = host.getBoundingClientRect().bottom + .5;
-      let overflowing = false;
-      for (const block of blocks) {
-        if (overflowing || block.getBoundingClientRect().bottom > availableBottom) {
-          overflowing = true;
-          block.hidden = true;
-        }
-      }
+      const hiddenStates = previewBlockHiddenStates(
+        blocks.map((block) => block.getBoundingClientRect().bottom),
+        availableBottom,
+      );
+      blocks.forEach((block, index) => { block.hidden = hiddenStates[index]; });
       host.dataset.measured = "true";
     };
     const schedule = () => {

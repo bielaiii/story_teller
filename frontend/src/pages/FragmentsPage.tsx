@@ -89,6 +89,10 @@ export function fragmentDisplayTitle(item: Fragment): string {
     : item.title;
 }
 
+export function fragmentLinePreviewOf(line: Fragment, chapters: Fragment[]): string {
+  return chapters[0]?.bodyPreview || line.bodyPreview || "第一章还没有正文";
+}
+
 export function groupFragments(items: Fragment[]) {
   const lines = new Set(items.filter((item) => fragmentTypeOf(item) === "line").map((item) => item.entityId));
   const children = new Map<string, Fragment[]>();
@@ -701,7 +705,7 @@ export default function FragmentsPage() {
         <article className={`fragment-card-new is-line${expanded ? " is-expanded" : ""}`} role="button" tabIndex={0} aria-expanded={expanded} style={{ "--accent": item.accent } as React.CSSProperties} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") toggle(); }}>
           <div className="fragment-card-index"><Icon name="timeline" /></div>
           <header><span>{children.length} 个章节</span>{writable && <button className="icon-button" aria-label={`编辑${item.title}`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
-          <div className="fragment-card-copy"><small>STORY LINE</small><h2>{item.title}</h2><CompleteBlockPreview source={item.bodyPreview || "还没有剧情线概述"} className="fragment-card-preview content-card-preview" /></div>
+          <div className="fragment-card-copy"><small>STORY LINE</small><h2>{item.title}</h2><CompleteBlockPreview source={fragmentLinePreviewOf(item, children)} className="fragment-card-preview content-card-preview" /></div>
           <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
           <span className="fragment-card-arrow" aria-hidden="true"><Icon name={expanded ? "up" : "down"} /></span>
         </article>
