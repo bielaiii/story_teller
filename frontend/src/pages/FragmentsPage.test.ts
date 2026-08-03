@@ -3,6 +3,7 @@ import type { Fragment } from "../api/types";
 import {
   fragmentChapterNumberOf,
   fragmentDisplayTitle,
+  fragmentLinePreviewOf,
   fragmentParentOf,
   fragmentPlotChapterPlanOf,
   fragmentTypeOf,
@@ -104,6 +105,15 @@ describe("fragment story-line grouping", () => {
 
     expect(fragmentChapterNumberOf(legacy)).toBe(18);
     expect(fragmentDisplayTitle(legacy)).toBe("旧标题");
+  });
+
+  it("uses the first chapter as the story-line card preview", () => {
+    const line = item("fragment:line", "line");
+    const first = { ...item("fragment:first", "chapter", line.entityId, 0, 1), bodyPreview: "第一章剧情" };
+    const second = { ...item("fragment:second", "chapter", line.entityId, 1, 2), bodyPreview: "第二章剧情" };
+
+    expect(fragmentLinePreviewOf(line, [first, second])).toBe("第一章剧情");
+    expect(fragmentLinePreviewOf(line, [])).toBe("第一章还没有正文");
   });
 
   it("keeps valid formal plot chapter planning while ignoring malformed values", () => {

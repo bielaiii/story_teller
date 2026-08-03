@@ -151,7 +151,13 @@ class ProjectRepository:
                 "SELECT * FROM active_entries ORDER BY type, stable_id"
             )]
             fragments = [self._fragment(row, fragment_tags, include_body=False) for row in connection.execute(
-                "SELECT * FROM active_fragments ORDER BY stable_id"
+                """
+                SELECT f.*, e.project_id, e.stable_id, e.title, e.revision, e.extra_json
+                FROM fragments f
+                JOIN entities e ON e.id = f.entity_id
+                WHERE e.deleted_at IS NULL
+                ORDER BY e.created_at DESC, e.id DESC
+                """
             )]
             for fragment in fragments:
                 fragment["references"] = fragment_references.get(fragment["entityId"], [])

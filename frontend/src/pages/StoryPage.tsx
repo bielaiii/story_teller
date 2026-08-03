@@ -66,7 +66,7 @@ function PlotCard({ plot, chapterLabel, onOpen }: { plot: Plot; chapterLabel: st
   const statusColor = tagColor(plot.status || "未标记");
   return <article className={`plot-card${importance ? " is-important" : ""}`} style={{ "--accent": plot.accent } as React.CSSProperties} onClick={onOpen}>
     {importance && <span className={`plot-card-ribbon${plot.climax ? " is-climax" : ""}`} aria-label={`${importance}剧情`}>{importance}</span>}
-    <div className="plot-card-index">{String(plot.sequence).padStart(2, "0")}</div>
+    <div className="plot-card-index">{String(plotChapterNumber(plot.title, plot.sequence)).padStart(2, "0")}</div>
     <div className="card-meta">
       <span className="plot-card-meta-item" style={{ "--tag-color": chapterColor } as React.CSSProperties} aria-label={`篇章 ${chapterLabel}`} title={`篇章：${chapterLabel}`}><Icon name="book" /><strong>{chapterLabel}</strong></span>
       <span className="plot-card-meta-item" style={{ "--tag-color": statusColor } as React.CSSProperties} aria-label={`状态 ${plot.status || "未标记"}`} title={`状态：${plot.status || "未标记"}`}><Icon name="filter" /><strong>{plot.status || "未标记"}</strong></span>
