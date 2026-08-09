@@ -502,39 +502,31 @@ class ContentService:
                 """
             )
         }
-        fixed_keys = {
-            str(row["story_sort_key"])
-            for row in rows.values()
-            if str(row["story_order_mode"]) == "fixed" and str(row["story_sort_key"]).isdigit()
-        }
-        existing_keys = {
-            str(row["effective_story_sort_key"])
-            for row in rows.values()
-            if str(row["effective_story_sort_key"]).isdigit()
-        }
-        slots = sorted(existing_keys | fixed_keys, key=lambda value: (int(value), value))
         reserved = ContentService._story_reserved_keys(connection)
-        next_index = 1
-        while len(slots) < len(ordered):
-            candidate = f"{next_index * RANK_STEP:024d}"
-            next_index += 1
-            if candidate not in reserved and candidate not in slots:
-                slots.append(candidate)
-                slots.sort(key=lambda value: (int(value), value))
-        if len(slots) > len(ordered):
-            slots = sorted(fixed_keys | set(slots[:len(ordered)]), key=lambda value: (int(value), value))[:len(ordered)]
-            while len(slots) < len(ordered):
-                candidate = f"{next_index * RANK_STEP:024d}"
-                next_index += 1
-                if candidate not in reserved and candidate not in slots:
-                    slots.append(candidate)
-                    slots.sort(key=lambda value: (int(value), value))
         target = {
-            plot_id: rows[plot_id]["story_sort_key"]
+            plot_id: str(rows[plot_id]["story_sort_key"])
             for plot_id in ordered
             if str(rows[plot_id]["story_order_mode"]) == "fixed"
         }
-        available = [slot for slot in slots if slot not in set(target.values())]
+        fixed_keys = set(target.values())
+        follow_count = len(ordered) - len(target)
+        available = sorted(
+            {
+                str(row["effective_story_sort_key"])
+                for row in rows.values()
+                if str(row["effective_story_sort_key"]).isdigit()
+            }
+            - fixed_keys
+            - reserved,
+            key=lambda value: (int(value), value),
+        )[:follow_count]
+        next_index = 1
+        while len(available) < follow_count:
+            candidate = f"{next_index * RANK_STEP:024d}"
+            next_index += 1
+            if candidate not in reserved and candidate not in fixed_keys and candidate not in available:
+                available.append(candidate)
+                available.sort(key=lambda value: (int(value), value))
         for plot_id in ordered:
             if plot_id not in target:
                 target[plot_id] = available.pop(0)
@@ -1398,6 +1390,11 @@ class ContentService:
                 ),
             )
             self._apply_story_position(connection, identifier, payload, rank, is_create=True)
+            # Reading-order ranks and fixed story-time positions are independent.
+            # A newly appended reading rank can therefore already be occupied on
+            # a timeline by a fixed plot. Allocate all follow-reading story keys
+            # before inserting this plot's timeline memberships.
+            self._sync_follow_reading_story_sort_keys(connection)
             automatic_people = self._replace_plot_collections(
                 connection, identifier, payload, rank, now, default_main_line=True
             )
@@ -1654,6 +1651,7 @@ class ContentService:
                 "references": references,
                 "chapter_number": chapter_number,
             }
+            self._sync_follow_reading_story_sort_keys(connection)
             automatic_people = self._replace_plot_collections(
                 connection, target_id, target_payload, rank, now, default_main_line=True
             )

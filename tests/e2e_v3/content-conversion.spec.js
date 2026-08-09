@@ -4,10 +4,10 @@ const primaryKey = process.platform === "darwin" ? "Meta" : "Control";
 
 test("碎片与剧情可以通过编辑器双向放入并保留删除入口", async ({ page }) => {
   await page.goto("/?project=novel#/fragments");
-  await page.getByRole("button", { name: "写灵感碎片" }).click();
+  await page.getByRole("button", { name: "新建碎片" }).click();
   const fragmentEditor = page.locator(".fragment-editor-dialog");
-  await fragmentEditor.getByRole("button", { name: /灵感设置/ }).click();
   await fragmentEditor.getByRole("textbox", { name: "标题" }).fill("转换流程测试");
+  await fragmentEditor.locator(".editor-settings-popover").getByRole("button", { name: "关闭章节设置" }).click();
   await fragmentEditor.locator(".cm-content").fill("## 雨夜\n\n林秋沿着码头继续追查。");
   await fragmentEditor.locator(".cm-content").press(`${primaryKey}+s`);
   await expect(fragmentEditor.getByRole("button", { name: "删除碎片" })).toBeVisible();
@@ -15,7 +15,7 @@ test("碎片与剧情可以通过编辑器双向放入并保留删除入口", as
 
   await fragmentEditor.getByRole("button", { name: "放入剧情" }).click();
   const toPlot = page.getByRole("alertdialog");
-  await expect(toPlot).toContainText("自动分配下一个章号");
+  await expect(toPlot).toContainText("正式剧情末尾的新章节");
   await toPlot.getByRole("button", { name: "放入剧情" }).click();
 
   const reader = page.locator(".story-reader-page");

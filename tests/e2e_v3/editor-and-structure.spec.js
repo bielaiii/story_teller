@@ -140,118 +140,32 @@ test("时间线、图谱和剧情筛选保持可见且一致的交互表现", as
   await page.goto("/?project=novel#/graph");
   await expect(page.locator(".graph-page-header .rail-search")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "重置图谱视角" })).toHaveCount(0);
-  const node = page.locator(".graph-node").first();
-  await expect(node).toBeVisible();
-  const restingNodeShape = await node.evaluate((element) => {
-    const nodeStyle = getComputedStyle(element);
-    const avatarStyle = getComputedStyle(element.querySelector(":scope > span"));
-    const labelStyle = getComputedStyle(element.querySelector(":scope > strong"));
-    return {
-      nodeRadius: nodeStyle.borderRadius,
-      nodeWidth: nodeStyle.width,
-      nodeHeight: nodeStyle.height,
-      nodeBackground: nodeStyle.backgroundColor,
-      nodeBorderWidth: nodeStyle.borderTopWidth,
-      avatarRadius: avatarStyle.borderRadius,
-      avatarWidth: avatarStyle.width,
-      avatarHeight: avatarStyle.height,
-      avatarBorderWidth: avatarStyle.borderTopWidth,
-      avatarOverflow: avatarStyle.overflow,
-      labelBackground: labelStyle.backgroundColor,
-      labelShadow: labelStyle.boxShadow,
-    };
-  });
-  expect(restingNodeShape).toEqual({
-    nodeRadius: "50%",
-    nodeWidth: "64px",
-    nodeHeight: "64px",
-    nodeBackground: "rgba(0, 0, 0, 0)",
-    nodeBorderWidth: "2px",
-    avatarRadius: "50%",
-    avatarWidth: "48px",
-    avatarHeight: "48px",
-    avatarBorderWidth: "0px",
-    avatarOverflow: "hidden",
-    labelBackground: "rgba(0, 0, 0, 0)",
-    labelShadow: "none",
-  });
-  const dragStart = await node.boundingBox();
-  const basePositionBeforeDrag = await node.evaluate((element) => ({
-    left: element.style.left,
-    top: element.style.top,
-  }));
-  const graphPositionsBefore = await page.locator(".graph-node").evaluateAll((elements) => elements.map((element) => {
-    const bounds = element.getBoundingClientRect();
-    return { left: bounds.left, top: bounds.top };
-  }));
+  const scene = page.getByRole("application", { name: "人物关系图谱，可拖动人物节点或平移画布" });
+  await expect(scene).toBeVisible();
+  await expect(page.locator(".graph-scene-canvas")).toHaveCount(1);
+  await expect(page.locator(".graph-motion-canvas")).toHaveCount(1);
   const graphCanvasBox = await page.locator(".graph-canvas").boundingBox();
-  expect(dragStart).not.toBeNull();
   expect(graphCanvasBox).not.toBeNull();
-  const dragX = dragStart.x + dragStart.width / 2;
-  const dragY = dragStart.y + dragStart.height / 2;
-  const dragDx = dragX < graphCanvasBox.x + graphCanvasBox.width / 2 ? 90 : -90;
-  const dragDy = dragY < graphCanvasBox.y + graphCanvasBox.height / 2 ? 60 : -60;
-  await page.mouse.move(dragX, dragY);
+  expect(graphCanvasBox.width).toBeGreaterThan(900);
+  expect(graphCanvasBox.height).toBeGreaterThan(500);
+  const canvasStyles = await scene.evaluate((element) => ({
+    pointerEvents: getComputedStyle(element).pointerEvents,
+    touchAction: getComputedStyle(element).touchAction,
+    cursor: getComputedStyle(element).cursor,
+  }));
+  expect(canvasStyles.pointerEvents).toBe("auto");
+  expect(canvasStyles.touchAction).toBe("none");
+  expect(canvasStyles.cursor).toBe("grab");
+  expect((await scene.screenshot()).byteLength).toBeGreaterThan(1000);
+
+  const panX = graphCanvasBox.x + 24;
+  const panY = graphCanvasBox.y + graphCanvasBox.height - 24;
+  await page.mouse.move(panX, panY);
   await page.mouse.down();
-  await page.mouse.move(dragX + dragDx, dragY + dragDy, { steps: 8 });
-  expect(await node.evaluate((element) => ({
-    left: element.style.left,
-    top: element.style.top,
-  }))).toEqual(basePositionBeforeDrag);
+  await expect(scene).toHaveCSS("cursor", "grabbing");
+  await page.mouse.move(panX + 80, panY - 40, { steps: 8 });
   await page.mouse.up();
-  await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
-  await expect(page.locator(".graph-save-message")).toHaveCount(0);
-  const draggedId = await node.getAttribute("data-entity-id");
-  await expect.poll(async () => {
-    const current = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-    const saved = current.graph.nodes.find((item) => item.character_id === draggedId);
-    return Boolean(saved?.anchor_x != null && saved?.anchor_y != null);
-  }).toBe(true);
-  const persistedGraph = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
-  const persistedNode = persistedGraph.graph.nodes.find((item) => item.character_id === draggedId);
-  expect(persistedNode.anchor_x).not.toBeNull();
-  expect(persistedNode.anchor_y).not.toBeNull();
-  await expect.poll(async () => {
-    const box = await node.boundingBox();
-    return box ? Math.hypot(box.x - dragStart.x, box.y - dragStart.y) : 0;
-  }).toBeGreaterThan(70);
-  await expect.poll(async () => {
-    const positions = await page.locator(".graph-node").evaluateAll((elements) => elements.map((element) => {
-      const bounds = element.getBoundingClientRect();
-      return { left: bounds.left, top: bounds.top };
-    }));
-    return Math.max(...positions.slice(1).map((position, index) => Math.hypot(
-      position.left - graphPositionsBefore[index + 1].left,
-      position.top - graphPositionsBefore[index + 1].top,
-    )));
-  }).toBeGreaterThan(8);
-  const before = await node.evaluate((element) => getComputedStyle(element).transform);
-  await page.waitForTimeout(500);
-  const after = await node.evaluate((element) => getComputedStyle(element).transform);
-  expect(after).not.toBe(before);
-  const nodeLayer = page.locator(".graph-node-layer");
-  const defaultViewport = await nodeLayer.evaluate((element) => getComputedStyle(element).transform);
-  await node.click();
-  await expect(node).toHaveClass(/is-selected/);
-  expect(await node.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
-  expect(await node.locator(":scope > span").evaluate((element) => getComputedStyle(element).borderRadius)).toBe("50%");
-  await expect(page.locator(".graph-profile-card")).toBeVisible();
-  const focusedViewport = await nodeLayer.evaluate((element) => getComputedStyle(element).transform);
-  expect(focusedViewport).not.toBe(defaultViewport);
-  await page.locator(".graph-canvas").click({ position: { x: 12, y: 12 } });
-  await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
-  await expect(page.locator(".graph-node.is-muted")).toHaveCount(0);
-  await expect(page.locator(".graph-profile-card")).toHaveCount(0);
-  await expect.poll(() => nodeLayer.evaluate((element) => getComputedStyle(element).transform)).toBe(defaultViewport);
-  const selectedName = await node.locator("strong").textContent();
-  await node.click();
-  await page.getByRole("button", { name: "进入人物详情" }).click();
-  await expect(page.getByRole("heading", { name: selectedName, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "图谱", exact: true }).click();
-  await expect(page.locator(".graph-node.is-selected")).toHaveCount(0);
-  await expect(page.locator(".graph-node.is-muted")).toHaveCount(0);
-  await expect(page.locator(".graph-profile-card")).toHaveCount(0);
-  await expect.poll(() => page.locator(".graph-node-layer").evaluate((element) => getComputedStyle(element).transform)).toBe(defaultViewport);
+  await expect(scene).toHaveCSS("cursor", "grab");
 });
 
 test("设定筛选、档案索引和内容预览保持紧凑", async ({ page }) => {
@@ -274,7 +188,7 @@ test("设定筛选、档案索引和内容预览保持紧凑", async ({ page }) 
   await page.getByRole("button", { name: "搜索设定" }).click();
   const search = page.getByRole("textbox", { name: "搜索设定" });
   await expect(search).toBeVisible();
-  const searchButtonStyle = await page.getByRole("button", { name: "收起设定搜索" }).evaluate((button) => {
+  const searchButtonStyle = await page.locator(".entry-search-control > button").evaluate((button) => {
     const style = getComputedStyle(button);
     return { width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height, radius: style.borderRadius, background: style.backgroundColor };
   });
@@ -427,6 +341,7 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   const settings = dialog.getByRole("button", { name: /剧情设置/ });
   await settings.click();
   await dialog.getByRole("spinbutton", { name: "章号" }).fill("901");
+  await dialog.locator(".editor-settings-popover").getByRole("button", { name: "关闭剧情设置" }).click();
   const editor = dialog.locator(".cm-content");
   await editor.fill("## 第一次保存\n\n这段正文不会让编辑器重建。");
   await dialog.getByRole("button", { name: /人物拼音检索/ }).click();
@@ -462,13 +377,14 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   await createdDetail;
   await expect(dialog.getByRole("button", { name: "删除剧情" })).toBeVisible();
   expect(await editor.evaluate((element) => window.__createdEditorNode === element)).toBe(true);
-  await expect(settings).toHaveAttribute("aria-expanded", "true");
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
 
   await editor.fill("## 第二次保存\n\n同一个实体继续写入，不会重复新建。");
   await editor.press(`${primaryKey}+s`);
   await expect(dialog.locator(".editor-footer")).toContainText("已保存");
   expect(await editor.evaluate((element) => window.__createdEditorNode === element)).toBe(true);
 
+  await settings.click();
   const chapterNumberInput = dialog.getByRole("spinbutton", { name: "章号" });
   await chapterNumberInput.fill("902");
   const metadataSave = page.waitForResponse((response) =>
@@ -476,6 +392,7 @@ test("新建剧情首次保存后原位转为可继续编辑的实体", async ({
   );
   await chapterNumberInput.press(`${primaryKey}+s`);
   await metadataSave;
+  await dialog.locator(".editor-settings-popover").getByRole("button", { name: "关闭剧情设置" }).click();
   expect(await editor.evaluate((element) => window.__createdEditorNode === element)).toBe(true);
 
   const snapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
@@ -519,7 +436,7 @@ test("删除碎片章节会压缩连续章号且不会残留整线删除确认�
   await page.goto("/?project=novel#/fragments");
   const lineCard = page.locator(".fragment-card-new.is-line").filter({ hasText: lineTitle });
   await lineCard.click();
-  const expanded = page.getByRole("region", { name: `${lineTitle}的章节` });
+  const expanded = page.getByRole("dialog", { name: `${lineTitle}的章节` });
   await expanded.getByRole("button", { name: "编辑第三节点", exact: true }).click();
 
   const dialog = page.getByRole("dialog", { name: "编辑整条剧情线" });
@@ -573,7 +490,7 @@ test("剧情线可逐章规划不连续的正式剧情位置并按规划转正",
   await page.goto("/?project=novel#/fragments");
   const lineCard = page.locator(".fragment-card-new.is-line").filter({ hasText: lineTitle });
   await lineCard.click();
-  const expanded = page.getByRole("region", { name: `${lineTitle}的章节` });
+  const expanded = page.getByRole("dialog", { name: `${lineTitle}的章节` });
   await expanded.getByRole("button", { name: `编辑${lineTitle}剧情线` }).click();
 
   const dialog = page.getByRole("dialog", { name: "编辑整条剧情线" });
@@ -711,12 +628,13 @@ test("图谱布局参数、人物锚点、距离与分组都可以在网页保�
   await page.getByRole("button", { name: "编辑人物图谱" }).click();
   const dialog = page.getByRole("dialog", { name: "编辑人物图谱" });
   await dialog.getByRole("spinbutton", { name: "节点间距" }).fill("149");
+  await dialog.getByRole("button", { name: "人物位置" }).click();
   await dialog.getByRole("spinbutton", { name: "锚点 X" }).fill("333");
   await dialog.getByRole("spinbutton", { name: "锚点 Y" }).fill("222");
 
-  await dialog.getByText("人物距离约束", { exact: false }).click();
+  await dialog.getByRole("button", { name: /距离约束/ }).click();
   await dialog.getByRole("button", { name: "添加人物距离约束" }).click();
-  await dialog.getByText("视觉分组", { exact: false }).click();
+  await dialog.getByRole("button", { name: /视觉分组/ }).click();
   await dialog.getByRole("button", { name: "添加图谱分组" }).click();
   const clusterName = dialog.getByRole("textbox", { name: /分组 \d+ 名称/ }).last();
   await clusterName.fill("浏览器图谱组");

@@ -491,7 +491,6 @@ class V3TransactionTests(unittest.TestCase):
             {
                 "title": "转换后的新剧情",
                 "body": "回收站中的时间线排序槽不会阻止这次保存。",
-                "lanes": [],
             },
         )
 
@@ -500,6 +499,40 @@ class V3TransactionTests(unittest.TestCase):
             created.callback_result["entityId"],
             {item["entityId"] for item in self.repository.snapshot()["plots"]},
         )
+        with self.database.read() as connection:
+            duplicate_count = int(connection.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT line_id, story_sort_key
+                    FROM plot_timeline_lines
+                    GROUP BY line_id, story_sort_key
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()[0])
+        self.assertEqual(0, duplicate_count)
+
+    def test_fixed_story_slot_does_not_block_follow_reading_plot_create(self):
+        snapshot = self.repository.snapshot()
+        next_reading_key = f"{(len(snapshot['plots']) + 1) * 10**12:024d}"
+        fixed = self.content.update_plot(
+            snapshot["plots"][0]["entityId"],
+            self.revision(),
+            {
+                "story_position_mode": "fixed",
+                "story_sort_key": next_reading_key,
+            },
+        )
+
+        created = self.content.create_plot(
+            fixed.project_revision,
+            {
+                "title": "固定故事位置后的新剧情",
+                "body": "新剧情继续跟随阅读顺序。",
+            },
+        )
+
+        self.assertEqual(fixed.project_revision + 1, created.project_revision)
         with self.database.read() as connection:
             duplicate_count = int(connection.execute(
                 """
