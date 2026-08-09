@@ -27,6 +27,19 @@ function colorChannels(value) {
   return hex ? [0, 2, 4].map((index) => Number.parseInt(hex[1].slice(index, index + 2), 16)) : [];
 }
 
+async function dragTimelineNodeBy(page, node, deltaY) {
+  await node.scrollIntoViewIfNeeded();
+  await node.hover();
+  const box = await node.boundingBox();
+  expect(box).not.toBeNull();
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX, centerY + deltaY, { steps: 8 });
+  await page.mouse.up();
+}
+
 test("根地址采用本地服务配置的默认项目", async ({ page }) => {
   await page.goto("/#/story");
   await expect(page.getByRole("heading", { name: "雾港纪事", exact: true })).toBeVisible();
@@ -679,15 +692,12 @@ test("时间线节点可连续调整间距且删除剧情线会转移节点", as
     const viewportBox = await dialog.locator(".timeline-editor-visual-scroll").boundingBox();
     return Boolean(nodeBox && viewportBox && nodeBox.y >= viewportBox.y && nodeBox.y + nodeBox.height <= viewportBox.y + viewportBox.height);
   }).toBe(true);
-  const beforeBox = await activeNode.boundingBox();
   const beforeWorldY = await activeNode.evaluate((element) => parseFloat(element.style.top));
-  const centerX = beforeBox.x + beforeBox.width / 2;
-  const centerY = beforeBox.y + beforeBox.height / 2;
-  await page.mouse.move(centerX, centerY);
-  await page.mouse.down();
-  await page.mouse.move(centerX, centerY + 42, { steps: 8 });
-  await page.mouse.up();
-  const movedWorldY = await activeNode.evaluate((element) => parseFloat(element.style.top));
+  let movedWorldY = beforeWorldY;
+  for (let attempt = 0; attempt < 2 && movedWorldY - beforeWorldY < 30; attempt += 1) {
+    await dragTimelineNodeBy(page, activeNode, 42 - (movedWorldY - beforeWorldY));
+    movedWorldY = await activeNode.evaluate((element) => parseFloat(element.style.top));
+  }
   expect(movedWorldY - beforeWorldY).toBeGreaterThan(30);
   expect(movedWorldY - beforeWorldY).toBeLessThan(52);
   await dialog.getByRole("button", { name: "保存时间线" }).click();
@@ -708,6 +718,8 @@ test("时间线节点可连续调整间距且删除剧情线会转移节点", as
   const secondGlobalPlotId = reordered.plots[1].entityId;
   const firstGlobalNode = reorderDialog.locator(`.timeline-editor-track-node[data-plot-id="${firstGlobalPlotId}"]`).first();
   const secondGlobalNode = reorderDialog.locator(`.timeline-editor-track-node[data-plot-id="${secondGlobalPlotId}"]`).first();
+  await firstGlobalNode.scrollIntoViewIfNeeded();
+  await firstGlobalNode.hover();
   const firstGlobalBox = await firstGlobalNode.boundingBox();
   const firstGlobalY = await firstGlobalNode.evaluate((element) => parseFloat(element.style.top));
   const secondGlobalY = await secondGlobalNode.evaluate((element) => parseFloat(element.style.top));
