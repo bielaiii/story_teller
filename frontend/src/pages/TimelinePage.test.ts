@@ -3,6 +3,7 @@ import type { TimelineLine, TimelineNode } from "../api/types";
 import {
   buildTimelineGeometry,
   clampTimelineNodePosition,
+  hasTimelineLineLabel,
   moveTimelineAssignment,
   normalizeTimelineLineBounds,
   timelineAutoScrollSpeed,
@@ -17,6 +18,12 @@ function line(entityId: string, side: TimelineLine["side"], startPlotId: string 
 }
 
 describe("buildTimelineGeometry", () => {
+  it("does not expose a label control for an unnamed line", () => {
+    expect(hasTimelineLineLabel({ name: "" })).toBe(false);
+    expect(hasTimelineLineLabel({ name: "   " })).toBe(false);
+    expect(hasTimelineLineLabel({ name: "主线" })).toBe(true);
+  });
+
   it("keeps the main origin visible and gives branches complete rounded-transition geometry", () => {
     const lines = [line("main", "center"), line("branch", "left", "plot:2", "plot:4")];
     const nodes: TimelineNode[] = [

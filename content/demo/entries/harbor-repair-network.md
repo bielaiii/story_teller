@@ -15,6 +15,13 @@ tags:
 people:
 - '4'
 - '7'
+members:
+- id: '4'
+  role: ''
+  status: 现成员
+- id: '7'
+  role: ''
+  status: 现成员
 status: 待展开
 references:
 - character:4

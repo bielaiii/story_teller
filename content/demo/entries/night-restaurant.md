@@ -15,6 +15,13 @@ tags:
 people:
 - '2'
 - '6'
+members:
+- id: '2'
+  role: ''
+  status: 现成员
+- id: '6'
+  role: ''
+  status: 现成员
 status: 草稿
 references:
 - character:2

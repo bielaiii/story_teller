@@ -107,16 +107,20 @@ class ProjectRepository:
             plot_entries: dict[str, list[str]] = defaultdict(list)
             for row in connection.execute("SELECT * FROM active_plot_entries ORDER BY plot_id, entry_id"):
                 plot_entries[str(row["plot_id"])].append(str(row["entry_id"]))
-            entry_people: dict[str, list[str]] = defaultdict(list)
+            entry_members: dict[str, list[dict[str, Any]]] = defaultdict(list)
             for row in connection.execute(
                 """
                 SELECT ec.* FROM entry_characters ec
                 JOIN active_entries e ON e.entity_id=ec.entry_id
                 JOIN active_characters c ON c.entity_id=ec.character_id
-                ORDER BY ec.entry_id, ec.character_id
+                ORDER BY ec.entry_id, ec.sort_key, ec.character_id
                 """
             ):
-                entry_people[str(row["entry_id"])].append(str(row["character_id"]))
+                entry_members[str(row["entry_id"])].append({
+                    "characterId": str(row["character_id"]),
+                    "role": str(row["role"]),
+                    "status": str(row["status"]),
+                })
             fragment_references: dict[str, list[str]] = defaultdict(list)
             for row in connection.execute(
                 """
@@ -147,7 +151,7 @@ class ProjectRepository:
             plots = [self._plot(row, plot_tags, plot_people, plot_entries, lanes, include_body=False) for row in connection.execute(
                 "SELECT * FROM active_plots ORDER BY sort_key, stable_id"
             )]
-            entries = [self._entry(row, entry_aliases, entry_tags, entry_people, include_body=False) for row in connection.execute(
+            entries = [self._entry(row, entry_aliases, entry_tags, entry_members, include_body=False) for row in connection.execute(
                 "SELECT * FROM active_entries ORDER BY type, stable_id"
             )]
             fragments = [self._fragment(row, fragment_tags, include_body=False) for row in connection.execute(
@@ -261,8 +265,9 @@ class ProjectRepository:
         return result
 
     @staticmethod
-    def _entry(row, aliases, tags, people, *, include_body: bool) -> dict[str, Any]:
+    def _entry(row, aliases, tags, members, *, include_body: bool) -> dict[str, Any]:
         identifier = str(row["entity_id"])
+        entry_members = members.get(identifier, [])
         result = {
             "entityId": identifier,
             "id": str(row["stable_id"]),
@@ -274,7 +279,8 @@ class ProjectRepository:
             "accent": str(row["accent"]),
             "aliases": aliases.get(identifier, []),
             "tags": tags.get(identifier, []),
-            "people": people.get(identifier, []),
+            "people": [item["characterId"] for item in entry_members],
+            "members": entry_members,
             "bodyPreview": preview(row["body_markdown"]),
             "revision": int(row["revision"]),
             "extra": json_value(row["extra_json"], {}),
@@ -332,6 +338,10 @@ class ProjectRepository:
             "to": str(row["to_character_id"]),
             "fromRole": str(row["from_role"]),
             "toRole": str(row["to_role"]),
+            "fromImpression": str(row["from_impression"]),
+            "toImpression": str(row["to_impression"]),
+            "graphScope": str(row["graph_scope"]),
+            "graphLineMode": str(row["graph_line_mode"]),
             "label": str(row["label"]),
             "type": str(row["type"]),
             "color": str(row["color"]),
@@ -458,15 +468,20 @@ class ProjectRepository:
                 row = connection.execute("SELECT d.*, e.* FROM entries d JOIN entities e ON e.id=d.entity_id WHERE d.entity_id=?", (entity_id,)).fetchone()
                 aliases = self._values(connection, "entry_aliases", "entry_id", "alias")
                 tags = self._values(connection, "entry_tags", "entry_id", "tag")
-                people = defaultdict(list)
+                members = defaultdict(list)
                 people_source = """
-                    SELECT ec.character_id FROM entry_characters ec
+                    SELECT ec.character_id, ec.role, ec.status FROM entry_characters ec
                     JOIN active_characters c ON c.entity_id=ec.character_id
                     WHERE ec.entry_id=?
-                """ if not include_deleted else "SELECT character_id FROM entry_characters WHERE entry_id=?"
+                    ORDER BY ec.sort_key, ec.character_id
+                """ if not include_deleted else "SELECT character_id, role, status FROM entry_characters WHERE entry_id=? ORDER BY sort_key, character_id"
                 for item in connection.execute(people_source, (entity_id,)):
-                    people[entity_id].append(str(item[0]))
-                base["data"] = self._entry(row, aliases, tags, people, include_body=True)
+                    members[entity_id].append({
+                        "characterId": str(item[0]),
+                        "role": str(item[1]),
+                        "status": str(item[2]),
+                    })
+                base["data"] = self._entry(row, aliases, tags, members, include_body=True)
             elif kind == "fragment":
                 row = connection.execute("SELECT f.*, e.* FROM fragments f JOIN entities e ON e.id=f.entity_id WHERE f.entity_id=?", (entity_id,)).fetchone()
                 tags = self._values(connection, "fragment_tags", "fragment_id", "tag")

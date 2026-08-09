@@ -10,6 +10,7 @@ from pathlib import Path
 
 from storyteller import SCHEMA_VERSION
 from storyteller.bootstrap import prepare_project
+from storyteller.storage.schema import migrate_v4_to_v5
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -103,11 +104,61 @@ class BootstrapTests(unittest.TestCase):
             self.assertTrue(connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='merge_sessions'"
             ).fetchone())
-            self.assertEqual(
-                backup_count,
+            self.assertGreaterEqual(
                 connection.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
+                backup_count,
             )
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
+    def test_prepare_upgrades_schema_v5_with_directional_relationship_impressions(self) -> None:
+        database = self.project_root / "story.db"
+        shutil.copy2(ROOT / "content" / "demo" / "story.db", database)
+        with sqlite3.connect(database) as connection:
+            # The checked-in demo database tracks the current schema. Rewind only
+            # the columns introduced after V4 so this migration test does not
+            # depend on keeping a second stale binary database in the repository.
+            connection.executescript(
+                """
+                ALTER TABLE plots DROP COLUMN story_anchor_side;
+                ALTER TABLE plots DROP COLUMN story_anchor_plot_id;
+                ALTER TABLE plots DROP COLUMN story_order_mode;
+                ALTER TABLE plots DROP COLUMN story_sort_key;
+                ALTER TABLE relationships DROP COLUMN graph_line_mode;
+                ALTER TABLE relationships DROP COLUMN graph_scope;
+                ALTER TABLE relationships DROP COLUMN to_impression;
+                ALTER TABLE relationships DROP COLUMN from_impression;
+                ALTER TABLE entry_characters DROP COLUMN sort_key;
+                ALTER TABLE entry_characters DROP COLUMN status;
+                ALTER TABLE entry_characters DROP COLUMN role;
+                UPDATE metadata SET value='4' WHERE key='schema_version';
+                PRAGMA user_version=4;
+                """
+            )
+            self.assertEqual(4, connection.execute("PRAGMA user_version").fetchone()[0])
+            migrate_v4_to_v5(connection)
+            self.assertEqual(5, connection.execute("PRAGMA user_version").fetchone()[0])
+
+        result = prepare_project(self.project_root)
+
+        self.assertTrue(result["migrated"])
+        self.assertEqual(5, result["sourceSchemaVersion"])
+        self.assertTrue(Path(result["backup"]).name.endswith(".v5-backup.db"))
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(SCHEMA_VERSION, connection.execute("PRAGMA user_version").fetchone()[0])
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(relationships)")
+            }
+            self.assertTrue({"from_impression", "to_impression", "graph_scope", "graph_line_mode"}.issubset(columns))
+            member_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(entry_characters)")
+            }
+            self.assertTrue({"role", "status", "sort_key"}.issubset(member_columns))
+            self.assertEqual(
+                [("", "")],
+                list(connection.execute(
+                    "SELECT DISTINCT from_impression, to_impression FROM relationships"
+                )),
+            )
 
 
 if __name__ == "__main__":

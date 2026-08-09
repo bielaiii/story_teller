@@ -23,7 +23,14 @@ from storyteller.domain.uow import (
     encode_value,
 )
 from storyteller.storage.connection import Database, schema_version
-from storyteller.storage.schema import migrate_v3_to_v4, migrate_v4_to_v5
+from storyteller.storage.schema import (
+    migrate_v3_to_v4,
+    migrate_v4_to_v5,
+    migrate_v5_to_v6,
+    migrate_v6_to_v7,
+    migrate_v7_to_v8,
+    migrate_v8_to_v9,
+)
 
 
 TRANSIENT_COLUMNS = {
@@ -36,6 +43,8 @@ TEXT_MERGE_COLUMNS = {
     "summary",
     "content",
     "fact_value",
+    "from_impression",
+    "to_impression",
     "extra_json",
 }
 TABLE_LABELS = {
@@ -140,6 +149,22 @@ def ensure_current_schema(path: Path) -> None:
         if version == 4:
             connection.execute("PRAGMA foreign_keys=ON")
             migrate_v4_to_v5(connection)
+            version = schema_version(connection)
+        if version == 5:
+            connection.execute("PRAGMA foreign_keys=ON")
+            migrate_v5_to_v6(connection)
+            version = schema_version(connection)
+        if version == 6:
+            connection.execute("PRAGMA foreign_keys=ON")
+            migrate_v6_to_v7(connection)
+            version = schema_version(connection)
+        if version == 7:
+            connection.execute("PRAGMA foreign_keys=ON")
+            migrate_v7_to_v8(connection)
+            version = schema_version(connection)
+        if version == 8:
+            connection.execute("PRAGMA foreign_keys=ON")
+            migrate_v8_to_v9(connection)
             version = schema_version(connection)
         if version != SCHEMA_VERSION:
             raise ValueError(

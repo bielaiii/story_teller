@@ -3,74 +3,52 @@ import type { Character, GraphData, Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import { CollapsibleList } from "../components/CollapsibleList";
 import { Icon } from "../components/Icon";
+import {
+  drawGraphMotionOverlay,
+  drawGraphScene,
+  graphRelationshipLabels,
+  graphScenePoint,
+  hitTestGraphNode,
+  createGraphScene,
+  quadraticPoint,
+  relationshipCurveLanes,
+} from "../graph/graphScene";
+import type { GraphScene, GraphSceneMotion, Point } from "../graph/graphScene";
 import { useUiStore } from "../state/ui";
+import { avatarBackground } from "../theme/contentColors";
+
+export { graphRelationshipLabels, quadraticPoint, relationshipCurveLanes } from "../graph/graphScene";
 
 const GraphEditor = lazy(async () => ({ default: (await import("../components/GraphEditor")).GraphEditor }));
 
-export interface Point { x: number; y: number }
-
-function graphDragInfluence(sourceId: string, characterIds: string[], relationships: Relationship[]): Map<string, number> {
-  const neighbors = new Map(characterIds.map((id) => [id, [] as string[]]));
-  for (const relationship of relationships) {
-    if (!neighbors.has(relationship.from) || !neighbors.has(relationship.to)) continue;
-    neighbors.get(relationship.from)!.push(relationship.to);
-    neighbors.get(relationship.to)!.push(relationship.from);
-  }
-  const depth = new Map<string, number>([[sourceId, 0]]);
-  const queue = [sourceId];
-  while (queue.length) {
-    const current = queue.shift()!;
-    for (const next of neighbors.get(current) || []) {
-      if (depth.has(next)) continue;
-      depth.set(next, (depth.get(current) || 0) + 1);
-      queue.push(next);
-    }
-  }
-  return new Map(characterIds.map((id) => {
-    if (id === sourceId) return [id, 0];
-    const distance = depth.get(id);
-    if (distance === 1) return [id, .48];
-    if (distance === 2) return [id, .26];
-    if (distance === 3) return [id, .14];
-    return [id, .07];
-  }));
+export function graphRelationshipsForFocus(relationships: Relationship[], selectedId: string | null): Relationship[] {
+  return relationships.filter((item) => (item.graphScope || "core") === "core"
+    || (item.graphScope === "focus" && Boolean(selectedId) && (item.from === selectedId || item.to === selectedId)));
 }
 
-export function quadraticPoint(from: Point, control: Point, to: Point, progress: number): Point {
-  const remaining = 1 - progress;
-  return {
-    x: remaining * remaining * from.x + 2 * remaining * progress * control.x + progress * progress * to.x,
-    y: remaining * remaining * from.y + 2 * remaining * progress * control.y + progress * progress * to.y,
-  };
+export function graphMotionIsActive(now: number, activeUntil: number, reducedMotion = false): boolean {
+  return !reducedMotion && now < activeUntil;
 }
 
-export function advanceFollowerSpring(
+export function graphMotionFrameInterval(mode: "idle" | "active"): number {
+  return mode === "idle" ? 1000 / 12 : 1000 / 30;
+}
+
+export function graphDragPoint(
   point: Point,
-  velocity: Point,
-  target: Point,
-  deltaSeconds: number,
-  dragging: boolean,
-): { point: Point; velocity: Point } {
-  const delta = Math.max(1 / 240, Math.min(.05, deltaSeconds));
-  const stiffness = dragging ? 6 : 4;
-  const damping = dragging ? 6.2 : 5.2;
-  const decay = Math.exp(-damping * delta);
-  const nextVelocity = {
-    x: (velocity.x + (target.x - point.x) * stiffness * delta) * decay,
-    y: (velocity.y + (target.y - point.y) * stiffness * delta) * decay,
-  };
-  const speed = Math.hypot(nextVelocity.x, nextVelocity.y);
-  const maximumSpeed = dragging ? 180 : 120;
-  if (speed > maximumSpeed) {
-    nextVelocity.x *= maximumSpeed / speed;
-    nextVelocity.y *= maximumSpeed / speed;
-  }
+  width: number,
+  height: number,
+  viewport: { x: number; y: number; scale: number },
+  screenMargin = 64,
+): Point {
+  const scale = Math.max(.001, viewport.scale);
+  const minimumX = (screenMargin - viewport.x) / scale;
+  const maximumX = (width - screenMargin - viewport.x) / scale;
+  const minimumY = (screenMargin - viewport.y) / scale;
+  const maximumY = (height - screenMargin - viewport.y) / scale;
   return {
-    point: {
-      x: point.x + nextVelocity.x * delta,
-      y: point.y + nextVelocity.y * delta,
-    },
-    velocity: nextVelocity,
+    x: Math.max(minimumX, Math.min(maximumX, point.x)),
+    y: Math.max(minimumY, Math.min(maximumY, point.y)),
   };
 }
 
@@ -206,7 +184,9 @@ export function graphLayout(
     }
     applyFixedRules();
   }
-  for (const point of points.values()) {
+  for (const item of visible) {
+    if (fixed(item.entityId)) continue;
+    const point = points.get(item.entityId)!;
     point.x = Math.max(64, Math.min(width - 64, point.x));
     point.y = Math.max(64, Math.min(height - 64, point.y));
   }
@@ -217,22 +197,14 @@ export default function GraphPage() {
   const { snapshot, writable } = useRuntime();
   const mutation = useProjectMutation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const motionCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const nodeLayerRef = useRef<HTMLDivElement>(null);
-  const nodeRefs = useRef(new Map<string, HTMLButtonElement>());
-  const animatedPointsRef = useRef(new Map<string, Point>());
-  const motionStartedRef = useRef(performance.now());
+  const sceneRef = useRef<GraphScene | null>(null);
+  const renderFrameRef = useRef(0);
+  const renderTimerRef = useRef(0);
+  const motionRef = useRef<{ activeUntil: number; hoveredNodeId: string | null }>({ activeUntil: 0, hoveredNodeId: null });
   const panRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number; moved: boolean } | null>(null);
   const nodeDragRef = useRef<{ id: string; pointerId: number; startX: number; startY: number; offsetX: number; offsetY: number; lastPoint: Point; moved: boolean } | null>(null);
-  const pendingDragPointRef = useRef<{ id: string; deltaX: number; deltaY: number; influence: Map<string, number> } | null>(null);
-  const dragFrameRef = useRef(0);
-  const dragInfluenceRef = useRef(new Map<string, number>());
-  const dragSwayRef = useRef({ updatedAt: -Infinity, energy: 0, directionX: 1, directionY: 0 });
-  const followerTargetsRef = useRef(new Map<string, Point>());
-  const followerPointsRef = useRef(new Map<string, Point>());
-  const followerVelocityRef = useRef(new Map<string, Point>());
-  const nodeMotionActiveRef = useRef(true);
-  const suppressClickRef = useRef<{ id: string; until: number } | null>(null);
   const focusViewportRef = useRef<{ x: number; y: number; scale: number } | null>(null);
   const [size, setSize] = useState({ width: 1000, height: 680 });
   const [editing, setEditing] = useState(false);
@@ -244,8 +216,9 @@ export default function GraphPage() {
   const setViewport = useUiStore((state) => state.setGraphViewport);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
+
   const layoutPoints = useMemo(
-    () => graphLayout(size.width, size.height, snapshot.characters, snapshot.graph, snapshot.relationships),
+    () => graphLayout(size.width, size.height, snapshot.characters, snapshot.graph, snapshot.relationships.filter((item) => (item.graphScope || "core") === "core")),
     [size, snapshot.characters, snapshot.graph, snapshot.relationships],
   );
   const points = useMemo(() => {
@@ -254,23 +227,90 @@ export default function GraphPage() {
     return merged;
   }, [layoutPoints, manualPoints]);
   const visible = useMemo(() => snapshot.characters.filter((item) => points.has(item.entityId)), [points, snapshot.characters]);
-  const motionProfiles = useMemo(() => new Map(visible.map((item) => [item.entityId, {
-    phase: noise(`${item.entityId}:motion`) * Math.PI * 2,
-  }])), [visible]);
   const relationships = useMemo(() => {
     const visibleIds = new Set(visible.map((item) => item.entityId));
-    return snapshot.relationships.filter((item) => visibleIds.has(item.from) && visibleIds.has(item.to));
-  }, [snapshot.relationships, visible]);
-  const relationshipMotion = useMemo(() => new Map(relationships.map((relation) => [relation.entityId, {
-    duration: 1900 + noise(`${relation.entityId}:particle-speed`) * 1200,
-    phase: noise(`${relation.entityId}:particle-phase`),
-  }])), [relationships]);
+    return graphRelationshipsForFocus(snapshot.relationships, selected)
+      .filter((item) => visibleIds.has(item.from) && visibleIds.has(item.to));
+  }, [selected, snapshot.relationships, visible]);
+  const scene = useMemo(
+    () => createGraphScene(size.width, size.height, viewport, visible, points, relationships, snapshot.entries, selected),
+    [points, relationships, selected, size, snapshot.entries, viewport, visible],
+  );
+  sceneRef.current = scene;
   const selectedPerson = snapshot.characters.find((item) => item.entityId === selected);
+  const selectedOrganizations = useMemo(() => selected
+    ? snapshot.entries.filter((entry) => entry.type === "组织" && (entry.members || []).some((member) => member.characterId === selected)).map((entry) => ({
+      entry,
+      membership: (entry.members || []).find((member) => member.characterId === selected)!,
+    }))
+    : [], [selected, snapshot.entries]);
   const duplicateCharacterNames = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of snapshot.characters) counts.set(item.name, (counts.get(item.name) || 0) + 1);
     return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
   }, [snapshot.characters]);
+
+  const drawCurrent = (
+    overrides?: Map<string, Point>,
+    viewportOverride = viewportRef.current,
+  ) => {
+    const canvas = canvasRef.current;
+    const currentScene = sceneRef.current;
+    if (canvas && currentScene) drawGraphScene(canvas, currentScene, overrides, viewportOverride);
+  };
+  const drawMotion = (
+    overrides?: Map<string, Point>,
+    viewportOverride = viewportRef.current,
+    motion?: GraphSceneMotion,
+  ) => {
+    const canvas = motionCanvasRef.current;
+    const currentScene = sceneRef.current;
+    if (canvas && currentScene) drawGraphMotionOverlay(canvas, currentScene, overrides, viewportOverride, motion);
+  };
+
+  function queueRenderFrame(delay = 0) {
+    if (renderFrameRef.current || renderTimerRef.current) return;
+    if (delay > 0) {
+      renderTimerRef.current = window.setTimeout(() => {
+        renderTimerRef.current = 0;
+        renderFrameRef.current = requestAnimationFrame(renderScheduledFrame);
+      }, delay);
+      return;
+    }
+    renderFrameRef.current = requestAnimationFrame(renderScheduledFrame);
+  }
+
+  function renderScheduledFrame(time: number) {
+    renderFrameRef.current = 0;
+    const drag = nodeDragRef.current;
+    const pan = panRef.current;
+    const interacting = Boolean(drag?.moved || pan?.moved);
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
+    const motionActive = graphMotionIsActive(time, motionRef.current.activeUntil, reducedMotion);
+    const motionEnabled = document.visibilityState !== "hidden" && !reducedMotion;
+    const mode = interacting || motionActive ? "active" : "idle";
+    const overrides = drag ? new Map([[drag.id, drag.lastPoint]]) : undefined;
+    if (interacting) drawCurrent(overrides, viewportRef.current);
+    drawMotion(overrides, viewportRef.current, motionEnabled ? {
+      active: true,
+      mode,
+      time,
+      hoveredNodeId: motionRef.current.hoveredNodeId,
+    } : undefined);
+    if (interacting || motionActive || motionEnabled) queueRenderFrame(graphMotionFrameInterval(mode));
+  }
+
+  function scheduleRender(duration = 0) {
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
+    if (duration > 0 && !reducedMotion) {
+      motionRef.current.activeUntil = Math.max(motionRef.current.activeUntil, performance.now() + duration);
+    }
+    if (renderTimerRef.current) {
+      window.clearTimeout(renderTimerRef.current);
+      renderTimerRef.current = 0;
+    }
+    queueRenderFrame();
+  }
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -278,154 +318,45 @@ export default function GraphPage() {
     observer.observe(wrapRef.current);
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    drawCurrent();
+    scheduleRender(selected ? 1400 : 900);
+  }, [scene]);
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (renderFrameRef.current) cancelAnimationFrame(renderFrameRef.current);
+        if (renderTimerRef.current) window.clearTimeout(renderTimerRef.current);
+        renderFrameRef.current = 0;
+        renderTimerRef.current = 0;
+        drawMotion();
+        return;
+      }
+      scheduleRender();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
   useEffect(() => () => {
-    if (dragFrameRef.current) cancelAnimationFrame(dragFrameRef.current);
+    if (renderFrameRef.current) cancelAnimationFrame(renderFrameRef.current);
+    if (renderTimerRef.current) window.clearTimeout(renderTimerRef.current);
     const state = useUiStore.getState();
     state.selectGraphCharacter(null);
     if (focusViewportRef.current) state.setGraphViewport(focusViewportRef.current);
   }, []);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    nodeMotionActiveRef.current = true;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let frame = 0;
-    let lastPaint = 0;
-    let lastMotionStep = performance.now();
-    const draw = (now: number) => {
-      frame = 0;
-      const interactionActive = Boolean(
-        nodeDragRef.current || panRef.current || followerPointsRef.current.size,
-      );
-      const frameInterval = interactionActive ? 0 : 34;
-      if (!reducedMotion && lastPaint && now - lastPaint < frameInterval) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
-      lastPaint = now;
-      const motionDelta = Math.max(1 / 240, Math.min(.05, (now - lastMotionStep) / 1000));
-      lastMotionStep = now;
-      const ratio = Math.min(window.devicePixelRatio || 1, 1.25);
-      if (canvas.width !== Math.round(size.width * ratio) || canvas.height !== Math.round(size.height * ratio)) {
-        canvas.width = Math.round(size.width * ratio);
-        canvas.height = Math.round(size.height * ratio);
-      }
-      const elapsed = Math.max(0, now - motionStartedRef.current);
-      const initialSway = reducedMotion ? 0 : Math.exp(-elapsed / 4200) * Math.min(4, finite(snapshot.graph.settings.initial_jitter, 70) * .03);
-      const dragMotion = dragSwayRef.current;
-      const dragAge = Math.max(0, now - dragMotion.updatedAt);
-      const dragEnergy = reducedMotion ? 0 : dragMotion.energy * Math.exp(-dragAge / 1500);
-      const animated = animatedPointsRef.current;
-      const shouldMoveNodes = !reducedMotion && (
-        elapsed < 9000 || Boolean(nodeDragRef.current) || dragEnergy > .025 || followerPointsRef.current.size > 0
-      );
-      if (shouldMoveNodes || nodeMotionActiveRef.current) {
-        animated.clear();
-        for (const item of visible) {
-        const point = points.get(item.entityId);
-        const profile = motionProfiles.get(item.entityId);
-        if (!point || !profile) continue;
-        const followerPoint = followerPointsRef.current.get(item.entityId);
-        let physicalPoint = point;
-        if (nodeDragRef.current?.id === item.entityId) {
-          physicalPoint = nodeDragRef.current.lastPoint;
-        } else if (followerPoint) {
-          const followerTarget = nodeDragRef.current
-            ? (followerTargetsRef.current.get(item.entityId) || point)
-            : point;
-          const velocity = followerVelocityRef.current.get(item.entityId) || { x: 0, y: 0 };
-          const spring = advanceFollowerSpring(
-            followerPoint,
-            velocity,
-            followerTarget,
-            motionDelta,
-            Boolean(nodeDragRef.current),
-          );
-          followerPoint.x = Math.max(64, Math.min(size.width - 64, spring.point.x));
-          followerPoint.y = Math.max(64, Math.min(size.height - 64, spring.point.y));
-          velocity.x = spring.velocity.x;
-          velocity.y = spring.velocity.y;
-          followerPointsRef.current.set(item.entityId, followerPoint);
-          followerVelocityRef.current.set(item.entityId, velocity);
-          if (!nodeDragRef.current && Math.hypot(followerTarget.x - followerPoint.x, followerTarget.y - followerPoint.y) < .35 && Math.hypot(velocity.x, velocity.y) < 2) {
-            followerTargetsRef.current.delete(item.entityId);
-            followerPointsRef.current.delete(item.entityId);
-            followerVelocityRef.current.delete(item.entityId);
-          } else {
-            physicalPoint = followerPoint;
-          }
-        }
-        const follow = dragInfluenceRef.current.get(item.entityId) || 0;
-        const swayAmount = nodeDragRef.current?.id === item.entityId ? 0 : dragEnergy * (.18 + Math.sqrt(follow) * 1.1);
-        const swaySide = Math.sin(profile.phase) >= 0 ? 1 : -1;
-        const perpendicularX = -dragMotion.directionY;
-        const perpendicularY = dragMotion.directionX;
-        const initialSwayX = initialSway * Math.sin(now / 700 + profile.phase * .45);
-        const initialSwayY = initialSway * Math.cos(now / 820 + profile.phase * .4);
-        const swayX = perpendicularX * swaySide * swayAmount * .35 + dragMotion.directionX * swayAmount * .08;
-        const swayY = perpendicularY * swaySide * swayAmount * .35 + dragMotion.directionY * swayAmount * .08;
-        const animatedPoint = shouldMoveNodes
-          ? { x: physicalPoint.x + initialSwayX + swayX, y: physicalPoint.y + initialSwayY + swayY }
-          : point;
-        animated.set(item.entityId, animatedPoint);
-        const element = nodeRefs.current.get(item.entityId);
-        if (element) element.style.transform = `translate(-50%, -50%) translate(${animatedPoint.x - point.x}px, ${animatedPoint.y - point.y}px)`;
-        }
-        nodeMotionActiveRef.current = shouldMoveNodes;
-      }
-      const activeViewport = viewportRef.current;
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context.clearRect(0, 0, size.width, size.height);
-      context.save();
-      context.translate(activeViewport.x, activeViewport.y);
-      context.scale(activeViewport.scale, activeViewport.scale);
-      for (const relation of relationships) {
-        const from = animated.get(relation.from); const to = animated.get(relation.to);
-        if (!from || !to) continue;
-        const related = !selected || relation.from === selected || relation.to === selected;
-        const control = {
-          x: (from.x + to.x) / 2 - (to.y - from.y) / 7,
-          y: (from.y + to.y) / 2 + (to.x - from.x) / 9,
-        };
-        context.beginPath(); context.moveTo(from.x, from.y);
-        context.quadraticCurveTo(control.x, control.y, to.x, to.y);
-        context.strokeStyle = relation.color; context.globalAlpha = related ? .72 : .09; context.lineWidth = related ? 2.8 : 1.4; context.stroke();
-        if (related) {
-          const motion = relationshipMotion.get(relation.entityId);
-          const progress = reducedMotion ? .5 : (now / (motion?.duration || 2400) + (motion?.phase || 0)) % 1;
-          const particle = quadraticPoint(from, control, to, progress);
-          context.globalAlpha = .94;
-          context.beginPath(); context.arc(particle.x, particle.y, 4.2, 0, Math.PI * 2); context.fillStyle = "rgba(255,253,247,.94)"; context.fill();
-          context.beginPath(); context.arc(particle.x, particle.y, 2.55, 0, Math.PI * 2); context.fillStyle = relation.color; context.fill();
-        }
-      }
-      context.restore(); context.globalAlpha = 1;
-      if (!reducedMotion && !document.hidden) frame = requestAnimationFrame(draw);
-    };
-    const resume = () => {
-      if (!document.hidden && !reducedMotion && !frame) frame = requestAnimationFrame(draw);
-    };
-    draw(performance.now());
-    document.addEventListener("visibilitychange", resume);
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      document.removeEventListener("visibilitychange", resume);
-    };
-  }, [motionProfiles, points, relationshipMotion, relationships, selected, size, snapshot.graph.settings.initial_jitter, visible]);
+
   const previewViewport = (next: typeof viewport) => {
     viewportRef.current = next;
-    if (nodeLayerRef.current) {
-      nodeLayerRef.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
-    }
+    scheduleRender();
   };
   const commitViewport = (next: typeof viewport) => {
-    previewViewport(next);
+    viewportRef.current = next;
     setViewport(next);
+    drawCurrent(undefined, next);
   };
-  const center = (id: string) => {
-    const point = animatedPointsRef.current.get(id) || points.get(id); if (!point) return;
+  const center = (id: string, pointOverride?: Point) => {
+    const point = pointOverride || points.get(id);
+    if (!point) return;
     const currentViewport = viewportRef.current;
     if (!selected) focusViewportRef.current = { ...currentViewport };
     select(id);
@@ -442,54 +373,10 @@ export default function GraphPage() {
     focusViewportRef.current = null;
   };
   const pointFromClient = (clientX: number, clientY: number) => {
-    const bounds = wrapRef.current?.getBoundingClientRect();
-    if (!bounds) return null;
-    const currentViewport = viewportRef.current;
-    return {
-      x: (clientX - bounds.left - currentViewport.x) / currentViewport.scale,
-      y: (clientY - bounds.top - currentViewport.y) / currentViewport.scale,
-    };
-  };
-  const commitDraggedPoint = () => {
-    const pending = pendingDragPointRef.current;
-    pendingDragPointRef.current = null;
-    if (!pending) return;
-    for (const item of visible) {
-      if (item.entityId === pending.id) continue;
-      const baseTarget = followerTargetsRef.current.get(item.entityId)
-        || followerPointsRef.current.get(item.entityId)
-        || points.get(item.entityId);
-      if (!baseTarget) continue;
-      const influence = pending.influence.get(item.entityId) || .07;
-      followerTargetsRef.current.set(item.entityId, {
-        x: Math.max(64, Math.min(size.width - 64, baseTarget.x + pending.deltaX * influence)),
-        y: Math.max(64, Math.min(size.height - 64, baseTarget.y + pending.deltaY * influence)),
-      });
-      if (!followerPointsRef.current.has(item.entityId)) followerPointsRef.current.set(item.entityId, { ...baseTarget });
-      const velocity = followerVelocityRef.current.get(item.entityId) || { x: 0, y: 0 };
-      velocity.x += pending.deltaX * influence * 1.4;
-      velocity.y += pending.deltaY * influence * 1.4;
-      followerVelocityRef.current.set(item.entityId, velocity);
-    }
-    followerTargetsRef.current.delete(pending.id);
-    followerPointsRef.current.delete(pending.id);
-    followerVelocityRef.current.delete(pending.id);
-  };
-  const queueDraggedPoint = (id: string, deltaX: number, deltaY: number) => {
-    const pending = pendingDragPointRef.current;
-    pendingDragPointRef.current = pending?.id === id
-      ? { ...pending, deltaX: pending.deltaX + deltaX, deltaY: pending.deltaY + deltaY }
-      : { id, deltaX, deltaY, influence: dragInfluenceRef.current };
-    if (dragFrameRef.current) return;
-    dragFrameRef.current = requestAnimationFrame(() => {
-      dragFrameRef.current = 0;
-      commitDraggedPoint();
-    });
-  };
-  const flushDraggedPoint = () => {
-    if (dragFrameRef.current) cancelAnimationFrame(dragFrameRef.current);
-    dragFrameRef.current = 0;
-    commitDraggedPoint();
+    const canvas = canvasRef.current;
+    const currentScene = sceneRef.current;
+    if (!canvas || !currentScene) return null;
+    return graphScenePoint(currentScene, clientX, clientY, canvas.getBoundingClientRect(), viewportRef.current);
   };
   const stageDraggedPoint = (id: string, point: Point) => {
     setManualPoints((current) => {
@@ -540,108 +427,133 @@ export default function GraphPage() {
       setSaveError(error instanceof Error ? error.message : "位置保存失败");
     }
   };
-  const onWheel: React.WheelEventHandler = (event) => {
+  const onWheel: React.WheelEventHandler<HTMLCanvasElement> = (event) => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
-    const pointerX = event.clientX - bounds.left; const pointerY = event.clientY - bounds.top;
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
     const currentViewport = viewportRef.current;
     const scale = Math.max(.45, Math.min(2.4, currentViewport.scale * (event.deltaY > 0 ? .9 : 1.1)));
-    const worldX = (pointerX - currentViewport.x) / currentViewport.scale; const worldY = (pointerY - currentViewport.y) / currentViewport.scale;
+    const worldX = (pointerX - currentViewport.x) / currentViewport.scale;
+    const worldY = (pointerY - currentViewport.y) / currentViewport.scale;
     commitViewport({ scale, x: pointerX - worldX * scale, y: pointerY - worldY * scale });
+    scheduleRender(900);
   };
-  const relatedPlots = selected ? snapshot.plots.filter((plot) => plot.people.includes(selected)) : [];
-  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div
-    className="graph-canvas"
-    ref={wrapRef}
-    onWheel={onWheel}
-    onPointerDown={(event) => {
-      if ((event.target as HTMLElement).closest(".graph-node, .graph-profile-card")) return;
-      event.currentTarget.setPointerCapture(event.pointerId);
-      const currentViewport = viewportRef.current;
-      panRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: currentViewport.x, originY: currentViewport.y, moved: false };
-    }}
-    onPointerMove={(event) => {
-      const pan = panRef.current;
-      if (!pan || pan.pointerId !== event.pointerId) return;
-      if (Math.hypot(event.clientX - pan.x, event.clientY - pan.y) > 4) pan.moved = true;
-      previewViewport({ ...viewportRef.current, x: pan.originX + event.clientX - pan.x, y: pan.originY + event.clientY - pan.y });
-    }}
-    onPointerUp={(event) => {
-      const pan = panRef.current;
-      if (!pan || pan.pointerId !== event.pointerId) return;
-      panRef.current = null;
-      if (pan.moved) commitViewport(viewportRef.current);
-      if (!pan.moved) clearFocus();
-    }}
-    onPointerCancel={() => {
-      if (panRef.current?.moved) commitViewport(viewportRef.current);
-      panRef.current = null;
-    }}
-  ><canvas ref={canvasRef} /><div ref={nodeLayerRef} className="graph-node-layer" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}>{visible.map((item) => { const point = points.get(item.entityId)!; const related = !selected || item.entityId === selected || relationships.some((link) => (link.from === selected && link.to === item.entityId) || (link.to === selected && link.from === item.entityId)); return <button key={item.entityId} data-entity-id={item.entityId} ref={(element) => { if (element) nodeRefs.current.set(item.entityId, element); else nodeRefs.current.delete(item.entityId); }} className={`graph-node${selected === item.entityId ? " is-selected" : ""}${related ? "" : " is-muted"}`} style={{ left: point.x, top: point.y, "--node-color": item.color } as React.CSSProperties} onPointerDown={(event) => {
-    if (event.button !== 0) return;
-    event.stopPropagation();
-    if (mutation.isPending) return;
-    const pointer = pointFromClient(event.clientX, event.clientY);
-    const current = followerPointsRef.current.get(item.entityId) || points.get(item.entityId);
-    if (!pointer || !current) return;
-    dragInfluenceRef.current = graphDragInfluence(item.entityId, visible.map((person) => person.entityId), relationships);
-    const dragStartedAt = performance.now();
-    dragSwayRef.current = { updatedAt: dragStartedAt, energy: .15, directionX: 1, directionY: 0 };
-    nodeDragRef.current = { id: item.entityId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, offsetX: pointer.x - current.x, offsetY: pointer.y - current.y, lastPoint: current, moved: false };
+  const onPointerDown: React.PointerEventHandler<HTMLCanvasElement> = (event) => {
+    if (event.button !== 0 || mutation.isPending) return;
+    const point = pointFromClient(event.clientX, event.clientY);
+    const currentScene = sceneRef.current;
+    if (!point || !currentScene) return;
+    const node = hitTestGraphNode(currentScene, point);
     event.currentTarget.setPointerCapture(event.pointerId);
-  }} onPointerMove={(event) => {
-    const drag = nodeDragRef.current;
-    if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
-    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
-    if (!drag.moved) return;
-    const pointer = pointFromClient(event.clientX, event.clientY);
-    if (!pointer) return;
-    const nextPoint = {
-      x: Math.max(64, Math.min(size.width - 64, pointer.x - drag.offsetX)),
-      y: Math.max(64, Math.min(size.height - 64, pointer.y - drag.offsetY)),
-    };
-    const deltaX = nextPoint.x - drag.lastPoint.x;
-    const deltaY = nextPoint.y - drag.lastPoint.y;
-    drag.lastPoint = nextPoint;
-    const distance = Math.hypot(deltaX, deltaY);
-    const previousSway = dragSwayRef.current;
-    const rawDirectionX = distance ? deltaX / distance : previousSway.directionX;
-    const rawDirectionY = distance ? deltaY / distance : previousSway.directionY;
-    const blendedDirectionX = previousSway.directionX * .68 + rawDirectionX * .32;
-    const blendedDirectionY = previousSway.directionY * .68 + rawDirectionY * .32;
-    const directionLength = Math.max(.001, Math.hypot(blendedDirectionX, blendedDirectionY));
-    dragSwayRef.current = {
-      updatedAt: performance.now(),
-      energy: .25 + Math.min(.7, distance / 26),
-      directionX: blendedDirectionX / directionLength,
-      directionY: blendedDirectionY / directionLength,
-    };
-    queueDraggedPoint(item.entityId, deltaX, deltaY);
-  }} onPointerUp={(event) => {
-    const drag = nodeDragRef.current;
-    if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
-    flushDraggedPoint();
-    if (drag.moved) stageDraggedPoint(item.entityId, drag.lastPoint);
-    nodeDragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (drag.moved) {
-      suppressClickRef.current = { id: item.entityId, until: Date.now() + 300 };
-      void persistDraggedPoint(item.entityId, drag.lastPoint);
-    }
-  }} onPointerCancel={(event) => {
-    const drag = nodeDragRef.current;
-    if (!drag || drag.id !== item.entityId || drag.pointerId !== event.pointerId) return;
-    flushDraggedPoint();
-    if (drag.moved) stageDraggedPoint(item.entityId, drag.lastPoint);
-    nodeDragRef.current = null;
-    if (drag.moved) void persistDraggedPoint(item.entityId, drag.lastPoint);
-  }} onClick={() => {
-    const suppressed = suppressClickRef.current;
-    if (suppressed?.id === item.entityId && Date.now() < suppressed.until) {
-      suppressClickRef.current = null;
+    scheduleRender(1200);
+    if (node) {
+      nodeDragRef.current = {
+        id: node.character.entityId,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: point.x - node.point.x,
+        offsetY: point.y - node.point.y,
+        lastPoint: { ...node.point },
+        moved: false,
+      };
       return;
     }
-    suppressClickRef.current = null;
-    center(item.entityId);
-  }}><span style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><strong>{item.name}</strong></button>; })}</div>{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: selectedPerson.gradient || selectedPerson.color }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案{duplicateCharacterNames.has(selectedPerson.name) ? ` · ID ${selectedPerson.id}` : ""}</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p><h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}{saveError && <span className="graph-save-error" role="alert">{saveError}</span>}</div>{editing && <Suspense fallback={<div className="dialog-backdrop"><section className="recovery-loading">正在准备图谱编辑器…</section></div>}><GraphEditor onClose={() => setEditing(false)} /></Suspense>}</section>;
+    const currentViewport = viewportRef.current;
+    panRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      originX: currentViewport.x,
+      originY: currentViewport.y,
+      moved: false,
+    };
+  };
+  const onPointerMove: React.PointerEventHandler<HTMLCanvasElement> = (event) => {
+    const drag = nodeDragRef.current;
+    if (drag && drag.pointerId === event.pointerId) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
+      if (!drag.moved) return;
+      const point = pointFromClient(event.clientX, event.clientY);
+      if (!point) return;
+      drag.lastPoint = graphDragPoint({
+        x: point.x - drag.offsetX,
+        y: point.y - drag.offsetY,
+      }, size.width, size.height, viewportRef.current);
+      scheduleRender();
+      return;
+    }
+    const pan = panRef.current;
+    if (pan && pan.pointerId === event.pointerId) {
+      if (Math.hypot(event.clientX - pan.x, event.clientY - pan.y) > 4) pan.moved = true;
+      previewViewport({ ...viewportRef.current, x: pan.originX + event.clientX - pan.x, y: pan.originY + event.clientY - pan.y });
+      scheduleRender(700);
+      return;
+    }
+    const point = pointFromClient(event.clientX, event.clientY);
+    const currentScene = sceneRef.current;
+    motionRef.current.hoveredNodeId = point && currentScene
+      ? hitTestGraphNode(currentScene, point)?.character.entityId || null
+      : null;
+    scheduleRender(900);
+  };
+  const onPointerUp: React.PointerEventHandler<HTMLCanvasElement> = (event) => {
+    const drag = nodeDragRef.current;
+    if (drag && drag.pointerId === event.pointerId) {
+      nodeDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      if (drag.moved) {
+        stageDraggedPoint(drag.id, drag.lastPoint);
+        void persistDraggedPoint(drag.id, drag.lastPoint);
+      } else {
+        center(drag.id, drag.lastPoint);
+      }
+      drawCurrent();
+      scheduleRender(1100);
+      return;
+    }
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    panRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (pan.moved) commitViewport(viewportRef.current);
+    else clearFocus();
+    scheduleRender(900);
+  };
+  const onPointerCancel: React.PointerEventHandler<HTMLCanvasElement> = (event) => {
+    const drag = nodeDragRef.current;
+    if (drag && drag.pointerId === event.pointerId) {
+      nodeDragRef.current = null;
+      if (drag.moved) {
+        stageDraggedPoint(drag.id, drag.lastPoint);
+        void persistDraggedPoint(drag.id, drag.lastPoint);
+      }
+      drawCurrent();
+      scheduleRender(700);
+      return;
+    }
+    if (panRef.current?.moved) commitViewport(viewportRef.current);
+    panRef.current = null;
+    scheduleRender(500);
+  };
+  const onPointerLeave: React.PointerEventHandler<HTMLCanvasElement> = () => {
+    motionRef.current.hoveredNodeId = null;
+    scheduleRender(180);
+  };
+  const relatedPlots = selected ? snapshot.plots.filter((plot) => plot.people.includes(selected)) : [];
+  return <section className="workspace-page graph-page-new"><header className="page-header graph-page-header"><div><small>Relationship Map</small><h1>人物图谱</h1><p>拖动节点调整位置，拖动空白区域平移；布局规则可以直接在网页维护。</p></div><div className="graph-header-actions">{writable && <button className="icon-button" aria-label="编辑人物图谱" title="编辑图谱布局" onClick={() => setEditing(true)}><Icon name="settings" /></button>}</div></header><div className="graph-canvas" ref={wrapRef}><canvas
+    ref={canvasRef}
+    className="graph-scene-canvas"
+    role="application"
+    aria-label="人物关系图谱，可拖动人物节点或平移画布"
+    tabIndex={0}
+    onWheel={onWheel}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    onPointerCancel={onPointerCancel}
+    onPointerEnter={() => scheduleRender(900)}
+    onPointerLeave={onPointerLeave}
+  /><canvas ref={motionCanvasRef} className="graph-motion-canvas" aria-hidden="true" />{selectedPerson && <aside className="graph-profile-card"><header><span className="avatar" style={{ background: avatarBackground(selectedPerson) }}>{selectedPerson.name.slice(0, 1)}</span><div><small>人物档案{duplicateCharacterNames.has(selectedPerson.name) ? ` · ID ${selectedPerson.id}` : ""}</small><h2>{selectedPerson.name}</h2><p>{selectedPerson.narrativeRole} · {selectedPerson.side}</p></div><button className="icon-button" aria-label="进入人物详情" title="进入人物详情" onClick={() => { useUiStore.getState().selectCharacter(selectedPerson.entityId); useUiStore.getState().navigate("characters"); }}><Icon name="arrow" /></button></header><p>{selectedPerson.introPreview || "还没有人物设定"}</p>{selectedOrganizations.length > 0 && <section className="graph-organization-memberships"><h3>组织身份</h3><div>{selectedOrganizations.map(({ entry, membership }) => <p key={entry.entityId}><strong>{entry.name}</strong><small>{membership.role || "未填写身份"}</small></p>)}</div></section>}<h3>相关剧情</h3><CollapsibleList items={relatedPlots} itemKey={(plot) => plot.entityId} resetKey={selectedPerson.entityId} label={`${selectedPerson.name}的相关剧情`} className="graph-plot-links" emptyText="还没有相关剧情" renderItem={(plot) => <button onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><strong>{plot.title}</strong><small>第 {plot.sequence} 篇</small></button>} /></aside>}{saveError && <span className="graph-save-error" role="alert">{saveError}</span>}</div>{editing && <Suspense fallback={<div className="dialog-backdrop"><section className="recovery-loading">正在准备图谱编辑器…</section></div>}><GraphEditor onClose={() => setEditing(false)} /></Suspense>}</section>;
 }

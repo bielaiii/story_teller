@@ -105,7 +105,7 @@
     {
       "aliases": [],
       "characterScope": "常驻人物",
-      "color": "#3f7fc1",
+      "color": "#9a6b55",
       "corePersona": [
         {
           "key": "人物定位",
@@ -251,7 +251,7 @@
     {
       "aliases": [],
       "characterScope": "一次性角色",
-      "color": "#7d6bd6",
+      "color": "#4f6fae",
       "corePersona": [
         {
           "key": "人物定位",
@@ -296,6 +296,18 @@
       "entityId": "entry:compensation-case",
       "extra": {},
       "id": "compensation-case",
+      "members": [
+        {
+          "characterId": "character:2",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:5",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "失踪船队赔偿案",
       "people": [
         "character:2",
@@ -329,6 +341,18 @@
       "entityId": "entry:harbor-repair-network",
       "extra": {},
       "id": "harbor-repair-network",
+      "members": [
+        {
+          "characterId": "character:4",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:7",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "港区修船人脉",
       "people": [
         "character:4",
@@ -363,6 +387,18 @@
       "entityId": "entry:archive",
       "extra": {},
       "id": "archive",
+      "members": [
+        {
+          "characterId": "character:1",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:3",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "旧港档案馆",
       "people": [
         "character:1",
@@ -396,6 +432,18 @@
       "entityId": "entry:night-restaurant",
       "extra": {},
       "id": "night-restaurant",
+      "members": [
+        {
+          "characterId": "character:2",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:6",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "半潮餐厅",
       "people": [
         "character:2",
@@ -418,7 +466,7 @@
       "type": "地点"
     },
     {
-      "accent": "#3f7fc1",
+      "accent": "#5d8f7b",
       "aliases": [
         "午夜电台",
         "北岸发射塔"
@@ -429,6 +477,18 @@
       "entityId": "entry:radio-station",
       "extra": {},
       "id": "radio-station",
+      "members": [
+        {
+          "characterId": "character:3",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:4",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "海雾电台",
       "people": [
         "character:3",
@@ -463,6 +523,23 @@
       "entityId": "entry:second-key",
       "extra": {},
       "id": "second-key",
+      "members": [
+        {
+          "characterId": "character:1",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:4",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:7",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "第二把钥匙",
       "people": [
         "character:1",
@@ -498,6 +575,18 @@
       "entityId": "entry:harbor-gate-company",
       "extra": {},
       "id": "harbor-gate-company",
+      "members": [
+        {
+          "characterId": "character:4",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:5",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "恒闸建设",
       "people": [
         "character:4",
@@ -520,7 +609,7 @@
       "type": "组织"
     },
     {
-      "accent": "#3f7fc1",
+      "accent": "#786a9e",
       "aliases": [
         "七分钟",
         "潮汐延迟"
@@ -531,6 +620,23 @@
       "entityId": "entry:seven-minute-delay",
       "extra": {},
       "id": "seven-minute-delay",
+      "members": [
+        {
+          "characterId": "character:1",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:3",
+          "role": "",
+          "status": "现成员"
+        },
+        {
+          "characterId": "character:5",
+          "role": "",
+          "status": "现成员"
+        }
+      ],
       "name": "七分钟时间差",
       "people": [
         "character:1",
@@ -557,29 +663,37 @@
   ],
   "fragments": [
     {
-      "accent": "#3f7fc1",
-      "body": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
-      "bodyPreview": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
-      "entityId": "fragment:future-broadcast",
+      "accent": "#68aa5b",
+      "body": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
+      "bodyPreview": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
+      "chapterNumber": null,
+      "entityId": "fragment:rain-knocking",
       "extra": {},
-      "id": "future-broadcast",
+      "fragmentOrder": 0,
+      "fragmentType": "chapter",
+      "id": "rain-knocking",
+      "parentFragmentId": null,
       "references": [],
       "revision": 1,
-      "status": "灵感",
+      "status": "草稿",
       "tags": [
-        "电台",
-        "时间异常",
-        "开场画面"
+        "雨夜",
+        "恐怖感",
+        "独居"
       ],
-      "title": "来自未来的整点报时"
+      "title": "雨夜敲门声"
     },
     {
       "accent": "#d65f8f",
       "body": "水闸打开后，地下暗河露出一截船艏。船身没有腐烂，像是刚刚停靠在城市下面。",
       "bodyPreview": "水闸打开后，地下暗河露出一截船艏。船身没有腐烂，像是刚刚停靠在城市下面。",
+      "chapterNumber": null,
       "entityId": "fragment:hidden-ship",
       "extra": {},
+      "fragmentOrder": 0,
+      "fragmentType": "chapter",
       "id": "hidden-ship",
+      "parentFragmentId": null,
       "references": [],
       "revision": 1,
       "status": "待发展",
@@ -591,21 +705,25 @@
       "title": "城市下方的船"
     },
     {
-      "accent": "#68aa5b",
-      "body": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
-      "bodyPreview": "节目结束后的雨夜，门外传来三次敲门声。猫没有反应，门铃记录里却显示来访者是苏眠自己。",
-      "entityId": "fragment:rain-knocking",
+      "accent": "#3f7fc1",
+      "body": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
+      "bodyPreview": "凌晨三点，苏眠的电台自动播出明天的整点报时。报时后有一个陌生人轻声说：不要让林秋打开第三个抽屉。",
+      "chapterNumber": null,
+      "entityId": "fragment:future-broadcast",
       "extra": {},
-      "id": "rain-knocking",
+      "fragmentOrder": 0,
+      "fragmentType": "chapter",
+      "id": "future-broadcast",
+      "parentFragmentId": null,
       "references": [],
       "revision": 1,
-      "status": "草稿",
+      "status": "灵感",
       "tags": [
-        "雨夜",
-        "恐怖感",
-        "独居"
+        "电台",
+        "时间异常",
+        "开场画面"
       ],
-      "title": "雨夜敲门声"
+      "title": "来自未来的整点报时"
     }
   ],
   "graph": {
@@ -653,6 +771,10 @@
       "sequence": 1,
       "sortKey": "000000000001000000000000",
       "status": "已接入",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000001000000000000",
       "summary": "",
       "tags": [
         "旧港",
@@ -693,6 +815,10 @@
       "sequence": 2,
       "sortKey": "000000000002000000000000",
       "status": "已接入",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000002000000000000",
       "summary": "",
       "tags": [
         "旧案",
@@ -739,6 +865,10 @@
       "sequence": 3,
       "sortKey": "000000000003000000000000",
       "status": "已接入",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000003000000000000",
       "summary": "",
       "tags": [
         "仓库",
@@ -777,6 +907,10 @@
       "sequence": 4,
       "sortKey": "000000000004000000000000",
       "status": "待串联",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000004000000000000",
       "summary": "",
       "tags": [
         "手稿",
@@ -817,6 +951,10 @@
       "sequence": 5,
       "sortKey": "000000000005000000000000",
       "status": "待串联",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000005000000000000",
       "summary": "",
       "tags": [
         "电台",
@@ -858,6 +996,10 @@
       "sequence": 6,
       "sortKey": "000000000006000000000000",
       "status": "已接入",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000006000000000000",
       "summary": "",
       "tags": [
         "潮汐",
@@ -896,6 +1038,10 @@
       "sequence": 7,
       "sortKey": "000000000007000000000000",
       "status": "草稿",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000007000000000000",
       "summary": "",
       "tags": [
         "旧照片",
@@ -937,6 +1083,10 @@
       "sequence": 8,
       "sortKey": "000000000008000000000000",
       "status": "待串联",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000008000000000000",
       "summary": "",
       "tags": [
         "广播",
@@ -978,6 +1128,10 @@
       "sequence": 9,
       "sortKey": "000000000009000000000000",
       "status": "已接入",
+      "storyAnchorPlotId": null,
+      "storyAnchorSide": null,
+      "storyOrderMode": "follow_reading",
+      "storySortKey": "000000000009000000000000",
       "summary": "",
       "tags": [
         "水闸",
@@ -1000,11 +1154,15 @@
       "color": "#df7655",
       "entityId": "relationship:1__2",
       "from": "character:1",
+      "fromImpression": "",
       "fromRole": "试探者",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "1__2",
       "label": "互相试探",
       "revision": 1,
       "to": "character:2",
+      "toImpression": "",
       "toRole": "试探者",
       "type": "试探"
     },
@@ -1012,11 +1170,15 @@
       "color": "#2aa79b",
       "entityId": "relationship:1__3",
       "from": "character:1",
+      "fromImpression": "",
       "fromRole": "盟友",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "1__3",
       "label": "线索共振",
       "revision": 1,
       "to": "character:3",
+      "toImpression": "",
       "toRole": "盟友",
       "type": "同盟"
     },
@@ -1024,11 +1186,15 @@
       "color": "#d65f8f",
       "entityId": "relationship:1__4",
       "from": "character:1",
+      "fromImpression": "",
       "fromRole": "盟友",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "1__4",
       "label": "仓库同盟",
       "revision": 1,
       "to": "character:4",
+      "toImpression": "",
       "toRole": "盟友",
       "type": "同盟"
     },
@@ -1036,11 +1202,15 @@
       "color": "#68aa5b",
       "entityId": "relationship:2__5",
       "from": "character:2",
+      "fromImpression": "",
       "fromRole": "旧案关联人",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "2__5",
       "label": "旧案关联",
       "revision": 1,
       "to": "character:5",
+      "toImpression": "",
       "toRole": "旧案关联人",
       "type": "旧案"
     },
@@ -1048,11 +1218,15 @@
       "color": "#d8b64a",
       "entityId": "relationship:2__6",
       "from": "character:2",
+      "fromImpression": "",
       "fromRole": "手稿调查者",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "2__6",
       "label": "手稿疑云",
       "revision": 1,
       "to": "character:6",
+      "toImpression": "",
       "toRole": "手稿持有者",
       "type": "疑云"
     },
@@ -1060,11 +1234,15 @@
       "color": "#3f7fc1",
       "entityId": "relationship:3__4",
       "from": "character:3",
+      "fromImpression": "",
       "fromRole": "线索提供者",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "3__4",
       "label": "电台线索",
       "revision": 1,
       "to": "character:4",
+      "toImpression": "",
       "toRole": "调查者",
       "type": "线索"
     },
@@ -1072,11 +1250,15 @@
       "color": "#d8b64a",
       "entityId": "relationship:3__6",
       "from": "character:3",
+      "fromImpression": "",
       "fromRole": "解读者",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "3__6",
       "label": "预言文本",
       "revision": 1,
       "to": "character:6",
+      "toImpression": "",
       "toRole": "预言者",
       "type": "预言"
     },
@@ -1084,11 +1266,15 @@
       "color": "#d65f8f",
       "entityId": "relationship:4__5",
       "from": "character:4",
+      "fromImpression": "",
       "fromRole": "知情人",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "4__5",
       "label": "港区秘密",
       "revision": 1,
       "to": "character:5",
+      "toImpression": "",
       "toRole": "知情人",
       "type": "秘密"
     },
@@ -1096,11 +1282,15 @@
       "color": "#7d6bd6",
       "entityId": "relationship:7__4",
       "from": "character:7",
+      "fromImpression": "",
       "fromRole": "秘密关联人",
+      "graphLineMode": "single",
+      "graphScope": "core",
       "id": "7__4",
       "label": "单线钥匙",
       "revision": 1,
       "to": "character:4",
+      "toImpression": "",
       "toRole": "秘密关联人",
       "type": "秘密"
     }

@@ -68,6 +68,12 @@ export interface Plot {
   extra: Record<string, unknown>;
 }
 
+export interface EntryMember {
+  characterId: string;
+  role: string;
+  status: string;
+}
+
 export interface Entry {
   entityId: string;
   id: string;
@@ -80,6 +86,7 @@ export interface Entry {
   aliases: string[];
   tags: string[];
   people: string[];
+  members?: EntryMember[];
   references?: string[];
   bodyPreview: string;
   body?: string;
@@ -113,6 +120,10 @@ export interface Relationship {
   to: string;
   fromRole: string;
   toRole: string;
+  fromImpression: string;
+  toImpression: string;
+  graphScope?: "core" | "focus" | "hidden";
+  graphLineMode?: "single" | "double";
   label: string;
   type: string;
   color: string;

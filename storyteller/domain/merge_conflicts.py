@@ -39,6 +39,11 @@ FIELD_LABELS = {
     "character_scope": "人物范围",
     "from_role": "起点角色",
     "to_role": "终点角色",
+    "from_impression": "起点人物对对方的印象",
+    "to_impression": "终点人物对对方的印象",
+    "graph_scope": "图谱展示层级",
+    "graph_line_mode": "图谱连线形式",
+    "role": "组织身份",
     "content": "内容",
     "fact_value": "事实内容",
     "value": "内容",
@@ -49,6 +54,8 @@ LONG_TEXT_COLUMNS = {
     "summary",
     "content",
     "fact_value",
+    "from_impression",
+    "to_impression",
     "extra_json",
 }
 

@@ -1,7 +1,7 @@
 {
   "format": "story-teller-recovery",
   "project": "demo",
-  "schemaVersion": 4,
+  "schemaVersion": 9,
   "tables": {
     "assets": {
       "columns": [
@@ -198,7 +198,7 @@
           "常驻人物",
           "主角方",
           75,
-          "#3f7fc1",
+          "#9a6b55",
           "linear-gradient(135deg, #3f7fc1, #435fb8)",
           "主角团",
           1
@@ -250,7 +250,7 @@
           "一次性角色",
           "中立",
           40,
-          "#7d6bd6",
+          "#4f6fae",
           "linear-gradient(135deg, #7d6bd6, #6752c9)",
           "港区相关",
           0
@@ -1810,7 +1810,7 @@
           "旧港北岸",
           "一座早已停播的旧电台，夜里仍会收到短波回声。它像是整座雾港的耳朵，记录尚未发生的求救、集合地点和错误时间。",
           "已接入",
-          "#3f7fc1"
+          "#5d8f7b"
         ],
         [
           "entry:second-key",
@@ -1830,7 +1830,7 @@
           "雾港",
           "雾港部分记录与现实之间稳定错开七分钟。它像一条隐藏规则，让航海日记、广播和潮汐表都出现了相同偏差，也是判断预言是否真实发生的重要依据。",
           "待解释",
-          "#3f7fc1"
+          "#786a9e"
         ]
       ]
     },
@@ -1926,80 +1926,137 @@
     "entry_characters": {
       "columns": [
         "entry_id",
-        "character_id"
+        "character_id",
+        "role",
+        "status",
+        "sort_key"
       ],
       "rows": [
         [
           "entry:archive",
-          "character:1"
+          "character:1",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:archive",
-          "character:3"
+          "character:3",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:compensation-case",
-          "character:2"
+          "character:2",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:compensation-case",
-          "character:5"
+          "character:5",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:harbor-gate-company",
-          "character:4"
+          "character:4",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:harbor-gate-company",
-          "character:5"
+          "character:5",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:harbor-repair-network",
-          "character:4"
+          "character:4",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:harbor-repair-network",
-          "character:7"
+          "character:7",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:night-restaurant",
-          "character:2"
+          "character:2",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:night-restaurant",
-          "character:6"
+          "character:6",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:radio-station",
-          "character:3"
+          "character:3",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:radio-station",
-          "character:4"
+          "character:4",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:second-key",
-          "character:1"
+          "character:1",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:second-key",
-          "character:4"
+          "character:4",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:second-key",
-          "character:7"
+          "character:7",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:seven-minute-delay",
-          "character:1"
+          "character:1",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:seven-minute-delay",
-          "character:3"
+          "character:3",
+          "",
+          "现成员",
+          0
         ],
         [
           "entry:seven-minute-delay",
-          "character:5"
+          "character:5",
+          "",
+          "现成员",
+          0
         ]
       ]
     },
@@ -2825,7 +2882,11 @@
         "status",
         "accent",
         "is_key",
-        "is_climax"
+        "is_climax",
+        "story_sort_key",
+        "story_order_mode",
+        "story_anchor_plot_id",
+        "story_anchor_side"
       ],
       "rows": [
         [
@@ -2837,7 +2898,11 @@
           "已接入",
           "#2aa79b",
           0,
-          0
+          0,
+          "000000000001000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:2",
@@ -2848,7 +2913,11 @@
           "已接入",
           "#df7655",
           0,
-          0
+          0,
+          "000000000002000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:3",
@@ -2859,7 +2928,11 @@
           "已接入",
           "#d65f8f",
           0,
-          0
+          0,
+          "000000000003000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:4",
@@ -2870,7 +2943,11 @@
           "待串联",
           "#d8b64a",
           1,
-          0
+          0,
+          "000000000004000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:5",
@@ -2881,7 +2958,11 @@
           "待串联",
           "#3f7fc1",
           0,
-          0
+          0,
+          "000000000005000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:6",
@@ -2892,7 +2973,11 @@
           "已接入",
           "#68aa5b",
           0,
-          0
+          0,
+          "000000000006000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:7",
@@ -2903,7 +2988,11 @@
           "草稿",
           "#df7655",
           0,
-          0
+          0,
+          "000000000007000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:8",
@@ -2914,7 +3003,11 @@
           "待串联",
           "#3f7fc1",
           1,
-          0
+          0,
+          "000000000008000000000000",
+          "follow_reading",
+          null,
+          null
         ],
         [
           "plot:9",
@@ -2925,7 +3018,11 @@
           "已接入",
           "#d65f8f",
           0,
-          1
+          1,
+          "000000000009000000000000",
+          "follow_reading",
+          null,
+          null
         ]
       ]
     },
@@ -2961,7 +3058,11 @@
         "label",
         "type",
         "color",
-        "body_markdown"
+        "body_markdown",
+        "from_impression",
+        "to_impression",
+        "graph_scope",
+        "graph_line_mode"
       ],
       "rows": [
         [
@@ -2973,7 +3074,11 @@
           "互相试探",
           "试探",
           "#df7655",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:1__3",
@@ -2984,7 +3089,11 @@
           "线索共振",
           "同盟",
           "#2aa79b",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:1__4",
@@ -2995,7 +3104,11 @@
           "仓库同盟",
           "同盟",
           "#d65f8f",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:2__5",
@@ -3006,7 +3119,11 @@
           "旧案关联",
           "旧案",
           "#68aa5b",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:2__6",
@@ -3017,7 +3134,11 @@
           "手稿疑云",
           "疑云",
           "#d8b64a",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:3__4",
@@ -3028,7 +3149,11 @@
           "电台线索",
           "线索",
           "#3f7fc1",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:3__6",
@@ -3039,7 +3164,11 @@
           "预言文本",
           "预言",
           "#d8b64a",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:4__5",
@@ -3050,7 +3179,11 @@
           "港区秘密",
           "秘密",
           "#d65f8f",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ],
         [
           "relationship:7__4",
@@ -3061,7 +3194,11 @@
           "单线钥匙",
           "秘密",
           "#7d6bd6",
-          ""
+          "",
+          "",
+          "",
+          "core",
+          "single"
         ]
       ]
     },

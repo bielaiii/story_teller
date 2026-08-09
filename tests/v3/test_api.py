@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from storyteller import SCHEMA_VERSION
 from storyteller.app import create_app
+from storyteller.colors import CONTENT_COLOR_PALETTE
 from storyteller.settings import Settings
 from storyteller.storage.legacy import V3Migrator
 
@@ -1430,6 +1431,41 @@ class V3ApiTests(unittest.TestCase):
             self.client.get(f"/api/v1/projects/demo/entities/{fragment_id}").json()["data"]["body"],
         )
 
+    def test_organization_members_round_trip(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        people = snapshot["characters"][:2]
+        created = self.client.post(
+            "/api/v1/projects/demo/entries",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "stableId": "harbor-watch",
+                "name": "港区观察组",
+                "type": "组织",
+                "subtype": "帮派",
+                "status": "活跃",
+                "members": [
+                    {"characterId": people[0]["entityId"], "role": "负责人", "status": "现成员"},
+                    {"characterId": people[1]["entityId"], "role": "线人", "status": "秘密成员"},
+                ],
+                "references": [item["entityId"] for item in people],
+            },
+        )
+        self.assertEqual(200, created.status_code, created.text)
+        organization = next(
+            item for item in created.json()["changed"]["entries"] if item["name"] == "港区观察组"
+        )
+        detail = self.client.get(
+            f"/api/v1/projects/demo/entities/{organization['entityId']}"
+        ).json()["data"]
+        self.assertEqual([item["entityId"] for item in people], detail["people"])
+        self.assertIn(detail["accent"], CONTENT_COLOR_PALETTE)
+        self.assertEqual("负责人", detail["members"][0]["role"])
+        self.assertEqual("秘密成员", detail["members"][1]["status"])
+        exported = next((self.project_root / "entries").glob("harbor-watch*.md")).read_text("utf-8")
+        self.assertIn("members:", exported)
+        self.assertIn("秘密成员", exported)
+
     def test_relationship_create_update_delete_restore_round_trip(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         existing = {(item["from"], item["to"]) for item in snapshot["relationships"]}
@@ -1449,6 +1485,10 @@ class V3ApiTests(unittest.TestCase):
                 "toCharacterId": pair[1],
                 "fromRole": "委托人",
                 "toRole": "调查者",
+                "fromImpression": "觉得对方谨慎可靠。",
+                "toImpression": "认为对方有所隐瞒。",
+                "graphScope": "focus",
+                "graphLineMode": "double",
                 "label": "临时协作",
                 "type": "盟友",
                 "color": "#3879b8",
@@ -1466,6 +1506,10 @@ class V3ApiTests(unittest.TestCase):
             f"/api/v1/projects/demo/entities/{identifier}"
         ).json()["data"]
         self.assertEqual("因档案室建立联系。", detail["body"])
+        self.assertEqual("觉得对方谨慎可靠。", detail["fromImpression"])
+        self.assertEqual("认为对方有所隐瞒。", detail["toImpression"])
+        self.assertEqual("focus", detail["graphScope"])
+        self.assertEqual("double", detail["graphLineMode"])
         self.assertEqual(["entry:archive"], detail["references"])
 
         updated = self.client.patch(
@@ -1474,6 +1518,10 @@ class V3ApiTests(unittest.TestCase):
             json={
                 "baseRevision": created.json()["projectRevision"],
                 "label": "互相试探",
+                "fromImpression": "值得合作，但不能完全信任。",
+                "toImpression": "正直得不像地下世界的人。",
+                "graphScope": "core",
+                "graphLineMode": "single",
                 "body": "合作仍然保留边界。",
                 "references": ["entry:archive", "character:1"],
             },
@@ -1484,6 +1532,10 @@ class V3ApiTests(unittest.TestCase):
         ).json()["data"]
         self.assertEqual("互相试探", updated_detail["label"])
         self.assertEqual("合作仍然保留边界。", updated_detail["body"])
+        self.assertEqual("值得合作，但不能完全信任。", updated_detail["fromImpression"])
+        self.assertEqual("正直得不像地下世界的人。", updated_detail["toImpression"])
+        self.assertEqual("core", updated_detail["graphScope"])
+        self.assertEqual("double", updated_detail["graphLineMode"])
         self.assertEqual(["entry:archive", "character:1"], updated_detail["references"])
 
         deleted = self.client.request(
@@ -1821,6 +1873,7 @@ class V3ApiTests(unittest.TestCase):
                 if item["name"] == payload["name"]
             )
             self.assertEqual(expected, created["graphVisible"])
+            self.assertIn(created["color"], CONTENT_COLOR_PALETTE)
 
 
 if __name__ == "__main__":

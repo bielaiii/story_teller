@@ -68,7 +68,6 @@ class MarkdownExporter:
                 "corePersona": detail["corePersona"], "supplementPersona": detail["supplementPersona"],
                 "destinyOutline": detail["destinyOutline"],
                 "characterScope": detail["characterScope"], "narrativeRole": detail["narrativeRole"],
-                "graphVisible": detail["graphVisible"],
                 "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
@@ -103,6 +102,14 @@ class MarkdownExporter:
                 "subtype": detail["subtype"], "area": detail["area"], "accent": detail["accent"],
                 "aliases": detail["aliases"], "tags": detail["tags"],
                 "people": [value.removeprefix("character:") for value in detail["people"]],
+                "members": [
+                    {
+                        "id": member["characterId"].removeprefix("character:"),
+                        "role": member["role"],
+                        "status": member["status"],
+                    }
+                    for member in detail.get("members", [])
+                ],
                 "status": detail["status"],
                 "references": detail.get("references", []),
             }
@@ -126,9 +133,19 @@ class MarkdownExporter:
             metadata = {
                 "id": detail["id"],
                 "people": [
-                    {"id": int(from_id) if from_id.isdigit() else from_id, "role": detail["fromRole"]},
-                    {"id": int(to_id) if to_id.isdigit() else to_id, "role": detail["toRole"]},
+                    {
+                        "id": int(from_id) if from_id.isdigit() else from_id,
+                        "role": detail["fromRole"],
+                        "impression": detail["fromImpression"],
+                    },
+                    {
+                        "id": int(to_id) if to_id.isdigit() else to_id,
+                        "role": detail["toRole"],
+                        "impression": detail["toImpression"],
+                    },
                 ],
+                "graphScope": detail["graphScope"],
+                "graphLineMode": detail["graphLineMode"],
                 "label": detail["label"], "color": detail["color"], "type": detail["type"],
                 "references": detail.get("references", []),
             }

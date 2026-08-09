@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRuntime } from "../api/runtime";
 import { preloadPage } from "../pageLoaders";
 import { useUiStore } from "../state/ui";
@@ -72,6 +73,17 @@ export function GlobalSearch() {
     void loadPhoneticSearch().then((search) => { if (active) setPhoneticSearch(() => search); });
     return () => { active = false; };
   }, [open, phoneticSearch]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
   const choose = async (item: (typeof results)[number]) => {
     await preloadPage(item.page);
     navigate(item.page);
@@ -85,13 +97,13 @@ export function GlobalSearch() {
   return (
     <div className={`global-command${open ? " is-open" : ""}`}>
       <button className="icon-button" aria-label="全局搜索" title="搜索（⌘/Ctrl+K）" onPointerEnter={() => void loadPhoneticSearch()} onFocus={() => void loadPhoneticSearch()} onClick={() => setOpen((value) => !value)}><Icon name="search" /></button>
-      {open && <div className="command-panel">
-        <label><Icon name="search" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、剧情、设定和正文" /></label>
+      {open && createPortal(<><button className="command-panel-scrim" type="button" aria-label="关闭全局搜索" onClick={() => { setOpen(false); setQuery(""); }} /><section className="command-panel" role="dialog" aria-modal="true" aria-label="全局搜索">
+        <header><label><Icon name="search" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、剧情、设定和正文" /></label><button className="icon-button" type="button" aria-label="关闭全局搜索" onClick={() => { setOpen(false); setQuery(""); }}><Icon name="close" /></button></header>
         <div className="command-results">
           {results.map((item) => <button key={`${item.page}:${item.id}`} onClick={() => void choose(item)}><span><strong>{item.label}</strong><SearchSnippet source={item.preview} query={deferred} /></span><small>{item.detail}</small></button>)}
           {deferred && !results.length && <p>没有找到匹配内容</p>}
         </div>
-      </div>}
+      </section></>, document.body)}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { EditorSettingsSection } from "./EditorSettingsSection";
 describe("EditorSettingsSection", () => {
   afterEach(cleanup);
 
-  it("expands and collapses settings without changing the dialog grid child", () => {
+  it("opens settings as a floating panel without changing the dialog grid child", () => {
     const { container } = render(
       <EditorSettingsSection label="剧情设置">
         <label><span>标题</span><input aria-label="标题" /></label>
@@ -19,6 +19,7 @@ describe("EditorSettingsSection", () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "剧情设置" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "标题" })).toBeVisible();
     expect(container.querySelector(".editor-settings-section")).toBe(section);
 

@@ -34,7 +34,7 @@ class CharacterCreate(MutationRequest):
     character_scope: str = Field(default="常驻人物", alias="characterScope")
     side: str = "中立"
     main_plot_impact: int = Field(default=0, alias="mainPlotImpact")
-    color: str = "#7d6bd6"
+    color: str | None = None
     gradient: str = ""
     group: str = ""
     graph_visible: bool | None = Field(default=None, alias="graphVisible")
@@ -108,6 +108,13 @@ class PlotPatch(MutationRequest):
     references: list[str] | None = None
 
 
+class EntryMember(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    character_id: str = Field(alias="characterId")
+    role: str = ""
+    status: str = "现成员"
+
+
 class EntryCreate(MutationRequest):
     stable_id: str = Field(default="", alias="stableId")
     name: str
@@ -116,10 +123,11 @@ class EntryCreate(MutationRequest):
     area: str = ""
     body: str = ""
     status: str = ""
-    accent: str = "#7d6bd6"
+    accent: str | None = None
     aliases: list[str] = []
     tags: list[str] = []
     people: list[str] = []
+    members: list[EntryMember] = []
     references: list[str] = []
 
 
@@ -134,6 +142,7 @@ class EntryPatch(MutationRequest):
     aliases: list[str] | None = None
     tags: list[str] | None = None
     people: list[str] | None = None
+    members: list[EntryMember] | None = None
     references: list[str] | None = None
 
 
@@ -181,6 +190,10 @@ class RelationshipCreate(MutationRequest):
     to_character_id: str = Field(alias="toCharacterId")
     from_role: str = Field(default="", alias="fromRole")
     to_role: str = Field(default="", alias="toRole")
+    from_impression: str = Field(default="", alias="fromImpression")
+    to_impression: str = Field(default="", alias="toImpression")
+    graph_scope: str = Field(default="", alias="graphScope")
+    graph_line_mode: str = Field(default="single", alias="graphLineMode")
     label: str = ""
     type: str = ""
     color: str = "#8b95a7"
@@ -191,6 +204,10 @@ class RelationshipCreate(MutationRequest):
 class RelationshipPatch(MutationRequest):
     from_role: str | None = Field(default=None, alias="fromRole")
     to_role: str | None = Field(default=None, alias="toRole")
+    from_impression: str | None = Field(default=None, alias="fromImpression")
+    to_impression: str | None = Field(default=None, alias="toImpression")
+    graph_scope: str | None = Field(default=None, alias="graphScope")
+    graph_line_mode: str | None = Field(default=None, alias="graphLineMode")
     label: str | None = None
     type: str | None = None
     color: str | None = None
