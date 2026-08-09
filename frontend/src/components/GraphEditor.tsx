@@ -42,6 +42,7 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
   const [distances, setDistances] = useState<GraphDistance[]>(() => snapshot.graph.distances.map((item) => ({ ...item })));
   const [clusters, setClusters] = useState<GraphCluster[]>(() => snapshot.graph.clusters.map((item) => ({ ...item, members: [...item.members] })));
   const [selectedNodeId, setSelectedNodeId] = useState(snapshot.characters[0]?.entityId || "");
+  const [activePanel, setActivePanel] = useState<"layout" | "nodes" | "distances" | "clusters">("layout");
   const [message, setMessage] = useState("");
   const characterName = useMemo(() => new Map(snapshot.characters.map((item) => [item.entityId, item.name])), [snapshot.characters]);
   const selectedNode = nodes.find((item) => item.character_id === selectedNodeId);
@@ -110,9 +111,15 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
   return <div className="dialog-backdrop editor-backdrop">
     <section className="graph-editor-dialog" role="dialog" aria-modal="true" aria-label="编辑人物图谱">
       <header><div><small>Graph Layout</small><h2>编辑人物图谱</h2><p>布局、人物锚点、距离约束与分组统一保存在 SQLite。</p></div><button className="icon-button" aria-label="关闭图谱编辑" title="关闭" onClick={onClose}><Icon name="close" /></button></header>
+      <nav className="graph-editor-tabs" aria-label="图谱设置分类">
+        <button type="button" className={activePanel === "layout" ? "is-active" : ""} aria-pressed={activePanel === "layout"} onClick={() => setActivePanel("layout")}>自动布局</button>
+        <button type="button" className={activePanel === "nodes" ? "is-active" : ""} aria-pressed={activePanel === "nodes"} onClick={() => setActivePanel("nodes")}>人物位置</button>
+        <button type="button" className={activePanel === "distances" ? "is-active" : ""} aria-pressed={activePanel === "distances"} onClick={() => setActivePanel("distances")}>距离约束 <small>{distances.length}</small></button>
+        <button type="button" className={activePanel === "clusters" ? "is-active" : ""} aria-pressed={activePanel === "clusters"} onClick={() => setActivePanel("clusters")}>视觉分组 <small>{clusters.length}</small></button>
+      </nav>
       <div className="graph-editor-scroll">
-        <details open>
-          <summary>自动布局参数</summary>
+        {activePanel === "layout" && <section className="graph-editor-panel" role="tabpanel">
+          <header><div><small>LAYOUT</small><h3>自动布局参数</h3></div><p>统一调整节点之间的距离和不同吸引力。</p></header>
           <div className="graph-setting-grid">
             <label><span>节点间距</span><input type="number" min="40" max="500" value={settings.node_spacing} onChange={(event) => updateSetting("node_spacing", Number(event.target.value))} /></label>
             <label><span>初始扰动</span><input type="number" min="0" max="300" value={settings.initial_jitter} onChange={(event) => updateSetting("initial_jitter", Number(event.target.value))} /></label>
@@ -122,9 +129,9 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
             <label><span>分组吸引</span><input type="number" min="0" max="5" step="0.1" value={settings.group_strength} onChange={(event) => updateSetting("group_strength", Number(event.target.value))} /></label>
             <label><span>叶节点吸引</span><input type="number" min="0" max="5" step="0.1" value={settings.leaf_strength} onChange={(event) => updateSetting("leaf_strength", Number(event.target.value))} /></label>
           </div>
-        </details>
-        <details open>
-          <summary>人物位置与环绕</summary>
+        </section>}
+        {activePanel === "nodes" && <section className="graph-editor-panel" role="tabpanel">
+          <header><div><small>NODES</small><h3>人物位置与环绕</h3></div><p>选择人物后维护锚点或围绕关系。</p></header>
           <div className="graph-node-editor">
             <aside>{snapshot.characters.map((character) => <button key={character.entityId} className={selectedNodeId === character.entityId ? "is-active" : undefined} onClick={() => setSelectedNodeId(character.entityId)}><span style={{ background: character.color }} />{character.name}</button>)}</aside>
             {selectedNode && <div className="graph-node-fields">
@@ -137,9 +144,9 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
               <button className="icon-button" aria-label={`清除${characterName.get(selectedNodeId)}的位置覆盖`} title="恢复自动布局" onClick={() => setNodes((current) => current.map((item) => item.character_id === selectedNodeId ? nodeDraft(selectedNodeId) : item))}><Icon name="restore" /></button>
             </div>}
           </div>
-        </details>
-        <details>
-          <summary>人物距离约束 <small>{distances.length}</small></summary>
+        </section>}
+        {activePanel === "distances" && <section className="graph-editor-panel" role="tabpanel">
+          <header><div><small>CONSTRAINTS</small><h3>人物距离约束</h3></div><p>仅在需要稳定构图时增加明确的距离约束。</p></header>
           <div className="graph-constraint-list">
             {distances.map((item, index) => <article key={`${item.from_character_id}-${item.to_character_id}-${index}`}>
               <select aria-label={`距离约束 ${index + 1} 起点`} value={item.from_character_id} onChange={(event) => setDistances((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, from_character_id: event.target.value } : entry))}>{snapshot.characters.map((character) => <option key={character.entityId} value={character.entityId} disabled={character.entityId === item.to_character_id}>{character.name}</option>)}</select>
@@ -150,9 +157,9 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
             </article>)}
             <button className="icon-button" aria-label="添加人物距离约束" title="添加距离约束" onClick={addDistance}><Icon name="plus" /></button>
           </div>
-        </details>
-        <details>
-          <summary>视觉分组 <small>{clusters.length}</small></summary>
+        </section>}
+        {activePanel === "clusters" && <section className="graph-editor-panel" role="tabpanel">
+          <header><div><small>CLUSTERS</small><h3>视觉分组</h3></div><p>维护布局分组，不会生成额外人物关系。</p></header>
           <div className="graph-cluster-list">
             {clusters.map((cluster, index) => <article key={cluster.id}>
               <header><input aria-label={`分组 ${index + 1} 名称`} value={cluster.label} onChange={(event) => setClusters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} /><button className="icon-button is-danger" aria-label={`删除分组${cluster.label}`} title="删除分组" onClick={() => setClusters((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Icon name="trash" /></button></header>
@@ -163,7 +170,7 @@ export function GraphEditor({ onClose }: { onClose: () => void }) {
             </article>)}
             <button className="icon-button" aria-label="添加图谱分组" title="添加分组" onClick={addCluster}><Icon name="plus" /></button>
           </div>
-        </details>
+        </section>}
       </div>
       <footer><span>{message || "所有调整会在一次事务中保存"}</span><button className="icon-button is-primary" aria-label="保存图谱布局" title="保存图谱布局" disabled={mutation.isPending} onClick={save}><Icon name="save" /></button></footer>
     </section>

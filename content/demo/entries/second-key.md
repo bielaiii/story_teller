@@ -16,6 +16,16 @@ people:
 - '1'
 - '4'
 - '7'
+members:
+- id: '1'
+  role: ''
+  status: 现成员
+- id: '4'
+  role: ''
+  status: 现成员
+- id: '7'
+  role: ''
+  status: 现成员
 status: 关键
 references:
 - character:4

@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from storyteller.domain.errors import ConflictError, DomainError, NotFoundError
 from storyteller.domain.uow import MutationResult, UnitOfWork
+from storyteller.colors import content_color
 from storyteller.storage.connection import Database
 
 
@@ -19,6 +20,11 @@ STORY_POSITION_MODES = {"follow_reading", "before", "after", "fixed"}
 NARRATIVE_ROLES = {"主角", "配角"}
 CHARACTER_SCOPES = {"主线人物", "常驻人物", "待定角色", "一次性角色"}
 CHARACTER_SIDES = {"主角方", "中立", "反派方"}
+RELATIONSHIP_GRAPH_SCOPES = {"core", "focus", "hidden"}
+RELATIONSHIP_GRAPH_LINE_MODES = {"single", "double"}
+FAMILY_RELATIONSHIP_TYPES = {
+    "父子", "父女", "母子", "母女", "兄妹", "姐妹", "姐弟", "哥弟", "兄弟", "伴侣", "夫妻",
+}
 MARKER_CLASSIFICATIONS = {
     "主角": ("narrative_role", "主角"), "男主": ("narrative_role", "主角"),
     "女主": ("narrative_role", "主角"), "配角": ("narrative_role", "配角"),
@@ -289,6 +295,24 @@ def clean_color(value: Any, fallback: str = "#7d6bd6") -> str:
     if not HEX_COLOR.fullmatch(color):
         raise DomainError("颜色格式不合法")
     return color
+
+
+def clean_relationship_scope(value: Any, relationship_type: str = "") -> str:
+    scope = str(value or "").strip()
+    if not scope:
+        return "focus" if relationship_type in FAMILY_RELATIONSHIP_TYPES else "core"
+    if scope not in RELATIONSHIP_GRAPH_SCOPES:
+        raise DomainError("关系图谱层级只能是核心、聚焦或隐藏")
+    return scope
+
+
+def clean_relationship_line_mode(value: Any, from_impression: str = "", to_impression: str = "") -> str:
+    mode = str(value or "single").strip()
+    if mode not in RELATIONSHIP_GRAPH_LINE_MODES:
+        raise DomainError("关系图谱连线只能是单线或双线")
+    if mode == "single" and from_impression.strip() and to_impression.strip() and from_impression.strip() != to_impression.strip():
+        return "double"
+    return mode
 
 
 def validate_character_classification(values: dict[str, Any]) -> None:
@@ -1202,7 +1226,7 @@ class ContentService:
                 (
                     identifier, name, clean_body(payload.get("intro", ""), "人物设定"),
                     values["narrative_role"], values["character_scope"], values["side"], impact,
-                    clean_color(payload.get("color")), str(payload.get("gradient") or ""),
+                    clean_color(payload.get("color"), content_color(identifier)), str(payload.get("gradient") or ""),
                     clean_text(payload.get("group", ""), "人物分组", 80), graph_visible,
                 ),
             )
@@ -2114,7 +2138,7 @@ class ContentService:
                         identifier, title, clean_text(payload.get("type"), "设定类型", 60, required=True),
                         clean_text(payload.get("subtype", ""), "设定子类型", 80), clean_text(payload.get("area", ""), "区域", 80),
                         clean_body(payload.get("body", ""), "设定正文"), clean_text(payload.get("status", ""), "状态", 40),
-                        clean_color(payload.get("accent")),
+                        clean_color(payload.get("accent"), content_color(identifier)),
                     ),
                 )
             else:
@@ -2240,7 +2264,40 @@ class ContentService:
                 self._replace_values(connection, "entry_aliases", "entry_id", identifier, "alias", clean_values(payload["aliases"], "别名"))
             if "tags" in payload:
                 self._replace_values(connection, "entry_tags", "entry_id", identifier, "tag", clean_values(payload["tags"], "标签"))
-            if "people" in payload:
+            if "members" in payload:
+                entry_type = connection.execute(
+                    "SELECT type FROM entries WHERE entity_id=?", (identifier,)
+                ).fetchone()
+                if not entry_type or str(entry_type[0]) != "组织":
+                    raise DomainError("只有组织设定可以维护成员身份")
+                raw_members = payload["members"]
+                if not isinstance(raw_members, list):
+                    raise DomainError("组织成员格式不合法")
+                members: list[tuple[str, str, str, int]] = []
+                seen: set[str] = set()
+                for position, item in enumerate(raw_members):
+                    if not isinstance(item, dict):
+                        raise DomainError("组织成员格式不合法")
+                    character_id = str(item.get("character_id") or "")
+                    if not character_id or character_id in seen:
+                        raise DomainError("组织成员不能重复或留空")
+                    seen.add(character_id)
+                    members.append((
+                        character_id,
+                        clean_text(item.get("role", ""), "成员身份", 120),
+                        clean_text(item.get("status", "现成员"), "成员状态", 40) or "现成员",
+                        position,
+                    ))
+                self._require_targets(connection, [item[0] for item in members], "active_characters", "人物")
+                connection.execute("DELETE FROM entry_characters WHERE entry_id=?", (identifier,))
+                connection.executemany(
+                    """
+                    INSERT INTO entry_characters(entry_id, character_id, role, status, sort_key)
+                    VALUES(?, ?, ?, ?, ?)
+                    """,
+                    [(identifier, *item) for item in members],
+                )
+            elif "people" in payload:
                 people = self._require_targets(connection, clean_values(payload["people"], "人物"), "active_characters", "人物")
                 connection.execute("DELETE FROM entry_characters WHERE entry_id=?", (identifier,))
                 connection.executemany("INSERT INTO entry_characters(entry_id, character_id) VALUES(?, ?)", [(identifier, value) for value in people])
@@ -2252,6 +2309,13 @@ class ContentService:
         from_id = str(payload.get("from_character_id") or "")
         to_id = str(payload.get("to_character_id") or "")
         label = clean_text(payload.get("label", ""), "关系名称", 80)
+        relationship_type = clean_text(payload.get("type", ""), "关系类型", 60)
+        graph_scope = clean_relationship_scope(payload.get("graph_scope"), relationship_type)
+        from_impression = clean_body(payload.get("from_impression", ""), "人物印象", 4000)
+        to_impression = clean_body(payload.get("to_impression", ""), "人物印象", 4000)
+        graph_line_mode = clean_relationship_line_mode(payload.get("graph_line_mode"), from_impression, to_impression)
+        if graph_scope == "hidden" and not (from_impression or to_impression):
+            raise DomainError("隐藏于图谱的人物记录至少要填写一方的印象")
 
         def mutation(connection: sqlite3.Connection):
             self._require_targets(connection, [from_id, to_id], "active_characters", "人物")
@@ -2263,13 +2327,15 @@ class ContentService:
                 """
                 INSERT INTO relationships(
                     entity_id, from_character_id, to_character_id, from_role, to_role,
+                    from_impression, to_impression, graph_scope, graph_line_mode,
                     label, type, color, body_markdown
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     identifier, from_id, to_id, clean_text(payload.get("from_role", ""), "关系角色", 80),
-                    clean_text(payload.get("to_role", ""), "关系角色", 80), label,
-                    clean_text(payload.get("type", ""), "关系类型", 60), clean_color(payload.get("color"), "#8b95a7"),
+                    clean_text(payload.get("to_role", ""), "关系角色", 80),
+                    from_impression, to_impression, graph_scope, graph_line_mode, label,
+                    relationship_type, clean_color(payload.get("color"), "#8b95a7"),
                     clean_body(payload.get("body", ""), "关系说明"),
                 ),
             )
@@ -2286,10 +2352,17 @@ class ContentService:
 
         def mutation(connection: sqlite3.Connection):
             entity = self._active_entity(connection, identifier, "relationship")
+            current = connection.execute(
+                "SELECT * FROM relationships WHERE entity_id=?", (identifier,)
+            ).fetchone()
             updates: dict[str, Any] = {}
             mappings = {
                 "from_role": ("from_role", lambda value: clean_text(value, "关系角色", 80)),
                 "to_role": ("to_role", lambda value: clean_text(value, "关系角色", 80)),
+                "from_impression": ("from_impression", lambda value: clean_body(value, "人物印象", 4000)),
+                "to_impression": ("to_impression", lambda value: clean_body(value, "人物印象", 4000)),
+                "graph_scope": ("graph_scope", lambda value: clean_relationship_scope(value, str(payload.get("type", current["type"])))),
+                "graph_line_mode": ("graph_line_mode", lambda value: clean_relationship_line_mode(value, str(current["from_impression"]), str(current["to_impression"]))),
                 "label": ("label", lambda value: clean_text(value, "关系名称", 80)),
                 "type": ("type", lambda value: clean_text(value, "关系类型", 60)),
                 "color": ("color", lambda value: clean_color(value, "#8b95a7")),
@@ -2298,6 +2371,16 @@ class ContentService:
             for key, (column, cleaner) in mappings.items():
                 if key in payload:
                     updates[column] = cleaner(payload[key])
+            final_scope = str(updates.get("graph_scope", current["graph_scope"]))
+            final_from_impression = str(updates.get("from_impression", current["from_impression"]))
+            final_to_impression = str(updates.get("to_impression", current["to_impression"]))
+            updates["graph_line_mode"] = clean_relationship_line_mode(
+                updates.get("graph_line_mode", current["graph_line_mode"]),
+                final_from_impression,
+                final_to_impression,
+            )
+            if final_scope == "hidden" and not (final_from_impression or final_to_impression):
+                raise DomainError("隐藏于图谱的人物记录至少要填写一方的印象")
             if "label" in updates:
                 connection.execute("UPDATE entities SET title=? WHERE id=?", (updates["label"] or entity["stable_id"], identifier))
             if updates:

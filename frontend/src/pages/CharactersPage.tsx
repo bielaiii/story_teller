@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Character, Fragment, Plot } from "../api/types";
+import type { Character, Fragment, Plot, Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
@@ -11,6 +11,7 @@ import { RelationshipEditor } from "../components/RelationshipEditor";
 import { useUiStore } from "../state/ui";
 import { compactStoryPreview } from "../storyPreview";
 import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
+import { avatarBackground, avatarGradient, randomContentColor } from "../theme/contentColors";
 
 interface EditablePair {
   rowId: string;
@@ -68,7 +69,7 @@ function blankDraft(): CharacterDraft {
     name: "", aliases: [], markers: [], facts: [],
     corePersona: [newBullet()], supplementPersona: [], destinyOutline: "", references: [],
     narrativeRole: "配角", characterScope: "常驻人物",
-    mainPlotImpact: 50, color: "#3f7fc1", group: "", graphVisible: false,
+    mainPlotImpact: 50, color: randomContentColor(), group: "", graphVisible: false,
   };
 }
 
@@ -104,6 +105,15 @@ export function graphVisibilityAfterRole(current: boolean, role: CharacterDraft[
 
 export function graphVisibilityAfterScope(current: boolean, scope: CharacterDraft["characterScope"]): boolean {
   return ["一次性角色", "待定角色"].includes(scope) ? false : current;
+}
+
+export function relationshipImpressionFor(
+  relationship: Pick<Relationship, "from" | "to" | "fromImpression" | "toImpression">,
+  characterId: string,
+): string {
+  if (relationship.from === characterId) return relationship.fromImpression || "";
+  if (relationship.to === characterId) return relationship.toImpression || "";
+  return "";
 }
 
 function cleanPairs(items: EditablePair[]): Array<{ key: string; value: string }> {
@@ -206,7 +216,7 @@ function CharacterList({
   duplicateNames: Set<string>;
   select: (entityId: string) => void;
 }) {
-  return <>{characters.map((item) => <button key={item.entityId} className={currentId === item.entityId ? "is-active" : ""} onClick={() => select(item.entityId)}><span className="avatar" style={{ background: item.gradient || item.color }}>{item.name.slice(0, 1)}</span><span><strong>{item.name}</strong><small>{displayRole(item)} · {item.characterScope}{duplicateNames.has(item.name) ? ` · ID ${item.id}` : ""}</small></span></button>)}</>;
+  return <>{characters.map((item) => <button key={item.entityId} className={currentId === item.entityId ? "is-active" : ""} onClick={() => select(item.entityId)}><span className="avatar" style={{ background: avatarBackground(item) }}>{item.name.slice(0, 1)}</span><span><strong>{item.name}</strong><small>{displayRole(item)} · {item.characterScope}{duplicateNames.has(item.name) ? ` · ID ${item.id}` : ""}</small></span></button>)}</>;
 }
 
 function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onClose: () => void }) {
@@ -309,7 +319,7 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
       <header className="dialog-header"><div><small>Character Profile</small><h2>{currentId === "new" ? "新建人物" : `编辑档案 · ${draft.name}`}</h2></div><div className="dialog-actions">{currentId !== "new" && <button className="icon-button is-danger" aria-label="删除人物" title="删除人物" onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>}<button className="icon-button is-primary" aria-label="保存（⌘/Ctrl+S）" title="保存" disabled={!dirty || mutation.isPending} onClick={() => void save()}><Icon name="save" /></button><button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button></div></header>
       <div className="character-editor-body">
         <aside className="character-editor-settings">
-          <header><span className="character-editor-avatar" style={{ background: draft.color }}>{draft.name.trim().slice(0, 1) || "人"}</span><div><small>Basic Profile</small><h3>基础资料</h3></div></header>
+          <header><span className="character-editor-avatar" style={{ background: avatarGradient(draft.color) }}>{draft.name.trim().slice(0, 1) || "人"}</span><div><small>Basic Profile</small><h3>基础资料</h3></div></header>
           <div className="profile-editor-grid">
             <label className="wide"><span>姓名</span><input value={draft.name} placeholder="输入人物姓名" onChange={(event) => change("name", event.target.value)} /></label>
             <label><span>戏份定位</span><select value={draft.narrativeRole} onChange={(event) => changeRole(event.target.value as CharacterDraft["narrativeRole"])}><option>主角</option><option>反派</option><option>中立</option><option>配角</option></select></label>
@@ -360,7 +370,7 @@ export default function CharactersPage() {
   const openPlotFromCharacter = useUiStore((state) => state.openPlotFromCharacter);
   const selectFragment = useUiStore((state) => state.selectFragment);
   const [editor, setEditor] = useState<string | "new" | null>(null);
-  const [relationshipEditor, setRelationshipEditor] = useState<string | "new" | null>(null);
+  const [relationshipEditor, setRelationshipEditor] = useState<{ id: string | "new"; mode: "relationship" | "impression" } | null>(null);
   const [query, setQuery] = useState("");
   const [minorOpen, setMinorOpen] = useState(false);
   const duplicateNames = useMemo(() => {
@@ -389,22 +399,64 @@ export default function CharactersPage() {
       )
       .map((item) => ({ kind: "fragment" as const, item })),
   ] : [];
-  const relationships = current ? snapshot.relationships.filter((item) => item.from === current.entityId || item.to === current.entityId) : [];
+  const connections = current ? snapshot.relationships.filter((item) => item.from === current.entityId || item.to === current.entityId) : [];
+  const relationships = connections.filter((item) => Boolean(item.label || item.type || item.fromRole || item.toRole));
+  const impressions = current ? connections.filter((item) => Boolean(relationshipImpressionFor(item, current.entityId))) : [];
+  const organizations = current ? snapshot.entries.filter((item) => item.type === "组织" && (item.members || []).some((member) => member.characterId === current.entityId)) : [];
   return <section className="workspace-page character-page-new">
-    <header className="page-header"><div><small>Character Workspace</small><h1>人物管理中心</h1><p>集中查看人物定位、剧情参与和关系；临时角色仍收在次级抽屉中。</p></div><div className="page-actions"><button className={`minor-toggle${minorOpen ? " is-active" : ""}`} aria-pressed={minorOpen} title={minorOpen ? "返回主要角色" : "查看临时角色"} onClick={() => setMinorOpen((value) => !value)}>{minorOpen ? "主要角色" : "临时角色"} <strong>{minorOpen ? major.length : minor.length}</strong></button>{writable && <button className="icon-button character-create-button" aria-label="新建人物" title="创建人物档案" onClick={() => setEditor("new")}><Icon name="person-add" /></button>}</div></header>
+    <header className="page-header"><div><small>Character Workspace</small><h1>人物管理中心</h1><p>集中查看人物定位、组织归属、剧情参与、关系和看法。</p></div><div className="page-actions"><button className={`minor-toggle${minorOpen ? " is-active" : ""}`} aria-pressed={minorOpen} title={minorOpen ? "返回主要角色" : "查看临时角色"} onClick={() => setMinorOpen((value) => !value)}>{minorOpen ? "主要角色" : "临时角色"} <strong>{minorOpen ? major.length : minor.length}</strong></button><button className="icon-button" aria-label="管理组织" title="前往组织与设定" onClick={() => useUiStore.getState().navigate("entries")}><Icon name="book" /></button>{writable && <button className="icon-button character-create-button" aria-label="新建人物" title="创建人物档案" onClick={() => setEditor("new")}><Icon name="person-add" /></button>}</div></header>
     <div className="two-column-workspace">
       <aside className="sticky-rail character-library"><label className="rail-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物、别名或标识" /></label><div className="character-list-new"><CharacterList characters={characters} currentId={current?.entityId} duplicateNames={duplicateNames} select={select} /></div></aside>
       <article className="sticky-detail profile-detail-panel">{current ? <>
-        <header><span className="large-avatar" style={{ background: current.gradient || current.color }}>{current.name.slice(0, 1)}</span><div><small>{current.group || "未分组"}{duplicateNames.has(current.name) ? ` · ID ${current.id}` : ""}</small><h2>{current.name}</h2><p>{displayRole(current)} · {current.characterScope}</p></div>{writable && <button className="icon-button" aria-label="编辑人物档案" title="编辑档案" onClick={() => setEditor(current.entityId)}><Icon name="edit" /></button>}</header>
+        <header><span className="large-avatar" style={{ background: avatarBackground(current) }}>{current.name.slice(0, 1)}</span><div><small>{current.group || "未分组"}{duplicateNames.has(current.name) ? ` · ID ${current.id}` : ""}</small><h2>{current.name}</h2><p>{displayRole(current)} · {current.characterScope}</p></div>{writable && <button className="icon-button" aria-label="编辑人物档案" title="编辑档案" onClick={() => setEditor(current.entityId)}><Icon name="edit" /></button>}</header>
         <div className="profile-kv-grid"><div><span>主线影响</span><strong>{current.mainPlotImpact}</strong></div>{Object.entries(current.facts).map(([key, value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div>
         {Boolean(current.destinyOutline?.trim()) && <section className="character-outline-detail"><h3>人物大纲</h3><p>{current.destinyOutline}</p></section>}
         <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
         {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl></section>}
+        <section><h3>所属组织</h3>{organizations.length ? <div className="character-organizations">{organizations.map((organization) => { const membership = (organization.members || []).find((member) => member.characterId === current.entityId); return <button key={organization.entityId} onClick={() => { useUiStore.getState().selectEntry(organization.entityId); useUiStore.getState().navigate("entries"); }}><span style={{ background: organization.accent }} /><strong>{organization.name}</strong><small>{membership?.role || membership?.status || organization.subtype}</small></button>; })}</div> : <p className="empty-copy">还没有加入组织；家庭、帮派和公司可在设定页统一维护</p>}</section>
         <section><h3>相关剧情</h3><CollapsibleList items={relatedStories} itemKey={(story) => `${story.kind}:${story.item.entityId}`} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards character-related-plots" emptyText="还没有相关剧情或碎片" renderItem={(story) => story.kind === "plot" ? <button onClick={() => { openPlotFromCharacter(story.item.entityId, current.entityId); useUiStore.getState().navigate("story"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.summary || story.item.bodyPreview || "还没有剧情摘要")} className="character-related-plot-preview content-card-preview" /></span><small>剧情 · 第 {story.item.sequence} 章</small></button> : <button onClick={() => { selectFragment(story.item.entityId); useUiStore.getState().navigate("fragments"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.bodyPreview || "还没有碎片正文")} className="character-related-plot-preview content-card-preview" /></span><small>{story.item.parentFragmentId ? `剧情线碎片${story.item.chapterNumber ? ` · 第 ${story.item.chapterNumber} 章` : ""}` : "灵感碎片"}</small></button>} /></section>
-        <section><div className="section-heading"><h3>人物关系</h3>{writable && <button className="icon-button" aria-label={`为${current.name}建立人物关系`} title="建立人物关系" onClick={() => setRelationshipEditor("new")}><Icon name="plus" /></button>}</div><CollapsibleList items={relationships} itemKey={(relation) => relation.entityId} resetKey={current.entityId} label={`${current.name}的人物关系`} className="relationship-list-new" emptyText="还没有记录人物关系" renderItem={(relation) => { const otherId = relation.from === current.entityId ? relation.to : relation.from; const other = snapshot.characters.find((item) => item.entityId === otherId); return <article><button className="relationship-target" onClick={() => other && select(other.entityId)}><span style={{ background: relation.color }} /><strong>{other?.name || "已删除人物"}</strong><small>{relation.label || relation.type || "未命名关系"}</small></button>{writable && <button className="icon-button" aria-label={`编辑${relation.label || "人物关系"}`} title="编辑人物关系" onClick={() => setRelationshipEditor(relation.entityId)}><Icon name="edit" /></button>}</article>; }} /></section>
+        <section>
+          <div className="section-heading"><h3>人物印象</h3>{writable && <button className="icon-button" aria-label={`记录${current.name}对其他人物的印象`} title="记录人物印象" onClick={() => setRelationshipEditor({ id: "new", mode: "impression" })}><Icon name="plus" /></button>}</div>
+          <CollapsibleList
+            items={impressions}
+            itemKey={(relation) => relation.entityId}
+            resetKey={current.entityId}
+            label={`${current.name}的人物印象`}
+            className="relationship-list-new impression-list-new"
+            emptyText="还没有记录对其他人物的印象"
+            renderItem={(relation) => {
+              const otherId = relation.from === current.entityId ? relation.to : relation.from;
+              const other = snapshot.characters.find((item) => item.entityId === otherId);
+              return <article><button className="relationship-target impression-target" onClick={() => other && select(other.entityId)}><strong>{other?.name || "已删除人物"}</strong><small>对其看法</small><p>{relationshipImpressionFor(relation, current.entityId)}</p></button>{writable && <button className="icon-button" aria-label={`编辑对${other?.name || "对方"}的印象`} title="编辑人物印象" onClick={() => setRelationshipEditor({ id: relation.entityId, mode: "impression" })}><Icon name="edit" /></button>}</article>;
+            }}
+          />
+        </section>
+        <section>
+          <div className="section-heading"><h3>人物关系</h3>{writable && <button className="icon-button" aria-label={`为${current.name}建立人物关系`} title="建立人物关系" onClick={() => setRelationshipEditor({ id: "new", mode: "relationship" })}><Icon name="plus" /></button>}</div>
+          <CollapsibleList
+            items={relationships}
+            itemKey={(relation) => relation.entityId}
+            resetKey={current.entityId}
+            label={`${current.name}的人物关系`}
+            className="relationship-list-new"
+            emptyText="还没有记录人物关系"
+            renderItem={(relation) => {
+              const otherId = relation.from === current.entityId ? relation.to : relation.from;
+              const other = snapshot.characters.find((item) => item.entityId === otherId);
+              return <article>
+                <button className="relationship-target" onClick={() => other && select(other.entityId)}>
+                  <span style={{ background: relation.color }} />
+                  <strong>{other?.name || "已删除人物"}</strong>
+                  <small>{relation.label || relation.type || "未命名关系"}</small>
+                </button>
+                {writable && <button className="icon-button" aria-label={`编辑${relation.label || "人物关系"}`} title="编辑人物关系" onClick={() => setRelationshipEditor({ id: relation.entityId, mode: "relationship" })}><Icon name="edit" /></button>}
+              </article>;
+            }}
+          />
+        </section>
       </> : <div className="empty-state"><Icon name="person" /><h2>选择一个人物</h2></div>}</article>
     </div>
     {editor && <CharacterEditor entityId={editor} onClose={() => setEditor(null)} />}
-    {relationshipEditor && current && <RelationshipEditor relationshipId={relationshipEditor} defaultCharacterId={current.entityId} onClose={() => setRelationshipEditor(null)} />}
+    {relationshipEditor && current && <RelationshipEditor relationshipId={relationshipEditor.id} mode={relationshipEditor.mode} defaultCharacterId={current.entityId} onClose={() => setRelationshipEditor(null)} />}
   </section>;
 }

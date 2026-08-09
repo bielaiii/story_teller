@@ -16,7 +16,15 @@ import yaml
 
 from storyteller import SCHEMA_VERSION
 from storyteller.storage.connection import Database, schema_version
-from storyteller.storage.schema import initialize_schema, migrate_v3_to_v4, migrate_v4_to_v5
+from storyteller.storage.schema import (
+    initialize_schema,
+    migrate_v3_to_v4,
+    migrate_v4_to_v5,
+    migrate_v5_to_v6,
+    migrate_v6_to_v7,
+    migrate_v7_to_v8,
+    migrate_v8_to_v9,
+)
 
 
 FRONTMATTER = re.compile(r"^---\n(?P<meta>[\s\S]*?)\n---(?:\n|$)")
@@ -471,7 +479,7 @@ class V3Migrator:
 
     def _insert_entry(self, connection: sqlite3.Connection, document: MarkdownDocument) -> None:
         data = document.metadata
-        known = {"id", "name", "type", "subtype", "area", "accent", "aliases", "tags", "people", "plots", "status", "references"}
+        known = {"id", "name", "type", "subtype", "area", "accent", "aliases", "tags", "people", "members", "plots", "status", "references"}
         identifier = self._insert_entity(
             connection, "entry", data.get("id"), data.get("name"), document,
             {key: value for key, value in data.items() if key not in known},
@@ -572,6 +580,25 @@ class V3Migrator:
             entry_id = entity_id("entry", document.metadata.get("id"))
             if not connection.execute("SELECT 1 FROM entries WHERE entity_id=?", (entry_id,)).fetchone():
                 continue
+            members = document.metadata.get("members")
+            if isinstance(members, list):
+                for position, member in enumerate(members):
+                    if not isinstance(member, dict):
+                        continue
+                    character_id = entity_id("character", member.get("id"))
+                    if connection.execute("SELECT 1 FROM characters WHERE entity_id=?", (character_id,)).fetchone():
+                        connection.execute(
+                            """
+                            INSERT OR REPLACE INTO entry_characters(
+                                entry_id, character_id, role, status, sort_key
+                            ) VALUES(?, ?, ?, ?, ?)
+                            """,
+                            (
+                                entry_id, character_id, str(member.get("role") or ""),
+                                str(member.get("status") or "现成员"), position,
+                            ),
+                        )
+                continue
             for stable in clean_list(document.metadata.get("people")):
                 character_id = entity_id("character", stable)
                 if connection.execute("SELECT 1 FROM characters WHERE entity_id=?", (character_id,)).fetchone():
@@ -646,16 +673,22 @@ class V3Migrator:
         if isinstance(people, list) and len(people) == 2 and all(isinstance(item, dict) for item in people):
             endpoints = [str(item.get("id", "")).strip() for item in people]
             roles = [str(item.get("role", "")) for item in people]
+            impressions = [str(item.get("impression", "")) for item in people]
         else:
             endpoints = [str(data.get("from", "")).strip(), str(data.get("to", "")).strip()]
             roles = [str(data.get("fromRole", "")), str(data.get("toRole", ""))]
+            impressions = [str(data.get("fromImpression", "")), str(data.get("toImpression", ""))]
         if len(endpoints) != 2 or not all(endpoints):
             raise ValueError(f"{document.path} 的人物关系端点不完整")
         from_id, to_id = (entity_id("character", value) for value in endpoints)
         if not all(connection.execute("SELECT 1 FROM characters WHERE entity_id=?", (value,)).fetchone() for value in (from_id, to_id)):
             raise ValueError(f"{document.path} 引用了不存在的人物")
         stable = "__".join(endpoints)
-        known = {"id", "people", "from", "to", "fromRole", "toRole", "label", "color", "type", "references"}
+        known = {
+            "id", "people", "from", "to", "fromRole", "toRole",
+            "fromImpression", "toImpression", "graphScope", "graphLineMode",
+            "label", "color", "type", "references",
+        }
         identifier = self._insert_entity(
             connection, "relationship", stable, data.get("label") or stable, document,
             {key: value for key, value in data.items() if key not in known},
@@ -664,11 +697,15 @@ class V3Migrator:
             """
             INSERT INTO relationships(
                 entity_id, from_character_id, to_character_id, from_role, to_role,
+                from_impression, to_impression, graph_scope, graph_line_mode,
                 label, type, color, body_markdown
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                identifier, from_id, to_id, roles[0], roles[1], str(data.get("label") or ""),
+                identifier, from_id, to_id, roles[0], roles[1], impressions[0], impressions[1],
+                str(data.get("graphScope") or "core"),
+                str(data.get("graphLineMode") or "single"),
+                str(data.get("label") or ""),
                 str(data.get("type") or ""), normalize_color(data.get("color"), "#8b95a7"), document.body,
             ),
         )
@@ -903,6 +940,116 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             "database": str(database),
             "normalizedGraphVisibility": normalized,
         }
+    if current_version == 8:
+        source_digest = file_sha256(database)
+        backup = database.with_name(f"story.{source_digest[:12]}.v8-backup.db")
+        if keep_backup and not backup.exists():
+            shutil.copy2(database, backup)
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v8_to_v9(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
+        except Exception:
+            if keep_backup and backup.exists():
+                shutil.copy2(backup, database)
+            raise
+        Database(root).require_v3()
+        return {
+            "ok": True,
+            "alreadyMigrated": False,
+            "database": str(database),
+            "sourceSchemaVersion": 8,
+            "schemaVersion": SCHEMA_VERSION,
+            "backup": str(backup) if keep_backup else "",
+        }
+    if current_version == 7:
+        source_digest = file_sha256(database)
+        backup = database.with_name(f"story.{source_digest[:12]}.v7-backup.db")
+        if keep_backup and not backup.exists():
+            shutil.copy2(database, backup)
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v7_to_v8(connection)
+                migrate_v8_to_v9(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
+        except Exception:
+            if keep_backup and backup.exists():
+                shutil.copy2(backup, database)
+            raise
+        Database(root).require_v3()
+        return {
+            "ok": True,
+            "alreadyMigrated": False,
+            "database": str(database),
+            "sourceSchemaVersion": 7,
+            "schemaVersion": SCHEMA_VERSION,
+            "backup": str(backup) if keep_backup else "",
+        }
+    if current_version == 6:
+        source_digest = file_sha256(database)
+        backup = database.with_name(f"story.{source_digest[:12]}.v6-backup.db")
+        if keep_backup and not backup.exists():
+            shutil.copy2(database, backup)
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v6_to_v7(connection)
+                migrate_v7_to_v8(connection)
+                migrate_v8_to_v9(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
+        except Exception:
+            if keep_backup and backup.exists():
+                shutil.copy2(backup, database)
+            raise
+        Database(root).require_v3()
+        return {
+            "ok": True,
+            "alreadyMigrated": False,
+            "database": str(database),
+            "sourceSchemaVersion": 6,
+            "schemaVersion": SCHEMA_VERSION,
+            "backup": str(backup) if keep_backup else "",
+        }
+    if current_version == 5:
+        source_digest = file_sha256(database)
+        backup = database.with_name(f"story.{source_digest[:12]}.v5-backup.db")
+        if keep_backup and not backup.exists():
+            shutil.copy2(database, backup)
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA foreign_keys=ON")
+                migrate_v5_to_v6(connection)
+                migrate_v6_to_v7(connection)
+                migrate_v7_to_v8(connection)
+                migrate_v8_to_v9(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
+        except Exception:
+            if keep_backup and backup.exists():
+                shutil.copy2(backup, database)
+            raise
+        Database(root).require_v3()
+        return {
+            "ok": True,
+            "alreadyMigrated": False,
+            "database": str(database),
+            "sourceSchemaVersion": 5,
+            "schemaVersion": SCHEMA_VERSION,
+            "backup": str(backup) if keep_backup else "",
+        }
     if current_version == 4:
         source_digest = file_sha256(database)
         backup = database.with_name(f"story.{source_digest[:12]}.v4-backup.db")
@@ -912,10 +1059,14 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             with sqlite3.connect(database) as connection:
                 connection.execute("PRAGMA foreign_keys=ON")
                 migrate_v4_to_v5(connection)
+                migrate_v5_to_v6(connection)
+                migrate_v6_to_v7(connection)
+                migrate_v7_to_v8(connection)
+                migrate_v8_to_v9(connection)
                 if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Schema V5 迁移后数据库完整性检查失败")
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
                 if list(connection.execute("PRAGMA foreign_key_check")):
-                    raise ValueError("Schema V5 迁移后数据库外键检查失败")
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
         except Exception:
             if keep_backup and backup.exists():
                 shutil.copy2(backup, database)
@@ -951,10 +1102,15 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             with sqlite3.connect(database) as connection:
                 connection.execute("PRAGMA foreign_keys=ON")
                 migrate_v3_to_v4(connection)
+                migrate_v4_to_v5(connection)
+                migrate_v5_to_v6(connection)
+                migrate_v6_to_v7(connection)
+                migrate_v7_to_v8(connection)
+                migrate_v8_to_v9(connection)
                 if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Schema V4 迁移后数据库完整性检查失败")
+                    raise ValueError("Schema V9 迁移后数据库完整性检查失败")
                 if list(connection.execute("PRAGMA foreign_key_check")):
-                    raise ValueError("Schema V4 迁移后数据库外键检查失败")
+                    raise ValueError("Schema V9 迁移后数据库外键检查失败")
             Database(root).require_v3()
             return {
                 "ok": True,
@@ -967,7 +1123,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         finally:
             temporary_backup.unlink(missing_ok=True)
     if current_version not in {1, 2}:
-        raise ValueError(f"只支持迁移 Schema V1/V2/V3/V4，当前为 V{current_version}")
+        raise ValueError(f"只支持迁移 Schema V1/V2/V3/V4/V5/V6/V7/V8，当前为 V{current_version}")
     source_digest = file_sha256(database)
     # A content package may have gone through an earlier preview or failed cutover.
     # Name the backup from the exact source bytes so an existing stale backup can

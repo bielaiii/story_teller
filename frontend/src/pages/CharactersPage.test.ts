@@ -5,6 +5,7 @@ import {
   graphVisibilityAfterRole,
   graphVisibilityAfterScope,
   orderCharactersForList,
+  relationshipImpressionFor,
   storedClassification,
 } from "./CharactersPage";
 
@@ -31,6 +32,21 @@ describe("orderCharactersForList", () => {
       "林越",
       "刘浩",
     ]);
+  });
+});
+
+describe("directional relationship impressions", () => {
+  const relationship = {
+    from: "character:vito",
+    to: "character:selena",
+    fromImpression: "认为女儿有商业天赋，但不该接触地下事务。",
+    toImpression: "敬爱父亲，同时不认同他的犯罪方式。",
+  };
+
+  it("shows the impression owned by the currently viewed endpoint", () => {
+    expect(relationshipImpressionFor(relationship, "character:vito")).toContain("商业天赋");
+    expect(relationshipImpressionFor(relationship, "character:selena")).toContain("不认同");
+    expect(relationshipImpressionFor(relationship, "character:other")).toBe("");
   });
 });
 

@@ -4,7 +4,7 @@ name: 七分钟时间差
 type: 规则
 subtype: 时间异常
 area: 雾港
-accent: '#3f7fc1'
+accent: '#786a9e'
 aliases:
 - 七分钟
 - 潮汐延迟
@@ -16,6 +16,16 @@ people:
 - '1'
 - '3'
 - '5'
+members:
+- id: '1'
+  role: ''
+  status: 现成员
+- id: '3'
+  role: ''
+  status: 现成员
+- id: '5'
+  role: ''
+  status: 现成员
 status: 待解释
 references:
 - character:1

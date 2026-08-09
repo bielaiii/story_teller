@@ -66,6 +66,10 @@ interface TimelineGeometry {
   tracks: TimelineTrackGeometry[];
 }
 
+export function hasTimelineLineLabel(line: Pick<TimelineLine, "name">): boolean {
+  return line.name.trim().length > 0;
+}
+
 export function visibleTimelineTrackIds(geometry: TimelineGeometry, top: number, bottom: number): Set<string> {
   return new Set(geometry.tracks.filter((track) => {
     const start = track.isMain ? track.startY : track.startY - timelineTurnHeight(track.startSourceX, track.x);
@@ -465,7 +469,7 @@ export default function TimelinePage() {
     timelinePlotPositions,
   ), [allOrderedPlots, canvasWidth, snapshot.timeline, timelinePlotPositions]);
   const visibleLineIds = useMemo(() => visibleTimelineTrackIds(geometry, visibleRange.top, visibleRange.bottom), [geometry, visibleRange]);
-  const visibleTimelineLines = useMemo(() => snapshot.timeline.lines.filter((line) => visibleLineIds.has(line.entityId)), [snapshot.timeline.lines, visibleLineIds]);
+  const visibleTimelineLines = useMemo(() => snapshot.timeline.lines.filter((line) => visibleLineIds.has(line.entityId) && hasTimelineLineLabel(line)), [snapshot.timeline.lines, visibleLineIds]);
   const renderedPlots = useMemo(() => visiblePlots.filter((plot) => {
     const y = geometry.plotY.get(plot.entityId);
     return y != null && y >= visibleRange.top - 160 && y <= visibleRange.bottom + 160;
@@ -948,7 +952,7 @@ export default function TimelinePage() {
     {message && <p className="page-message">{message}</p>}
     <div className="timeline-workspace">
       <aside className={`timeline-line-rail${writable ? " has-editor" : ""}`} aria-label="时间线图示">
-        <div className="timeline-line-options" aria-label="当前可见剧情线">{visibleTimelineLines.map((line) => <button key={line.entityId} data-line-id={line.entityId} className={focus === line.entityId ? "is-active" : ""} type="button" title={`${line.name} · 当前可见 ${visibleLineNodeCount(line.entityId)} 个节点`} aria-pressed={focus === line.entityId} onClick={() => setFocus(focus === line.entityId ? null : line.entityId)}><span className="line-swatch" style={{ background: line.color }} /><strong>{line.name}</strong><small>{visibleLineNodeCount(line.entityId)}</small></button>)}</div>
+        {visibleTimelineLines.length > 0 && <div className="timeline-line-options" aria-label="当前可见剧情线">{visibleTimelineLines.map((line) => <button key={line.entityId} data-line-id={line.entityId} className={focus === line.entityId ? "is-active" : ""} type="button" title={`${line.name} · 当前可见 ${visibleLineNodeCount(line.entityId)} 个节点`} aria-pressed={focus === line.entityId} onClick={() => setFocus(focus === line.entityId ? null : line.entityId)}><span className="line-swatch" style={{ background: line.color }} /><strong>{line.name}</strong><small>{visibleLineNodeCount(line.entityId)}</small></button>)}</div>}
       </aside>
       <div
         className="timeline-canvas-new"
@@ -969,7 +973,7 @@ export default function TimelinePage() {
         }}
       >
         <TimelineTrackCanvas geometry={geometry} focus={focus} />
-        {geometry.tracks.filter((track) => track.isMain).map((track) => <span key={`${track.id}:origin`} className="timeline-origin" style={{ left: track.x, top: track.startY, "--line-color": track.color } as React.CSSProperties} title={`${track.name}起点`} />)}
+        {geometry.tracks.filter((track) => track.isMain).map((track) => <span key={`${track.id}:origin`} className="timeline-origin" style={{ left: track.x, top: track.startY, "--line-color": track.color } as React.CSSProperties} title={track.name.trim() ? `${track.name}起点` : undefined} />)}
         {renderedPlots.map((item) => {
           const nodes = snapshot.timeline.nodes.filter((node) => node.plotId === item.entityId);
           const lineId = focus || (nodes.some((node) => node.lineId === snapshot.timeline.mainLineId) ? snapshot.timeline.mainLineId : nodes[0]?.lineId);

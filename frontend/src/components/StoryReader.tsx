@@ -7,6 +7,7 @@ import { useRuntime } from "../api/runtime";
 import { useUiStore } from "../state/ui";
 import { tagStyle } from "../storyOptions";
 import { Icon } from "./Icon";
+import { avatarBackground } from "../theme/contentColors";
 
 const renderer = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
@@ -93,7 +94,7 @@ export function StoryReader({ plot, previous, next, onBack, backLabel = "返回�
         const top = target.getBoundingClientRect().top + window.scrollY - 82;
         window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       }}>{item.title}</a>)}</nav></section>}
-      <section className="story-reader-rail-section"><small>Cast</small><h2>出场人物</h2><div className="story-reader-reference-list">{people.length ? people.map((person) => person && <button key={person.entityId} type="button" onClick={() => { useUiStore.getState().selectCharacter(person.entityId); useUiStore.getState().navigate("characters"); }}><span className="avatar" style={{ background: person.gradient || person.color }}>{person.name.slice(0, 1)}</span><span><strong>{person.name}</strong><small>{person.group || "未分组"}</small></span><Icon name="arrow" /></button>) : <p>还没有配置出场人物。</p>}</div></section>
+      <section className="story-reader-rail-section"><small>Cast</small><h2>出场人物</h2><div className="story-reader-reference-list">{people.length ? people.map((person) => person && <button key={person.entityId} type="button" onClick={() => { useUiStore.getState().selectCharacter(person.entityId); useUiStore.getState().navigate("characters"); }}><span className="avatar" style={{ background: avatarBackground(person) }}>{person.name.slice(0, 1)}</span><span><strong>{person.name}</strong><small>{person.group || "未分组"}</small></span><Icon name="arrow" /></button>) : <p>还没有配置出场人物。</p>}</div></section>
       {entries.length > 0 && <section className="story-reader-rail-section"><small>Entries</small><h2>关联设定</h2><div className="story-reader-reference-list">{entries.map((entry) => entry && <button key={entry.entityId} type="button" onClick={() => { useUiStore.getState().selectEntry(entry.entityId); useUiStore.getState().navigate("entries"); }}><span className="story-reader-entry-symbol" style={{ "--entry-color": entry.accent } as React.CSSProperties}>{entry.name.slice(0, 2)}</span><span><strong>{entry.name}</strong><small>{entry.type}{entry.area ? ` · ${entry.area}` : ""}</small></span><Icon name="arrow" /></button>)}</div></section>}
     </aside>
 

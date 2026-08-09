@@ -56,6 +56,9 @@ FEATURES = [
     "fragment-clipboard-import-v1",
     "fragment-plot-planning-v1",
     "appearance-people-v1",
+    "organizations-and-layered-relationships-v1",
+    "directional-relationship-lines-v1",
+    "automatic-content-colors-v1",
     "git-database-merge-v1",
 ]
 

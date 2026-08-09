@@ -6,6 +6,8 @@
 
 架构决策和验收边界见[《架构升级计划》](docs/architecture-modernization.md)、[《规范化数据与删除架构》](docs/relational-data-deletion-architecture.md)和[《产品功能路线图》](docs/product-feature-roadmap.md)。
 
+本地 AI/RAG 的索引、HTTP、MCP 和 embedding 模型切换说明见[《本地 RAG 与 AI 接入》](docs/rag-integration.md)。
+
 ## 本地运行
 
 ```sh
@@ -13,6 +15,14 @@
 ```
 
 浏览器打开 `http://127.0.0.1:4180/`。启动脚本只监听本机地址，会构建前端、检查并原子迁移当前内容包、清理到期回收站，再启动同源页面与 API。
+
+RAG 已拆成独立服务。在另一个终端运行：
+
+```sh
+./run-rag.sh
+```
+
+它监听 `http://127.0.0.1:4181/`，每次启动从 `story.db` 同步一次，并在 `/mcp` 提供 MCP。
 
 使用父仓内容目录：
 

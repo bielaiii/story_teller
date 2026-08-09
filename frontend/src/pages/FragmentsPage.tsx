@@ -552,6 +552,14 @@ export default function FragmentsPage() {
   const [newParentId, setNewParentId] = useState<string | null>(null);
   const [reader, setReader] = useState<string | null>(null);
   const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!expandedLines.size) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpandedLines(new Set());
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [expandedLines.size]);
   const [page, setPage] = useState(1);
   const [clipboardDialog, setClipboardDialog] = useState(false);
   const [clipboardText, setClipboardText] = useState("");
@@ -687,7 +695,7 @@ export default function FragmentsPage() {
     <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
   </article>;
   return <section className="workspace-page fragments-page-new">
-    <header className="page-header"><div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>单章直接阅读，剧情线展开后按章节继续推演。</p></div>{writable && <div className="fragment-page-actions">{supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}</header>
+    <header className="page-header"><div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>单章直接阅读，剧情线在悬浮窗口中按章节继续推演。</p></div>{writable && <div className="fragment-page-actions">{supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}</header>
     {tags.length > 0 && <FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible />}
     <div className="fragment-grid-new">{fragments.map((item, index) => {
       if (fragmentTypeOf(item) !== "line") {
@@ -702,17 +710,17 @@ export default function FragmentsPage() {
         return next;
       });
       return <ReactFragment key={item.entityId}>
-        <article className={`fragment-card-new is-line${expanded ? " is-expanded" : ""}`} role="button" tabIndex={0} aria-expanded={expanded} style={{ "--accent": item.accent } as React.CSSProperties} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") toggle(); }}>
+        <article className={`fragment-card-new is-line${expanded ? " is-expanded" : ""}`} role="button" tabIndex={0} aria-expanded={expanded} aria-haspopup="dialog" style={{ "--accent": item.accent } as React.CSSProperties} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") toggle(); }}>
           <div className="fragment-card-index"><Icon name="timeline" /></div>
           <header><span>{children.length} 个章节</span>{writable && <button className="icon-button" aria-label={`编辑${item.title}`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
           <div className="fragment-card-copy"><small>STORY LINE</small><h2>{item.title}</h2><CompleteBlockPreview source={fragmentLinePreviewOf(item, children)} className="fragment-card-preview content-card-preview" /></div>
           <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
-          <span className="fragment-card-arrow" aria-hidden="true"><Icon name={expanded ? "up" : "down"} /></span>
+          <span className="fragment-card-arrow" aria-hidden="true"><Icon name={expanded ? "collapse" : "expand"} /></span>
         </article>
-        {expanded && <section className="fragment-line-expanded" aria-label={`${item.title}的章节`}>
-          <header><div><small>EXPANDED STORY LINE</small><h2>{item.title}</h2><p>{children.length ? `共 ${children.length} 个章节，选择任意卡片阅读正文。` : "这条线还是空的，可以从第一个章节开始。"}</p></div>{writable && <button className="icon-button fragment-line-edit" aria-label={`编辑${item.title}剧情线`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
+        {expanded && <div className="fragment-line-floating-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && toggle()}><section className="fragment-line-expanded" role="dialog" aria-modal="true" aria-label={`${item.title}的章节`} onMouseDown={(event) => event.stopPropagation()}>
+          <header><div><small>STORY LINE</small><h2>{item.title}</h2><p>{children.length ? `共 ${children.length} 个章节，选择任意卡片阅读正文。` : "这条线还是空的，可以从第一个章节开始。"}</p></div><div className="fragment-line-floating-actions">{writable && <button className="icon-button fragment-line-edit" aria-label={`编辑${item.title}剧情线`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}<button className="icon-button" type="button" aria-label={`关闭${item.title}的章节`} onClick={toggle}><Icon name="close" /></button></div></header>
           {children.length > 0 ? <div className="fragment-line-chapters">{children.map((child, childIndex) => chapterCard(child, `第 ${fragmentChapterNumberOf(child) ?? childIndex + 1} 章`, true))}</div> : <div className="fragment-line-empty"><Icon name="book" /><span>尚未添加章节</span></div>}
-        </section>}
+        </section></div>}
       </ReactFragment>;
     })}</div>
     <Pagination page={activePage} totalPages={totalPages} onChange={changePage} />

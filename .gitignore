@@ -17,6 +17,15 @@ tests/e2e/.runtime-content/
 story.db-journal
 story.db-wal
 story.db-shm
+rag.db
+rag.db-journal
+rag.db-wal
+rag.db-shm
 *.v2-backup.db
 *.v3-backup.db
+*.v4-backup.db
+*.v5-backup.db
+*.v6-backup.db
+*.v7-backup.db
+*.v8-backup.db
 *.tsbuildinfo

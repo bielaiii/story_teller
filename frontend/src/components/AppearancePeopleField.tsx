@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Character } from "../api/types";
 import { Icon } from "./Icon";
+import { avatarBackground } from "../theme/contentColors";
 
 const NON_REFERENCE_TERMS = new Set(["反派"]);
 
@@ -98,7 +99,7 @@ export function AppearancePeopleField({
     </header>
     <div className="appearance-people-list">
       {detected.map((character) => <span key={character.entityId}>
-        <i style={{ background: character.color }}>{character.name.slice(0, 1)}</i>
+        <i style={{ background: avatarBackground(character) }}>{character.name.slice(0, 1)}</i>
         <b>{character.name}</b>
         <small>已识别</small>
       </span>)}
