@@ -153,6 +153,11 @@ class RagHubTests(unittest.TestCase):
                 names = {tool.name for tool in tools.tools}
                 self.assertIn("list_world_workspaces", names)
                 self.assertIn("search_world", names)
+                search_tool = next(tool for tool in tools.tools if tool.name == "search_world")
+                workspace_schema = search_tool.input_schema["properties"]["workspace"]
+                self.assertEqual(["Novel A", "Novel B"], workspace_schema["enum"])
+                self.assertEqual("工作区", workspace_schema["title"])
+                self.assertIn("workspace", search_tool.input_schema["required"])
                 workspaces = await client.call_tool("list_world_workspaces", {})
                 self.assertEqual(2, len(workspaces.structured_content["workspaces"]))
                 searched = await client.call_tool("search_world", {

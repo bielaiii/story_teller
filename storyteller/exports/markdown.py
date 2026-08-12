@@ -257,7 +257,7 @@ class MarkdownExporter:
             "aiGateway": {
                 "stdioCommand": ["story-world-mcp"],
                 "hubMcp": "http://127.0.0.1:4181/mcp/",
-                "workspaceSelection": "先调用 list_world_workspaces，再把简短的 displayName（例如 fuchounvshen）作为 workspace 传给后续 Hub 工具；仅重名时使用 workspaceId",
+                "workspaceSelection": "Hub 工具会在 workspace 参数中动态提供当前仓库选项；无法根据任务判断时调用 list_world_workspaces 或询问用户",
                 "recommendedFlow": [
                     "list_world_workspaces", "describe_world", "world_catalog", "resolve_world_entity",
                     "query_world", "get_world_entity", "get_related_world",
