@@ -156,7 +156,7 @@ class RagHubTests(unittest.TestCase):
                 workspaces = await client.call_tool("list_world_workspaces", {})
                 self.assertEqual(2, len(workspaces.structured_content["workspaces"]))
                 searched = await client.call_tool("search_world", {
-                    "workspace": first["workspace"]["workspaceId"],
+                    "workspace": first["workspace"]["displayName"],
                     "query": "林秋", "limit": 3,
                 })
                 self.assertEqual("character:1", searched.structured_content["results"][0]["entityId"])

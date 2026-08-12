@@ -22,7 +22,7 @@
 ./run-rag.sh
 ```
 
-多个小说仓库共享同一个 `http://127.0.0.1:4181/mcp/`，Hub 通过 `workspaceId` 路由到各仓库 worker；项目 worker 本身不绑定端口。端口上已经是兼容 Hub 时直接复用，是其他程序或不兼容 Hub 时明确报错且不会终止对方进程。每次检索前仍按 `story.db` revision 增量同步 RAG。
+多个小说仓库共享同一个 `http://127.0.0.1:4181/mcp/`，Hub 通过简短工作区名称（通常就是 Git 仓库名，例如 `fuchounvshen`）路由到各仓库 worker；项目 worker 本身不绑定端口。只有名称重名时才需要使用内部 `workspaceId`。端口上已经是兼容 Hub 时直接复用，是其他程序或不兼容 Hub 时明确报错且不会终止对方进程。每次检索前仍按 `story.db` revision 增量同步 RAG。
 
 OpenCode 等本地 AI 推荐使用无端口的 stdio MCP。安装一次全局启动器：
 
