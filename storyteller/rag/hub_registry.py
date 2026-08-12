@@ -121,7 +121,7 @@ class HubRegistry:
         if not clean:
             if len(records) == 1:
                 return records[0]
-            choices = ", ".join(record.workspace_id for record in records)
+            choices = ", ".join(record.display_name for record in records)
             raise ValueError(f"请指定 workspace；当前可用：{choices or '无'}")
         exact = [
             record for record in records

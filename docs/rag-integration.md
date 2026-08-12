@@ -27,7 +27,7 @@ RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无�
 1. 若 4181 空闲，后台启动 Story World Hub；
 2. 若 4181 已经是协议兼容的 Story World Hub，直接复用；
 3. 若 4181 是其他服务或不兼容版本，报错退出，不会终止占用者；
-4. 按 Git 仓库真实路径生成稳定 `workspaceId`，注册当前 `content/<project>`；
+4. 使用 Git 仓库名作为对外工作区短名称，并按真实路径生成内部稳定 `workspaceId`，注册当前 `content/<project>`；
 5. Hub 启动当前仓库框架中的 stdio worker，worker 不占用任何端口。
 
 只启动/检查 Hub 并注册当前仓库时，可运行：
@@ -85,7 +85,7 @@ http://127.0.0.1:4181/mcp/
 
 提供以下只读工具：
 
-- `list_world_workspaces`：列出已部署的 Git 小说仓库与稳定 `workspaceId`；
+- `list_world_workspaces`：列出已部署的 Git 小说仓库、工作区短名称 `displayName` 与内部稳定 `workspaceId`；
 - `describe_world`：读取实体类型、字段语义与碎片策略；
 - `world_catalog`
 - `resolve_world_entity`：将姓名、别名或稳定 ID 解析为实体；
@@ -96,7 +96,7 @@ http://127.0.0.1:4181/mcp/
 - `build_world_context`
 - `rag_status`
 
-Hub 中只有一个工作区时，后续工具可以省略 `workspace`；存在多个工作区时必须传 `list_world_workspaces` 返回的 `workspaceId`。Hub 不使用“最近部署项目”之类的全局当前值，避免 AI 静默读错小说。
+Hub 中只有一个工作区时，后续工具可以省略 `workspace`；存在多个工作区时，给 `workspace` 传 `list_world_workspaces` 返回的简短 `displayName`，例如 `fuchounvshen`。只有两个仓库名称相同时才需要改传内部 `workspaceId`。Hub 不使用“最近部署项目”之类的全局当前值，避免 AI 静默读错小说。
 
 推荐调用顺序：先用 `list_world_workspaces` 选择仓库，再用 `describe_world` 和 `world_catalog` 发现数据；精确问题使用 `resolve_world_entity`、`query_world`、`get_world_entity`、`get_related_world`；只有模糊探索和创作联想才使用 `search_world` 或 `build_world_context`。
 
