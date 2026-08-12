@@ -42,6 +42,7 @@ from storyteller.domain.services import EntityService
 from storyteller.domain.structure import StructureService
 from storyteller.domain.uow import UnitOfWork
 from storyteller.exports import ExportCoordinator
+from storyteller.rag.manager import RagManager
 from storyteller.settings import Settings
 from storyteller.storage.connection import Database
 from storyteller.storage.repositories import ProjectRepository
@@ -60,13 +61,14 @@ FEATURES = [
     "directional-relationship-lines-v1",
     "automatic-content-colors-v1",
     "git-database-merge-v1",
+    "rag-rebuild-v1",
 ]
-
 
 def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="Story Teller", version="1.0.0")
     app.state.settings = settings
     app.state.mutation_token = secrets.token_urlsafe(32)
+    rag_manager = RagManager(settings)
 
     def database_for(project: str) -> Database:
         try:
@@ -169,6 +171,7 @@ def create_app(settings: Settings) -> FastAPI:
                 "fragmentPlotPlanning": True,
                 "appearancePeople": True,
                 "mergeConflicts": True,
+                "ragRebuild": True,
             },
         }
 
@@ -382,6 +385,17 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/api/v1/projects/{project}/exports", dependencies=[Depends(require_write_token)])
     def export_project(project: str):
         return ExportCoordinator(database_for(project), project).export()
+
+    @app.post(
+        "/api/v1/projects/{project}/rag/rebuild",
+        dependencies=[Depends(require_write_token)],
+    )
+    def rebuild_rag(project: str):
+        database_for(project)
+        try:
+            return rag_manager.rebuild(project)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=f"RAG 更新失败：{error}") from error
 
     @app.get("/api/v1/health")
     def health():

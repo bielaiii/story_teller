@@ -252,6 +252,29 @@ export interface MetaResponse {
   routes: Record<string, boolean>;
 }
 
+export interface RagStatus {
+  project: string;
+  exists: boolean;
+  fresh: boolean;
+  sourceRevision?: number;
+  currentRevision?: number;
+  builtAt?: number;
+  documents?: number;
+  chunks?: number;
+  embeddingStatus?: string;
+  embeddingError?: string;
+}
+
+export interface RagRebuildResult {
+  path: string;
+  sourceRevision: number;
+  documents: number;
+  chunks: number;
+  embeddingStatus: string;
+  embeddingError: string;
+  status: RagStatus;
+}
+
 export type MergeResolutionChoice = "ours" | "theirs" | "manual";
 
 export interface MergeFieldResolution {
