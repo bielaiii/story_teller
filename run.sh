@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PORT=4180
+HUB_PORT=${STORY_WORLD_HUB_PORT:-4181}
 CONTENT_ROOT=${STORY_TELLER_CONTENT_ROOT:-"$ROOT/content"}
 DEFAULT_PROJECT=${STORY_TELLER_DEFAULT_PROJECT:-}
 
@@ -71,6 +72,21 @@ if [ ! -f "$PROJECT_ROOT/story.db" ]; then
 fi
 printf '正在检查内容包 %s…\n' "$PROJECT"
 "$ROOT/scripts/python.sh" -m storyteller.bootstrap "$PROJECT_ROOT"
+
+REPOSITORY_ROOT=$(git -C "$CONTENT_ROOT/.." rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$REPOSITORY_ROOT" ]; then
+  printf 'content 必须位于 Git 仓库根目录下：%s\n' "$CONTENT_ROOT" >&2
+  exit 1
+fi
+printf '正在启动或复用 Story World Hub，并注册当前内容包…\n'
+"$ROOT/scripts/python.sh" -m storyteller.rag.hubctl register \
+  --bind 127.0.0.1 \
+  --port "$HUB_PORT" \
+  --repository-root "$REPOSITORY_ROOT" \
+  --content-root "$CONTENT_ROOT" \
+  --framework-root "$ROOT" \
+  --project "$PROJECT" \
+  --display-name "$(basename "$REPOSITORY_ROOT")"
 
 printf '正在启动 Story Teller：http://127.0.0.1:%s/\n' "$PORT"
 exec "$ROOT/scripts/python.sh" -m storyteller \

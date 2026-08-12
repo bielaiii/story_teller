@@ -1,0 +1,120 @@
+version: 1
+description: Story Teller 面向 AI、检索和只读导出的统一世界领域语义。
+entityKinds:
+  character:
+    label: 人物
+    description: 故事中能够出场、加入组织并参与人物关系的角色。
+    certainty: confirmed
+    timelineStatus: independent
+    fields:
+      name: {label: 姓名, type: text, source: characters.name, aiVisible: true, searchable: true, exportable: true}
+      aliases: {label: 别名, type: text-list, source: character_aliases.alias, aiVisible: true, searchable: true, exportable: true}
+      narrativeRole: {label: 人物定位, type: enum, source: characters.narrative_role, aiVisible: true, searchable: true, exportable: true}
+      characterScope: {label: 人物范围, type: enum, source: characters.character_scope, aiVisible: true, searchable: true, exportable: true}
+      side: {label: 阵营, type: enum, source: characters.side, aiVisible: true, searchable: true, exportable: true}
+      markers: {label: 标记, type: text-list, source: character_markers.marker, aiVisible: true, searchable: true, exportable: true}
+      facts: {label: 人物资料, type: key-value, source: character_facts.fact_value, aiVisible: true, searchable: true, exportable: true}
+      corePersona: {label: 核心人设, type: key-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
+      supplementPersona: {label: 补充人设, type: key-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
+      destinyOutline: {label: 命运大纲, type: markdown, source: entities.extra_json, aiVisible: true, searchable: true, exportable: true}
+      intro: {label: 人物介绍, type: markdown, source: characters.intro_markdown, aiVisible: true, searchable: true, exportable: true}
+      mainPlotImpact: {label: 主线影响, type: integer, source: characters.main_plot_impact, aiVisible: true, searchable: false, exportable: true}
+      organizations: {label: 所属组织, type: entity-reference-list, derived: true, target: entry, aiVisible: true, searchable: true, exportable: true}
+      relationships: {label: 人物关系, type: entity-reference-list, derived: true, target: relationship, aiVisible: true, searchable: true, exportable: true}
+  entry:
+    label: 设定
+    description: 地点、组织、物品、规则及其他世界设定；type=组织时可包含成员与身份。
+    certainty: confirmed
+    timelineStatus: independent
+    fields:
+      name: {label: 名称, type: text, source: entries.name, aiVisible: true, searchable: true, exportable: true}
+      type: {label: 设定类型, type: text, source: entries.type, aiVisible: true, searchable: true, exportable: true}
+      subtype: {label: 子类型, type: text, source: entries.subtype, aiVisible: true, searchable: true, exportable: true}
+      area: {label: 区域, type: text, source: entries.area, aiVisible: true, searchable: true, exportable: true}
+      status: {label: 状态, type: text, source: entries.status, aiVisible: true, searchable: true, exportable: true}
+      aliases: {label: 别名, type: text-list, source: entry_aliases.alias, aiVisible: true, searchable: true, exportable: true}
+      tags: {label: 标签, type: text-list, source: entry_tags.tag, aiVisible: true, searchable: true, exportable: true}
+      members: {label: 组织成员, type: membership-list, source: entry_characters.character_id, target: character, aiVisible: true, searchable: true, exportable: true}
+      body: {label: 设定正文, type: markdown, source: entries.body_markdown, aiVisible: true, searchable: true, exportable: true}
+  plot:
+    label: 正式剧情
+    description: 已进入故事结构与阅读顺序的正式剧情内容。
+    certainty: confirmed
+    timelineStatus: placed
+    fields:
+      title: {label: 标题, type: text, source: entities.title, aiVisible: true, searchable: true, exportable: true}
+      chapterId: {label: 篇章, type: entity-reference, source: plots.chapter_id, target: chapter, aiVisible: true, searchable: true, exportable: true}
+      summary: {label: 概要, type: text, source: plots.summary, aiVisible: true, searchable: true, exportable: true}
+      body: {label: 正文, type: markdown, source: plots.body_markdown, aiVisible: true, searchable: true, exportable: true}
+      status: {label: 状态, type: text, source: plots.status, aiVisible: true, searchable: true, exportable: true}
+      tags: {label: 标签, type: text-list, source: plot_tags.tag, aiVisible: true, searchable: true, exportable: true}
+      people: {label: 出场人物, type: entity-reference-list, source: plot_characters.character_id, target: character, aiVisible: true, searchable: true, exportable: true}
+      entries: {label: 相关设定, type: entity-reference-list, source: plot_entries.entry_id, target: entry, aiVisible: true, searchable: true, exportable: true}
+      storySortKey: {label: 故事时间位置, type: rank, source: plots.story_sort_key, aiVisible: true, searchable: false, exportable: true}
+      storyOrderMode: {label: 故事时间模式, type: enum, source: plots.story_order_mode, aiVisible: true, searchable: false, exportable: true}
+  fragment:
+    label: 待编排剧情
+    description: 已确定会进入故事但尚未正式编入时间线的剧情素材，不等同于非正史。
+    certainty: confirmed
+    timelineStatus: unplaced
+    includedByDefault: true
+    fields:
+      title: {label: 标题, type: text, source: entities.title, aiVisible: true, searchable: true, exportable: true}
+      body: {label: 内容, type: markdown, source: fragments.body_markdown, aiVisible: true, searchable: true, exportable: true}
+      status: {label: 状态, type: text, source: fragments.status, aiVisible: true, searchable: true, exportable: true}
+      tags: {label: 标签, type: text-list, source: fragment_tags.tag, aiVisible: true, searchable: true, exportable: true}
+      fragmentType: {label: 碎片类型, type: enum, source: entities.extra_json, aiVisible: true, searchable: true, exportable: true}
+      parentFragmentId: {label: 所属剧情线, type: entity-reference, source: entities.extra_json, target: fragment, aiVisible: true, searchable: false, exportable: true}
+      chapterNumber: {label: 规划章号, type: integer, source: entities.extra_json, aiVisible: true, searchable: false, exportable: true}
+      references: {label: 相关资料, type: entity-reference-list, source: entity_references.target_entity_id, aiVisible: true, searchable: true, exportable: true}
+  relationship:
+    label: 人物关系
+    description: 两个人物间的客观关系、身份以及双方各自对对方的方向性看法。
+    certainty: confirmed
+    timelineStatus: independent
+    fields:
+      from: {label: 人物 A, type: entity-reference, source: relationships.from_character_id, target: character, aiVisible: true, searchable: true, exportable: true}
+      to: {label: 人物 B, type: entity-reference, source: relationships.to_character_id, target: character, aiVisible: true, searchable: true, exportable: true}
+      label: {label: 关系名称, type: text, source: relationships.label, aiVisible: true, searchable: true, exportable: true}
+      type: {label: 关系类型, type: text, source: relationships.type, aiVisible: true, searchable: true, exportable: true}
+      fromRole: {label: A 的身份, type: text, source: relationships.from_role, aiVisible: true, searchable: true, exportable: true}
+      toRole: {label: B 的身份, type: text, source: relationships.to_role, aiVisible: true, searchable: true, exportable: true}
+      fromImpression: {label: A 对 B 的看法, type: text, source: relationships.from_impression, direction: from-to, aiVisible: true, searchable: true, exportable: true}
+      toImpression: {label: B 对 A 的看法, type: text, source: relationships.to_impression, direction: to-from, aiVisible: true, searchable: true, exportable: true}
+      body: {label: 关系说明, type: markdown, source: relationships.body_markdown, aiVisible: true, searchable: true, exportable: true}
+      graphScope: {label: 图谱展示范围, type: enum, source: relationships.graph_scope, aiVisible: false, searchable: false, exportable: true}
+      graphLineMode: {label: 图谱连线模式, type: enum, source: relationships.graph_line_mode, aiVisible: false, searchable: false, exportable: true}
+  chapter:
+    label: 篇章
+    description: 正式剧情的篇章分组。
+    certainty: confirmed
+    timelineStatus: structural
+    fields:
+      label: {label: 篇章名称, type: text, source: chapters.label, aiVisible: true, searchable: true, exportable: true}
+      sortKey: {label: 排序键, type: rank, source: chapters.sort_key, aiVisible: true, searchable: false, exportable: true}
+  timeline_line:
+    label: 剧情线
+    description: 用于组织正式剧情时间位置的结构化剧情线。
+    certainty: confirmed
+    timelineStatus: structural
+    fields:
+      name: {label: 名称, type: text, source: entities.title, aiVisible: true, searchable: true, exportable: true}
+      side: {label: 展示侧, type: enum, source: timeline_lines.side, aiVisible: false, searchable: false, exportable: true}
+      startPlotId: {label: 起始剧情, type: entity-reference, source: timeline_lines.start_plot_id, target: plot, aiVisible: true, searchable: false, exportable: true}
+      endPlotId: {label: 结束剧情, type: entity-reference, source: timeline_lines.end_plot_id, target: plot, aiVisible: true, searchable: false, exportable: true}
+
+internalTables:
+  - metadata
+  - assets
+  - operations
+  - operation_changes
+  - merge_sessions
+  - merge_conflicts
+  - export_state
+  - timeline_settings
+  - timeline_connections
+  - graph_settings
+  - graph_nodes
+  - graph_distances
+  - graph_clusters
+  - graph_cluster_members

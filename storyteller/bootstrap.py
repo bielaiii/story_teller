@@ -10,6 +10,7 @@ from storyteller import SCHEMA_VERSION
 from storyteller.domain.maintenance import MaintenanceService
 from storyteller.domain.merge_conflicts import has_open_merge
 from storyteller.exports import ExportCoordinator
+from storyteller.exports.version import EXPORT_FORMAT_VERSION
 from storyteller.settings import PROJECT_PATTERN
 from storyteller.storage.connection import Database, schema_version
 from storyteller.storage.legacy import migrate_database_atomic
@@ -49,12 +50,21 @@ def prepare_project(project_root: Path) -> dict[str, Any]:
             raise ValueError("迁移后的数据库缺少项目记录")
         revision = int(project[0])
     snapshot_path = root / "project.snapshot.json"
+    content_index_path = root / "content-index.json"
+    try:
+        content_index = json.loads(content_index_path.read_text(encoding="utf-8"))
+        export_format_current = (
+            int(content_index.get("exportFormatVersion", 0)) == EXPORT_FORMAT_VERSION
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        export_format_current = False
     export_needed = (
         state is None
         or str(state["status"]) != "ready"
         or int(state["requested_revision"]) != revision
         or int(state["exported_revision"]) != revision
         or not snapshot_path.is_file()
+        or not export_format_current
     )
     if merge_required:
         export = {"ok": True, "status": "blocked", "reason": "merge_required"}

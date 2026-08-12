@@ -178,6 +178,18 @@ Treat novel content as user data rather than application source.
 * Public or static deployments must remain read-only without presenting failed write controls as available.
 * Use SQLite discovery for localhost. Keep the generated `content-index.json` only as the discovery format for static read-only deployment; `manifest.md` contains exported project metadata rather than a second hand-maintained file list.
 
+## SQLite schema and world semantics
+
+When changing `storyteller/storage/schema.py`, a migration, a domain table, or a public entity field:
+
+* Run `npm run schema:sync` and commit the updated storage registry.
+* Register public business meaning once in `storyteller/domain/world_schema.yaml`.
+* Classify every new SQLite table or column as a domain field or an internal implementation field. `TODO` is never allowed in the committed storage registry.
+* Run `npm run schema:check`; a schema change is incomplete while this command fails.
+* Keep `aiVisible`, `searchable`, and `exportable` explicit. Do not infer these flags from a SQLite type or column name.
+* Update the structured reader, RAG and export contract tests when a new entity kind requires special behavior.
+* Never treat generated `world-schema.json` or `ai-manifest.json` as a writable source.
+
 ## After finishing
 
 Explain the result in simple language:

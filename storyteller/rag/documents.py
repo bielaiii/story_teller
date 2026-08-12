@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from storyteller.domain.world_schema import entity_schema, hydrate_registered_fields, semantic_lines
 from storyteller.storage.repositories import ProjectRepository
 
 
@@ -110,7 +111,7 @@ def build_documents(repository: ProjectRepository) -> tuple[list[RagDocument], l
         detail = repository.entity_detail(identifier)
         if not detail:
             continue
-        data = detail["data"]
+        data = hydrate_registered_fields(repository.database, str(detail["kind"]), identifier, detail["data"])
         kind = str(detail["kind"])
         title = str(detail["title"])
         stable_id = str(detail["id"])
@@ -122,7 +123,17 @@ def build_documents(repository: ProjectRepository) -> tuple[list[RagDocument], l
             "character": "人物", "plot": "剧情", "entry": "设定", "fragment": "碎片",
             "relationship": "人物关系", "chapter": "章节", "timeline_line": "时间线",
         }.get(kind, kind)
-        metadata: dict[str, Any] = {"references": data.get("references", [])}
+        schema = entity_schema(kind)
+        metadata: dict[str, Any] = {
+            "references": data.get("references", []),
+            "certainty": str(schema.get("certainty") or "confirmed"),
+            "timelineStatus": str(schema.get("timelineStatus") or "independent"),
+            "registeredFields": {
+                field: data[field]
+                for field in schema.get("fields", {})
+                if field in data and data[field] not in (None, "", [], {})
+            },
+        }
 
         if kind == "character":
             fields.extend([
@@ -188,7 +199,12 @@ def build_documents(repository: ProjectRepository) -> tuple[list[RagDocument], l
                     RagEdge(entry_id, identifier, "plot", "相关剧情", {}),
                 ])
         elif kind == "fragment":
-            fields.extend([_line("状态", data.get("status")), _line("标签", data.get("tags")), _line("正式性", "灵感碎片，默认不作为正史")])
+            fields.extend([
+                _line("状态", data.get("status")),
+                _line("标签", data.get("tags")),
+                _line("内容确定性", "已确定会进入故事"),
+                _line("时间线状态", "尚未正式编入时间线"),
+            ])
             body = str(data.get("body") or "")
         elif kind == "relationship":
             from_id, to_id = data.get("from"), data.get("to")
@@ -211,10 +227,14 @@ def build_documents(repository: ProjectRepository) -> tuple[list[RagDocument], l
             fields.append(_line("正文引用", names.get(target, target)))
             edges.append(RagEdge(identifier, target, "reference", "正文引用", {}))
             edges.append(RagEdge(target, identifier, "referenced_by", "被正文引用", {}))
+        existing_labels = {item.split("：", 1)[0].removeprefix("- ") for item in fields if "：" in item}
+        for label, value in semantic_lines(kind, data):
+            if label not in existing_labels:
+                fields.append(_line(label, value))
         content = _document(title, kind_label, fields, body)
         documents.append(RagDocument(
             entity_id=identifier, stable_id=stable_id, kind=kind, title=title,
-            revision=revision, canonical=kind != "fragment", aliases=aliases,
+            revision=revision, canonical=str(schema.get("certainty") or "confirmed") == "confirmed", aliases=aliases,
             content=content, metadata=metadata,
         ))
     return documents, edges, project_revision

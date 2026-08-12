@@ -83,6 +83,14 @@ class V3MigrationTests(unittest.TestCase):
         self.assertTrue(snapshot["readonly"])
         self.assertIn("午夜求救", snapshot["plots"][0]["body"])
         self.assertNotIn("documents", snapshot)
+        world_schema = json.loads((self.root / "world-schema.json").read_text(encoding="utf-8"))
+        self.assertEqual("unplaced", world_schema["entityKinds"]["fragment"]["timelineStatus"])
+        manifest = json.loads((self.root / "ai-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(snapshot["project"]["revision"], manifest["sourceRevision"])
+        self.assertTrue(manifest["contentPolicy"]["fragment"]["searchByDefault"])
+        self.assertIn("list_world_workspaces", manifest["aiGateway"]["recommendedFlow"])
+        self.assertIn("get_related_world", manifest["aiGateway"]["recommendedFlow"])
+        self.assertIn("尚未编入时间线", (self.root / "AI_CONTEXT.md").read_text(encoding="utf-8"))
 
     def test_recovery_snapshot_rebuilds_trash_history_and_stable_references(self):
         with self.database.read() as connection:

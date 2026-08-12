@@ -14,15 +14,24 @@
 ./run.sh
 ```
 
-浏览器打开 `http://127.0.0.1:4180/`。启动脚本只监听本机地址，会构建前端、检查并原子迁移当前内容包、清理到期回收站，再启动同源页面与 API。
+浏览器打开 `http://127.0.0.1:4180/`。启动脚本只监听本机地址，会构建前端、检查并原子迁移当前内容包、清理到期回收站，并自动启动或复用 `127.0.0.1:4181` 上唯一的 Story World Hub，再把当前 Git 仓库注册为一个无端口 stdio worker。
 
-RAG 已拆成独立服务。在另一个终端运行：
+通常不需要再开一个终端。`run-rag.sh` 保留为只启动/复用 Hub 并注册当前仓库的兼容入口：
 
 ```sh
 ./run-rag.sh
 ```
 
-它监听 `http://127.0.0.1:4181/`，每次启动从 `story.db` 同步一次，并在 `/mcp` 提供 MCP。
+多个小说仓库共享同一个 `http://127.0.0.1:4181/mcp/`，Hub 通过 `workspaceId` 路由到各仓库 worker；项目 worker 本身不绑定端口。端口上已经是兼容 Hub 时直接复用，是其他程序或不兼容 Hub 时明确报错且不会终止对方进程。每次检索前仍按 `story.db` revision 增量同步 RAG。
+
+OpenCode 等本地 AI 推荐使用无端口的 stdio MCP。安装一次全局启动器：
+
+```sh
+./scripts/install-story-world-mcp.sh
+opencode mcp add story-world -- story-world-mcp
+```
+
+然后在 AI 客户端中把本地 MCP 命令配置为 `story-world-mcp`。启动器会根据客户端当前目录向上发现最近的 `content/*/story.db`，使用当前仓库自己的框架；一个工作区有多个内容项目时可通过 `list_world_projects` 选择。不能根据当前目录启动命令的客户端，只需固定配置一次 Hub 地址，并先调用 `list_world_workspaces`。
 
 使用父仓内容目录：
 
@@ -42,8 +51,18 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 - `characters/`、`plots/`、`entries/` 等 Markdown：便于人工阅读和 Git diff 的只读导出；
 - `project.snapshot.json`：静态站点读取的完整只读快照；
 - `recovery.snapshot.json`：包含实体、引用、顺序、回收站和操作历史的完整灾难恢复快照。
+- `world-schema.json`、`ai-manifest.json`、`AI_CONTEXT.md`：给其他 AI 读取的领域语义、机器入口和简明使用说明，均由数据库和领域注册表生成。
 
 网页写入成功后会更新导出。直接修改导出文件不会改变数据库，后续导出会覆盖这些改动。SQLite 的 `-journal`、`-wal`、`-shm` 文件不要提交。
+
+新增 SQLite 表或字段时必须同步领域注册表：
+
+```sh
+npm run schema:sync
+npm run schema:check
+```
+
+未说明字段是否对 AI 可见、可搜索、可导出的结构会被标记为 `TODO`，并使 CI 失败。完整规则见[《世界领域注册表》](docs/world-schema-registry.md)。
 
 父仓可用 `.gitattributes` 把 `story.db` 交给 `storyteller.merge_driver`。驱动读取 Git 提供的共同、本地和远程三个数据库：先按行和字段合并，再调用 Git 原生文本合并处理正文；无法自动判断的字段写入 `merge_sessions` / `merge_conflicts`。服务检测到开放会话后只允许读取和解决冲突，完成网页确认及完整性检查前拒绝其他写操作。
 

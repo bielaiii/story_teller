@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Discover the nearest Story Teller workspace and exec its stdio MCP server."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def projects_in(content_root: Path) -> list[str]:
+    if not content_root.is_dir():
+        return []
+    return sorted(
+        path.name
+        for path in content_root.iterdir()
+        if path.is_dir() and (path / "story.db").is_file()
+    )
+
+
+def discover_workspace(start: Path) -> tuple[Path, Path, list[str]]:
+    current = start.resolve()
+    for candidate in (current, *current.parents):
+        content_root = candidate / "content"
+        projects = projects_in(content_root)
+        if projects:
+            return candidate, content_root, projects
+    raise RuntimeError(
+        f"从 {current} 向上没有找到 content/<project>/story.db；请在 Story Teller 小说仓库内启动 AI 客户端"
+    )
+
+
+def discover_framework(workspace_root: Path, launcher: Path) -> Path:
+    candidates = (workspace_root / "story_teller", workspace_root, launcher.resolve().parent)
+    for candidate in candidates:
+        if (candidate / "scripts" / "python.sh").is_file() and (candidate / "storyteller" / "rag" / "stdio.py").is_file():
+            return candidate.resolve()
+    raise RuntimeError("没有找到支持 stdio MCP 的 story_teller 框架")
+
+
+def select_default_project(start: Path, workspace_root: Path, content_root: Path, projects: list[str]) -> str:
+    configured = str(os.environ.get("STORY_TELLER_DEFAULT_PROJECT") or "").strip()
+    if configured:
+        if configured not in projects:
+            raise RuntimeError(f"指定项目不存在：{configured}")
+        return configured
+    resolved_start = start.resolve()
+    for project in projects:
+        project_root = (content_root / project).resolve()
+        if resolved_start == project_root or project_root in resolved_start.parents:
+            return project
+    if workspace_root.name in projects:
+        return workspace_root.name
+    return projects[0] if len(projects) == 1 else ""
+
+
+def main() -> int:
+    try:
+        launcher = Path(__file__).resolve()
+        start = Path.cwd()
+        workspace_root, content_root, projects = discover_workspace(start)
+        framework_root = discover_framework(workspace_root, launcher)
+        default_project = select_default_project(start, workspace_root, content_root, projects)
+        command = [
+            str(framework_root / "scripts" / "python.sh"),
+            "-m", "storyteller.rag.stdio",
+            "--content-root", str(content_root),
+        ]
+        if default_project:
+            command.extend(["--default-project", default_project])
+        if os.environ.get("STORY_WORLD_MCP_DRY_RUN") == "1":
+            print(json.dumps({
+                "workspaceRoot": str(workspace_root),
+                "frameworkRoot": str(framework_root),
+                "contentRoot": str(content_root),
+                "projects": projects,
+                "defaultProject": default_project,
+                "command": command,
+            }, ensure_ascii=False, sort_keys=True))
+            return 0
+        os.chdir(framework_root)
+        os.execv(command[0], command)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"story-world-mcp: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

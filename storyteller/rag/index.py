@@ -14,9 +14,10 @@ from typing import Any
 from storyteller.rag.config import EmbeddingConfig
 from storyteller.rag.documents import RagDocument, RagEdge, chunk_document, lexical_tokens
 from storyteller.rag.embeddings import bytes_vector, cosine_similarity, embed_texts, vector_bytes
+from storyteller.domain.world_schema import registry_fingerprint
 
 
-RAG_SCHEMA_VERSION = 2
+RAG_SCHEMA_VERSION = 3
 RAG_DATABASE_NAME = "rag.db"
 
 
@@ -161,11 +162,15 @@ def build_index(
                 "source_revision": str(source_revision),
                 "source_mtime_ns": str(source_mtime_ns),
                 "embedding_model_key": config.model_key,
+                "world_schema_hash": registry_fingerprint(),
                 "embedding_status": "disabled" if config.provider == "disabled" else "failed" if embedding_error else "ready",
                 "embedding_error": embedding_error,
                 "built_at": str(now),
                 "document_count": str(len(documents)),
                 "chunk_count": str(chunk_count),
+                "last_sync_mode": "full",
+                "last_changed_documents": str(len(documents)),
+                "last_removed_documents": "0",
             }
             connection.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", meta.items())
             connection.commit()
@@ -181,6 +186,175 @@ def build_index(
         "documents": len(documents), "chunks": chunk_count,
         "embeddingStatus": "disabled" if config.provider == "disabled" else "failed" if embedding_error else "ready",
         "embeddingError": embedding_error,
+    }
+
+
+def sync_index(
+    project_root: Path,
+    project_id: str,
+    documents: list[RagDocument],
+    edges: list[RagEdge],
+    source_revision: int,
+    source_mtime_ns: int,
+    config: EmbeddingConfig,
+) -> dict[str, Any]:
+    """Incrementally refresh changed documents while committing one atomic index revision."""
+    target = rag_path(project_root)
+    if not target.exists():
+        return build_index(
+            project_root, project_id, documents, edges,
+            source_revision, source_mtime_ns, config,
+        )
+    with _connect(target, readonly=True) as connection:
+        existing = {
+            str(row["entity_id"]): {
+                "contentHash": str(row["content_hash"]),
+                "revision": int(row["revision"]),
+                "metadata": str(row["metadata_json"]),
+                "aliases": str(row["aliases_json"]),
+                "title": str(row["title"]),
+                "canonical": int(row["canonical"]),
+            }
+            for row in connection.execute(
+                "SELECT entity_id, content_hash, revision, metadata_json, aliases_json, title, canonical FROM documents"
+            )
+        }
+        previous_meta = read_meta(target)
+    current = {document.entity_id: document for document in documents}
+    removed = sorted(set(existing) - set(current))
+    changed: list[RagDocument] = []
+    for document in documents:
+        previous = existing.get(document.entity_id)
+        aliases_json = json.dumps(document.aliases, ensure_ascii=False)
+        metadata_json = json.dumps(document.metadata, ensure_ascii=False)
+        if previous is None or any((
+            previous["contentHash"] != document.content_hash,
+            previous["revision"] != document.revision,
+            previous["metadata"] != metadata_json,
+            previous["aliases"] != aliases_json,
+            previous["title"] != document.title,
+            previous["canonical"] != int(document.canonical),
+        )):
+            changed.append(document)
+
+    prepared: dict[str, list[tuple[str, str, str, str, list[float] | None]]] = {}
+    embedding_error = ""
+    changed_chunks: list[tuple[str, str, str, str]] = []
+    for document in changed:
+        records = []
+        document_id = f"doc:{document.entity_id}"
+        for position, chunk_text in enumerate(chunk_document(document)):
+            chunk_id = f"{document_id}:{position}"
+            content_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
+            records.append((chunk_id, chunk_text, lexical_tokens(
+                f"{document.title} {' '.join(document.aliases)} {chunk_text}"
+            ), content_hash, None))
+            changed_chunks.append((chunk_id, chunk_text, document.entity_id, content_hash))
+        prepared[document.entity_id] = records
+    if config.provider != "disabled" and changed_chunks:
+        try:
+            vectors = embed_texts([item[1] for item in changed_chunks], config)
+            by_chunk = {item[0]: vector for item, vector in zip(changed_chunks, vectors)}
+            for entity_id, records in prepared.items():
+                prepared[entity_id] = [
+                    (chunk_id, text, lexical, content_hash, by_chunk.get(chunk_id))
+                    for chunk_id, text, lexical, content_hash, _vector in records
+                ]
+        except Exception as error:  # lexical search remains available
+            embedding_error = str(error)
+
+    connection = _connect(target)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        replaced = [*removed, *(document.entity_id for document in changed)]
+        for entity_id in replaced:
+            chunk_ids = [str(row[0]) for row in connection.execute(
+                "SELECT chunk_id FROM chunks WHERE document_id=?", (f"doc:{entity_id}",)
+            )]
+            if chunk_ids:
+                placeholders = ",".join("?" for _ in chunk_ids)
+                connection.execute(f"DELETE FROM chunk_fts WHERE chunk_id IN ({placeholders})", chunk_ids)
+            connection.execute("DELETE FROM documents WHERE entity_id=?", (entity_id,))
+        for document in changed:
+            document_id = f"doc:{document.entity_id}"
+            connection.execute(
+                """
+                INSERT INTO documents(
+                    document_id, entity_id, stable_id, kind, title, aliases_json,
+                    revision, canonical, content, content_hash, metadata_json
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id, document.entity_id, document.stable_id, document.kind,
+                    document.title, json.dumps(document.aliases, ensure_ascii=False),
+                    document.revision, int(document.canonical), document.content,
+                    document.content_hash, json.dumps(document.metadata, ensure_ascii=False),
+                ),
+            )
+            for position, (chunk_id, text, lexical, content_hash, vector) in enumerate(prepared[document.entity_id]):
+                connection.execute(
+                    "INSERT INTO chunks(chunk_id, document_id, position, text, lexical_text, content_hash) VALUES(?, ?, ?, ?, ?, ?)",
+                    (chunk_id, document_id, position, text, lexical, content_hash),
+                )
+                connection.execute(
+                    "INSERT INTO chunk_fts(chunk_id, title, lexical_text) VALUES(?, ?, ?)",
+                    (chunk_id, lexical_tokens(f"{document.title} {' '.join(document.aliases)}"), lexical),
+                )
+                if vector is not None:
+                    connection.execute(
+                        "INSERT INTO embeddings(chunk_id, model_key, dimensions, vector, content_hash) VALUES(?, ?, ?, ?, ?)",
+                        (chunk_id, config.model_key, len(vector), vector_bytes(vector), content_hash),
+                    )
+        connection.execute("DELETE FROM edges")
+        connection.executemany(
+            "INSERT OR IGNORE INTO edges(source_entity_id, target_entity_id, relation_type, label, metadata_json) VALUES(?, ?, ?, ?, ?)",
+            [
+                (edge.source, edge.target, edge.relation_type, edge.label, json.dumps(edge.metadata, ensure_ascii=False))
+                for edge in edges
+            ],
+        )
+        document_count = int(connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+        chunk_count = int(connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+        previous_embedding_status = previous_meta.get("embedding_status", "unknown")
+        embedding_status = (
+            "disabled" if config.provider == "disabled"
+            else "failed" if embedding_error
+            else "ready" if changed_chunks
+            else previous_embedding_status
+        )
+        meta = {
+            "rag_schema_version": str(RAG_SCHEMA_VERSION),
+            "project_id": project_id,
+            "source_revision": str(source_revision),
+            "source_mtime_ns": str(source_mtime_ns),
+            "embedding_model_key": config.model_key,
+            "world_schema_hash": registry_fingerprint(),
+            "embedding_status": embedding_status,
+            "embedding_error": embedding_error,
+            "built_at": str(int(time.time())),
+            "document_count": str(document_count),
+            "chunk_count": str(chunk_count),
+            "last_sync_mode": "incremental",
+            "last_changed_documents": str(len(changed)),
+            "last_removed_documents": str(len(removed)),
+        }
+        connection.executemany(
+            "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            meta.items(),
+        )
+        connection.commit()
+        connection.execute("PRAGMA optimize")
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return {
+        "path": str(target), "sourceRevision": source_revision,
+        "documents": len(documents), "changedDocuments": len(changed),
+        "removedDocuments": len(removed), "chunks": chunk_count,
+        "embeddingStatus": embedding_status, "embeddingError": embedding_error,
+        "mode": "incremental",
     }
 
 
@@ -346,6 +520,8 @@ def search_index(
             "entityId": str(row["entity_id"]), "stableId": str(row["stable_id"]),
             "kind": str(row["kind"]), "title": title, "canonical": bool(row["canonical"]),
             "revision": int(row["revision"]), "score": round(score, 6),
+            "certainty": str(json.loads(row["metadata_json"]).get("certainty") or "confirmed"),
+            "timelineStatus": str(json.loads(row["metadata_json"]).get("timelineStatus") or "independent"),
             "excerpt": _excerpt(str(row["text"]), terms),
             "citation": f"story://{row['entity_id']}",
             "matchedBy": {
@@ -374,6 +550,8 @@ def get_document(path: Path, entity_id: str) -> dict[str, Any] | None:
             "aliases": json.loads(row["aliases_json"]), "revision": int(row["revision"]),
             "canonical": bool(row["canonical"]), "content": str(row["content"]),
             "metadata": json.loads(row["metadata_json"]),
+            "certainty": str(json.loads(row["metadata_json"]).get("certainty") or "confirmed"),
+            "timelineStatus": str(json.loads(row["metadata_json"]).get("timelineStatus") or "independent"),
             "related": [{
                 "entityId": str(item["target_entity_id"]),
                 "title": str(item["target_title"] or item["target_entity_id"]),
@@ -395,7 +573,9 @@ def catalog(path: Path) -> dict[str, Any]:
             "entityId": str(row["entity_id"]), "stableId": str(row["stable_id"]),
             "kind": str(row["kind"]), "title": str(row["title"]),
             "canonical": bool(row["canonical"]), "revision": int(row["revision"]),
+            "certainty": str(json.loads(row["metadata_json"]).get("certainty") or "confirmed"),
+            "timelineStatus": str(json.loads(row["metadata_json"]).get("timelineStatus") or "independent"),
         } for row in connection.execute(
-            "SELECT entity_id, stable_id, kind, title, canonical, revision FROM documents ORDER BY kind, title"
+            "SELECT entity_id, stable_id, kind, title, canonical, revision, metadata_json FROM documents ORDER BY kind, title"
         )]
     return {"project": meta.get("project_id", ""), "sourceRevision": int(meta.get("source_revision", 0)), "counts": counts, "items": items}

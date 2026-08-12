@@ -13,7 +13,11 @@ from storyteller.storage.connection import Database
 
 
 MANAGED_DIRECTORIES = ("characters", "plots", "entries", "fragments", "relationships", ".trash")
-MANAGED_FILES = ("manifest.md", "timeline.md", "graph-layout.md", "content-index.json", "project.snapshot.json", RECOVERY_FILE)
+MANAGED_FILES = (
+    "manifest.md", "timeline.md", "graph-layout.md", "content-index.json",
+    "world-schema.json", "ai-manifest.json", "AI_CONTEXT.md",
+    "project.snapshot.json", RECOVERY_FILE,
+)
 
 
 class ExportCoordinator:
