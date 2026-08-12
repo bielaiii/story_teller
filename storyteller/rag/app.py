@@ -65,7 +65,7 @@ def create_rag_app(settings: Settings) -> FastAPI:
             "schemaVersion": SCHEMA_VERSION,
             "project": project_id,
             "features": RAG_FEATURES,
-            "syncMode": "request-revision-incremental",
+            "syncMode": "background-incremental-with-request-fallback",
             "status": status,
             "mutationToken": app.state.mutation_token,
             "error": error,
@@ -76,7 +76,7 @@ def create_rag_app(settings: Settings) -> FastAPI:
         return {
             "ok": True,
             "service": "story-teller-rag",
-            "syncMode": "request-revision-incremental",
+            "syncMode": "background-incremental-with-request-fallback",
         }
 
     app.include_router(create_rag_router(manager))

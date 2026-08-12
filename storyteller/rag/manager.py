@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
+import tempfile
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+import fcntl
 
 from storyteller.domain.errors import ConflictError
 from storyteller.domain.world_reader import WorldReader
@@ -33,6 +39,20 @@ class RagManager:
             raise ValueError(f"项目 {project} 没有 story.db")
         return root
 
+    @staticmethod
+    @contextmanager
+    def _process_lock(root: Path) -> Iterator[None]:
+        """Serialize index replacement across the web service and MCP workers."""
+        digest = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:20]
+        path = Path(tempfile.gettempdir()) / f"story-teller-rag-{digest}.lock"
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
     def projects(self) -> list[str]:
         if not self.settings.content_root.is_dir():
             return []
@@ -52,55 +72,57 @@ class RagManager:
         root = self._root(project)
         target = rag_path(root)
         with self._lock(project):
-            for _attempt in range(5):
-                source_revision, _source_mtime_ns = self._source_state(project)
-                config = load_config(root)
-                rebuild = not target.exists()
-                incremental = False
-                meta: dict[str, str] = {}
-                if not rebuild:
-                    try:
-                        meta = read_meta(target)
-                        rebuild = (
-                            int(meta.get("rag_schema_version", 0)) != RAG_SCHEMA_VERSION
-                            or meta.get("project_id") != project
-                            or meta.get("embedding_model_key") != config.model_key
-                            or meta.get("world_schema_hash") != registry_fingerprint()
-                        )
-                        incremental = int(meta.get("source_revision", -1)) != source_revision
-                    except (OSError, sqlite3.DatabaseError, ValueError):
-                        rebuild = True
-                if not rebuild and not incremental:
-                    return self.status(project, check_source=False)
+            with self._process_lock(root):
+                for _attempt in range(5):
+                    source_revision, _source_mtime_ns = self._source_state(project)
+                    config = load_config(root)
+                    rebuild = not target.exists()
+                    incremental = False
+                    meta: dict[str, str] = {}
+                    if not rebuild:
+                        try:
+                            meta = read_meta(target)
+                            rebuild = (
+                                int(meta.get("rag_schema_version", 0)) != RAG_SCHEMA_VERSION
+                                or meta.get("project_id") != project
+                                or meta.get("embedding_model_key") != config.model_key
+                                or meta.get("world_schema_hash") != registry_fingerprint()
+                            )
+                            incremental = int(meta.get("source_revision", -1)) != source_revision
+                        except (OSError, sqlite3.DatabaseError, ValueError):
+                            rebuild = True
+                    if not rebuild and not incremental:
+                        return self.status(project, check_source=False)
 
-                repository = ProjectRepository(Database(root), project)
-                documents, edges, captured_revision = build_documents(repository)
-                latest_revision, latest_mtime_ns = self._source_state(project)
-                if captured_revision != latest_revision:
-                    continue
-                if rebuild:
-                    build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
-                else:
-                    try:
-                        repository.changes_since(int(meta.get("source_revision", 0)))
-                    except ConflictError:
+                    repository = ProjectRepository(Database(root), project)
+                    documents, edges, captured_revision = build_documents(repository)
+                    latest_revision, latest_mtime_ns = self._source_state(project)
+                    if captured_revision != latest_revision:
+                        continue
+                    if rebuild:
                         build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
                     else:
-                        sync_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
-                final_revision, _final_mtime_ns = self._source_state(project)
-                if final_revision == captured_revision:
-                    return self.status(project, check_source=False)
+                        try:
+                            repository.changes_since(int(meta.get("source_revision", 0)))
+                        except ConflictError:
+                            build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
+                        else:
+                            sync_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
+                    final_revision, _final_mtime_ns = self._source_state(project)
+                    if final_revision == captured_revision:
+                        return self.status(project, check_source=False)
             raise ValueError("story.db 在索引同步期间持续变化，请稍后重试")
 
     def rebuild(self, project: str) -> dict[str, Any]:
         root = self._root(project)
         with self._lock(project):
-            repository = ProjectRepository(Database(root), project)
-            documents, edges, revision = build_documents(repository)
-            _, source_mtime_ns = self._source_state(project)
-            result = build_index(root, project, documents, edges, revision, source_mtime_ns, load_config(root))
-            result["status"] = self.status(project, check_source=False)
-            return result
+            with self._process_lock(root):
+                repository = ProjectRepository(Database(root), project)
+                documents, edges, revision = build_documents(repository)
+                _, source_mtime_ns = self._source_state(project)
+                result = build_index(root, project, documents, edges, revision, source_mtime_ns, load_config(root))
+                result["status"] = self.status(project, check_source=False)
+                return result
 
     def status(self, project: str, *, check_source: bool = True) -> dict[str, Any]:
         root = self._root(project)
@@ -135,7 +157,7 @@ class RagManager:
             "lastSyncMode": meta.get("last_sync_mode", "full"),
             "lastChangedDocuments": int(meta.get("last_changed_documents", 0)),
             "lastRemovedDocuments": int(meta.get("last_removed_documents", 0)),
-            "syncMode": "request-revision-incremental",
+            "syncMode": "background-incremental-with-request-fallback",
         }
 
     def configure(self, project: str, value: dict[str, Any]) -> dict[str, Any]:

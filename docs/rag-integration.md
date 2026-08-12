@@ -6,9 +6,9 @@
 - `rag.db` 是派生检索缓存，保存 AI 可检索的文档块、全文索引、关联边和 embedding。它可以随时删除，不应提交 Git。
 - `rag.config.json` 只保存 embedding provider、模型名、维度和服务地址，不保存 API key。
 
-RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无端口 stdio worker 读取自己的 `story.db`；唯一的 Story World Hub 监听 4181，对外提供统一 MCP。worker 会在每次检索、取上下文和读取 RAG 实体前比较 `story.db` revision。内容 revision 增加且变更历史连续时，只替换受影响文档和关联边；数据库损坏、Schema/模型变化、revision 回退或历史缺口时自动原子完整重建。
+RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无端口 stdio worker 读取自己的 `story.db`；唯一的 Story World Hub 监听 4181，对外提供统一 MCP。网页写入提交后会将目标 revision 放入后台同步队列，连续保存会在短暂防抖窗口内合并，只替换受影响文档和关联边。网页服务与 MCP worker 使用跨进程项目锁，避免同时更新同一个 `rag.db`。数据库损坏、Schema/模型变化、revision 回退或历史缺口时自动原子完整重建。
 
-不需要重启 Hub，也不依赖后台轮询。一次写入完成后，下一次 AI 请求就会看到新的 revision。若运行期间直接删除 `rag.db`，下一次检索会自动重新生成。
+同步由保存事件触发，不依赖后台轮询，也不需要重启 Hub。MCP 在每次检索、取上下文和读取 RAG 实体前仍比较 `story.db` revision：正常情况下索引已由后台更新，可直接查询；若外部工具直接修改 SQLite、后台同步尚未完成或曾临时失败，请求会兜底完成同步后再返回，因此不会静默读取旧内容。若运行期间直接删除 `rag.db`，后台任务或下一次检索会自动重新生成。
 
 碎片是“已确定会进入故事、但尚未正式编入时间线”的一等内容，普通检索和上下文构建默认包含。`includeFragments` / `include_fragments` 保留为兼容参数，未来若增加“暂定素材”，显式开启才会额外包含这类非确定内容。
 
