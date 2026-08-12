@@ -23,6 +23,12 @@ class RagContextRequest(BaseModel):
     include_fragments: bool = False
 
 
+class WorldQueryRequest(BaseModel):
+    kinds: list[str] = Field(default_factory=list)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 class EmbeddingConfigRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -54,6 +60,61 @@ def create_rag_router(manager: RagManager) -> APIRouter:
         try:
             return manager.catalog(project)
         except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @router.get("/world/schema")
+    def world_schema(project: str):
+        try:
+            return manager.world_schema(project)
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @router.get("/world/catalog")
+    def live_world_catalog(project: str):
+        try:
+            return manager.live_catalog(project)
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @router.get("/world/resolve")
+    def resolve_world(
+        project: str,
+        q: str = Query(min_length=1, max_length=1000),
+        kinds: list[str] = Query(default=[]),
+        limit: int = Query(default=10, ge=1, le=50),
+    ):
+        try:
+            return manager.resolve(project, q, kinds=kinds or None, limit=limit)
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @router.post("/world/query")
+    def query_world(project: str, payload: WorldQueryRequest):
+        try:
+            return manager.query_world(
+                project, kinds=payload.kinds or None,
+                filters=payload.filters or None, limit=payload.limit,
+            )
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @router.get("/world/entities/{entity_id}")
+    def structured_entity(project: str, entity_id: str):
+        try:
+            result = manager.structured_entity(project, entity_id)
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if not result:
+            raise HTTPException(status_code=404, detail="世界资料不存在")
+        return result
+
+    @router.get("/world/entities/{entity_id}/related")
+    def live_related(project: str, entity_id: str):
+        try:
+            return manager.live_related(project, entity_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except OSError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @router.get("/search")

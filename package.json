@@ -5,6 +5,8 @@
     "dev": "vite --config vite.config.ts",
     "build": "tsc -b && vite build --config vite.config.ts",
     "test:unit": "./scripts/python.sh -m unittest discover -s tests/v3 -v",
+    "schema:sync": "./scripts/sync-world-schema.sh",
+    "schema:check": "./scripts/sync-world-schema.sh --check",
     "test:frontend": "vitest run",
     "test:e2e:v3": "playwright test --config playwright.v3.config.js",
     "test:e2e:merge": "playwright test --config playwright.merge.config.js",

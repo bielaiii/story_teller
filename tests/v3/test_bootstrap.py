@@ -67,6 +67,17 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(second["maintenance"]["checkedAt"], second_checked_at)
         self.assertGreaterEqual(second_checked_at, first_checked_at)
 
+        content_index_path = self.project_root / "content-index.json"
+        content_index = json.loads(content_index_path.read_text(encoding="utf-8"))
+        content_index.pop("exportFormatVersion")
+        content_index_path.write_text(json.dumps(content_index), encoding="utf-8")
+        refreshed = prepare_project(self.project_root)
+        self.assertFalse(refreshed["export"].get("skipped", False))
+        self.assertEqual(
+            2,
+            json.loads(content_index_path.read_text(encoding="utf-8"))["exportFormatVersion"],
+        )
+
     def test_prepare_rejects_a_newer_database_without_replacing_it(self) -> None:
         database = self.project_root / "story.db"
         with sqlite3.connect(database) as connection:

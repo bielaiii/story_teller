@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
 
+from storyteller.domain.errors import ConflictError
+from storyteller.domain.world_reader import WorldReader
+from storyteller.domain.world_schema import registry_fingerprint
 from storyteller.rag.config import EmbeddingConfig, load_config, save_config
 from storyteller.rag.documents import build_documents
-from storyteller.rag.index import RAG_SCHEMA_VERSION, build_index, catalog, get_document, rag_path, read_meta, search_index
+from storyteller.rag.index import RAG_SCHEMA_VERSION, build_index, catalog, get_document, rag_path, read_meta, search_index, sync_index
 from storyteller.settings import Settings
 from storyteller.storage.connection import Database
 from storyteller.storage.repositories import ProjectRepository
@@ -48,35 +52,45 @@ class RagManager:
         root = self._root(project)
         target = rag_path(root)
         with self._lock(project):
-            if target.exists() and not force_check:
-                try:
+            for _attempt in range(5):
+                source_revision, _source_mtime_ns = self._source_state(project)
+                config = load_config(root)
+                rebuild = not target.exists()
+                incremental = False
+                meta: dict[str, str] = {}
+                if not rebuild:
+                    try:
+                        meta = read_meta(target)
+                        rebuild = (
+                            int(meta.get("rag_schema_version", 0)) != RAG_SCHEMA_VERSION
+                            or meta.get("project_id") != project
+                            or meta.get("embedding_model_key") != config.model_key
+                            or meta.get("world_schema_hash") != registry_fingerprint()
+                        )
+                        incremental = int(meta.get("source_revision", -1)) != source_revision
+                    except (OSError, sqlite3.DatabaseError, ValueError):
+                        rebuild = True
+                if not rebuild and not incremental:
                     return self.status(project, check_source=False)
-                except (OSError, sqlite3.DatabaseError, ValueError):
-                    pass
-            source_revision, source_mtime_ns = self._source_state(project)
-            config = load_config(root)
-            rebuild = not target.exists()
-            if not rebuild:
-                try:
-                    meta = read_meta(target)
-                    rebuild = (
-                        int(meta.get("rag_schema_version", 0)) != RAG_SCHEMA_VERSION
-                        or meta.get("project_id") != project
-                        or int(meta.get("source_revision", -1)) != source_revision
-                        or int(meta.get("source_mtime_ns", -1)) != source_mtime_ns
-                        or meta.get("embedding_model_key") != config.model_key
-                    )
-                except (OSError, sqlite3.DatabaseError, ValueError):
-                    rebuild = True
-            if rebuild:
+
                 repository = ProjectRepository(Database(root), project)
                 documents, edges, captured_revision = build_documents(repository)
                 latest_revision, latest_mtime_ns = self._source_state(project)
                 if captured_revision != latest_revision:
-                    documents, edges, captured_revision = build_documents(repository)
-                    latest_revision, latest_mtime_ns = self._source_state(project)
-                build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
-            return self.status(project, check_source=False)
+                    continue
+                if rebuild:
+                    build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
+                else:
+                    try:
+                        repository.changes_since(int(meta.get("source_revision", 0)))
+                    except ConflictError:
+                        build_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
+                    else:
+                        sync_index(root, project, documents, edges, captured_revision, latest_mtime_ns, config)
+                final_revision, _final_mtime_ns = self._source_state(project)
+                if final_revision == captured_revision:
+                    return self.status(project, check_source=False)
+            raise ValueError("story.db 在索引同步期间持续变化，请稍后重试")
 
     def rebuild(self, project: str) -> dict[str, Any]:
         root = self._root(project)
@@ -97,21 +111,31 @@ class RagManager:
         meta = read_meta(target)
         source_revision = int(meta.get("source_revision", 0))
         source_mtime_ns = int(meta.get("source_mtime_ns", 0))
+        schema_hash = str(meta.get("world_schema_hash") or "")
+        current_schema_hash = registry_fingerprint()
         fresh = True
         current_revision = source_revision
         current_mtime_ns = source_mtime_ns
         if check_source:
             current_revision, current_mtime_ns = self._source_state(project)
-            fresh = current_revision == source_revision and current_mtime_ns == source_mtime_ns and meta.get("embedding_model_key") == config.model_key
+            fresh = (
+                current_revision == source_revision
+                and meta.get("embedding_model_key") == config.model_key
+                and schema_hash == current_schema_hash
+            )
         return {
             "project": project, "exists": True, "fresh": fresh, "path": str(target),
             "sourceRevision": source_revision, "currentRevision": current_revision,
             "sourceMtimeNs": source_mtime_ns, "currentMtimeNs": current_mtime_ns,
+            "worldSchemaHash": schema_hash, "currentWorldSchemaHash": current_schema_hash,
             "builtAt": int(meta.get("built_at", 0)),
             "documents": int(meta.get("document_count", 0)), "chunks": int(meta.get("chunk_count", 0)),
             "embeddingStatus": meta.get("embedding_status", "unknown"),
             "embeddingError": meta.get("embedding_error", ""), "embedding": config.public_dict(),
-            "syncMode": "startup-once",
+            "lastSyncMode": meta.get("last_sync_mode", "full"),
+            "lastChangedDocuments": int(meta.get("last_changed_documents", 0)),
+            "lastRemovedDocuments": int(meta.get("last_removed_documents", 0)),
+            "syncMode": "request-revision-incremental",
         }
 
     def configure(self, project: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +149,12 @@ class RagManager:
         status = self.ensure_fresh(project)
         config = load_config(self._root(project))
         results = search_index(rag_path(self._root(project)), query, config, limit=limit, kinds=kinds, include_fragments=include_fragments)
-        return {"query": query, "project": project, "sourceRevision": status["sourceRevision"], "results": results}
+        return {
+            "query": query, "project": project,
+            "sourceRevision": status["sourceRevision"],
+            "currentRevision": status["sourceRevision"],
+            "results": results,
+        }
 
     def entity(self, project: str, entity_id: str) -> dict[str, Any] | None:
         self.ensure_fresh(project)
@@ -140,7 +169,36 @@ class RagManager:
         sections: list[str] = []
         citations: list[dict[str, Any]] = []
         remaining = max(1000, min(int(max_chars), 50000))
+        structured_ids: set[str] = set()
+        resolved = self.resolve(project, question, limit=min(5, limit))
+        for match in resolved["results"]:
+            if float(match.get("score", 0)) < 0.65:
+                continue
+            entity = self.structured_entity(project, match["entityId"])
+            if not entity:
+                continue
+            rendered = (
+                f"<!-- source: {entity['citation']} revision: {entity['revision']} -->\n"
+                f"# 结构化事实：{entity['title']}\n\n"
+                + json.dumps({"data": entity["data"], "related": entity["related"]}, ensure_ascii=False, indent=2)
+            )
+            if len(rendered) > remaining:
+                rendered = rendered[:remaining].rstrip() + "\n…"
+            sections.append(rendered)
+            citations.append({
+                "entityId": entity["entityId"], "stableId": entity["stableId"],
+                "kind": entity["kind"], "title": entity["title"],
+                "revision": entity["revision"], "citation": entity["citation"],
+                "retrieval": "structured",
+            })
+            structured_ids.add(entity["entityId"])
+            remaining -= len(rendered)
+            if remaining <= 0:
+                break
+        rag_count = 0
         for result in search["results"]:
+            if result["entityId"] in structured_ids:
+                continue
             document = self.entity(project, result["entityId"])
             if not document:
                 continue
@@ -149,13 +207,17 @@ class RagManager:
             if len(rendered) > remaining:
                 rendered = rendered[:remaining].rstrip() + "\n…"
             sections.append(rendered)
-            citations.append({key: document[key] for key in ("entityId", "stableId", "kind", "title", "revision", "citation")})
+            citation = {key: document[key] for key in ("entityId", "stableId", "kind", "title", "revision", "citation")}
+            citation["retrieval"] = "rag"
+            citations.append(citation)
+            rag_count += 1
             remaining -= len(rendered)
             if remaining <= 0:
                 break
         return {
             "project": project, "question": question, "sourceRevision": search["sourceRevision"],
             "contextMarkdown": "\n\n---\n\n".join(sections), "citations": citations,
+            "retrieval": {"structured": len(structured_ids), "rag": rag_count},
         }
 
     def startup(self) -> None:
@@ -164,3 +226,27 @@ class RagManager:
             raise RuntimeError("内容目录中没有可同步的 story.db")
         for project in projects:
             self.ensure_fresh(project, force_check=True)
+
+    def reader(self, project: str) -> WorldReader:
+        return WorldReader(Database(self._root(project)), project)
+
+    def world_schema(self, project: str) -> dict[str, Any]:
+        return self.reader(project).schema()
+
+    def live_catalog(self, project: str) -> dict[str, Any]:
+        return self.reader(project).catalog()
+
+    def resolve(self, project: str, query: str, *, kinds: list[str] | None = None, limit: int = 10) -> dict[str, Any]:
+        return self.reader(project).resolve(query, kinds=kinds, limit=limit)
+
+    def query_world(
+        self, project: str, *, kinds: list[str] | None = None,
+        filters: dict[str, Any] | None = None, limit: int = 50,
+    ) -> dict[str, Any]:
+        return self.reader(project).query(kinds=kinds, filters=filters, limit=limit)
+
+    def structured_entity(self, project: str, entity_id: str) -> dict[str, Any] | None:
+        return self.reader(project).entity(entity_id)
+
+    def live_related(self, project: str, entity_id: str) -> dict[str, Any]:
+        return self.reader(project).related(entity_id)

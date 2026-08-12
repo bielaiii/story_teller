@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from storyteller.domain.world_schema import exportable_metadata, hydrate_registered_fields, registry_json_bytes
+from storyteller.exports.version import EXPORT_FORMAT_VERSION
 from storyteller.storage.connection import Database
 from storyteller.storage.repositories import ProjectRepository
 
@@ -60,6 +62,7 @@ class MarkdownExporter:
         character_names = {item["entityId"]: item["name"] for item in snapshot["characters"]}
         for item in snapshot["characters"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
+            detail = hydrate_registered_fields(self.database, "character", item["entityId"], detail)
             metadata = {
                 "id": detail["id"], "name": detail["name"], "aliases": detail["aliases"],
                 "color": detail["color"], "gradient": detail["gradient"], "group": detail["group"],
@@ -71,6 +74,8 @@ class MarkdownExporter:
                 "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
+            for key, value in exportable_metadata("character", detail).items():
+                metadata.setdefault(key, value)
             name = safe_filename(detail["name"], detail["id"])
             files[f"characters/{detail['id']}-{name}.md"] = markdown_document(metadata, detail["intro"]).encode("utf-8")
 
@@ -78,6 +83,7 @@ class MarkdownExporter:
         line_names = {item["entityId"]: item["name"] for item in snapshot["timeline"]["lines"]}
         for item in snapshot["plots"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
+            detail = hydrate_registered_fields(self.database, "plot", item["entityId"], detail)
             metadata = {
                 "id": int(detail["id"]) if detail["id"].isdigit() else detail["id"],
                 "chapter": chapter_stable.get(detail["chapterId"], ""),
@@ -91,12 +97,15 @@ class MarkdownExporter:
                 "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
+            for key, value in exportable_metadata("plot", detail).items():
+                metadata.setdefault(key, value)
             title = safe_filename(detail["title"], detail["id"])
             prefix = f"{int(detail['id']):03d}" if detail["id"].isdigit() else safe_filename(detail["id"], "plot")
             files[f"plots/{prefix}-{title}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
 
         for item in snapshot["entries"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
+            detail = hydrate_registered_fields(self.database, "entry", item["entityId"], detail)
             metadata = {
                 "id": detail["id"], "name": detail["name"], "type": detail["type"],
                 "subtype": detail["subtype"], "area": detail["area"], "accent": detail["accent"],
@@ -114,20 +123,26 @@ class MarkdownExporter:
                 "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
+            for key, value in exportable_metadata("entry", detail).items():
+                metadata.setdefault(key, value)
             files[f"entries/{safe_filename(detail['id'], 'entry')}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
 
         for item in snapshot["fragments"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
+            detail = hydrate_registered_fields(self.database, "fragment", item["entityId"], detail)
             metadata = {
                 "id": detail["id"], "title": detail["title"], "status": detail["status"],
                 "tags": detail["tags"], "accent": detail["accent"],
                 "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
+            for key, value in exportable_metadata("fragment", detail).items():
+                metadata.setdefault(key, value)
             files[f"fragments/{safe_filename(detail['id'], 'fragment')}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
 
         for item in snapshot["relationships"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
+            detail = hydrate_registered_fields(self.database, "relationship", item["entityId"], detail)
             from_id = detail["from"].removeprefix("character:")
             to_id = detail["to"].removeprefix("character:")
             metadata = {
@@ -149,6 +164,8 @@ class MarkdownExporter:
                 "label": detail["label"], "color": detail["color"], "type": detail["type"],
                 "references": detail.get("references", []),
             }
+            for key, value in exportable_metadata("relationship", detail).items():
+                metadata.setdefault(key, value)
             from_name = safe_filename(character_names.get(detail["from"], from_id), from_id)
             to_name = safe_filename(character_names.get(detail["to"], to_id), to_id)
             files[f"relationships/{from_id}-{from_name}__{to_id}-{to_name}.md"] = markdown_document(metadata, detail.get("body", "")).encode("utf-8")
@@ -220,8 +237,71 @@ class MarkdownExporter:
         if saved_positions:
             graph_sections.extend(["", "## Saved Positions", "", yaml.safe_dump(saved_positions, allow_unicode=True, sort_keys=False, width=100000).rstrip()])
         files["graph-layout.md"] = markdown_document(graph_meta, "\n".join(graph_sections)).encode("utf-8")
+        files["world-schema.json"] = registry_json_bytes()
+        ai_manifest = {
+            "version": EXPORT_FORMAT_VERSION,
+            "project": project["id"],
+            "title": project["title"],
+            "sourceRevision": project["revision"],
+            "sourceOfTruth": "./story.db",
+            "readOnlyExports": {
+                "schema": "./world-schema.json",
+                "snapshot": "./project.snapshot.json",
+                "recovery": "./recovery.snapshot.json",
+                "characters": "./characters/",
+                "plots": "./plots/",
+                "entries": "./entries/",
+                "fragments": "./fragments/",
+                "relationships": "./relationships/",
+            },
+            "aiGateway": {
+                "stdioCommand": ["story-world-mcp"],
+                "hubMcp": "http://127.0.0.1:4181/mcp/",
+                "workspaceSelection": "先调用 list_world_workspaces，再把 workspaceId 传给后续 Hub 工具",
+                "recommendedFlow": [
+                    "list_world_workspaces", "describe_world", "world_catalog", "resolve_world_entity",
+                    "query_world", "get_world_entity", "get_related_world",
+                    "search_world", "build_world_context",
+                ],
+            },
+            "contentPolicy": {
+                "fragment": {
+                    "certainty": "confirmed",
+                    "timelineStatus": "unplaced",
+                    "searchByDefault": True,
+                    "description": "已确定会进入故事，但尚未正式编入时间线。",
+                }
+            },
+            "entityCounts": {
+                "character": len(snapshot["characters"]),
+                "plot": len(snapshot["plots"]),
+                "entry": len(snapshot["entries"]),
+                "fragment": len(snapshot["fragments"]),
+                "relationship": len(snapshot["relationships"]),
+                "chapter": len(snapshot["chapters"]),
+            },
+        }
+        files["ai-manifest.json"] = (
+            json.dumps(ai_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        ).encode("utf-8")
+        files["AI_CONTEXT.md"] = (
+            f"# {project['title']} · AI 数据入口\n\n"
+            f"当前数据 revision：{project['revision']}。`story.db` 是唯一可写事实来源；本目录 Markdown 与 JSON 均为只读导出。\n\n"
+            "读取顺序：先读 `world-schema.json` 理解实体语义，再读 `ai-manifest.json` 和 "
+            "`project.snapshot.json`；本地 AI 可使用 stdio 命令 `story-world-mcp`，也可连接统一 Hub "
+            "`http://127.0.0.1:4181/mcp/`。使用 Hub 时先调用 `list_world_workspaces` 选择当前仓库。\n\n"
+            "组织归属、双方印象和剧情出场等精确事实应优先使用 MCP 的结构化工具；需要联想或按语义找资料时再使用 RAG。\n\n"
+            "碎片是已确定但尚未编入时间线的剧情，默认应参与检索和创作上下文，不要把它解释为废弃或非正史。\n"
+        ).encode("utf-8")
         files["content-index.json"] = (json.dumps(
-            {"version": 3, "snapshot": "./project.snapshot.json"},
+            {
+                "version": 4,
+                "exportFormatVersion": EXPORT_FORMAT_VERSION,
+                "snapshot": "./project.snapshot.json",
+                "worldSchema": "./world-schema.json",
+                "aiManifest": "./ai-manifest.json",
+                "aiContext": "./AI_CONTEXT.md",
+            },
             ensure_ascii=False, sort_keys=True, indent=2,
         ) + "\n").encode("utf-8")
         return files

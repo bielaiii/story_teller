@@ -17,8 +17,13 @@ from storyteller.settings import Settings
 RAG_FEATURES = [
     "rag-http-v1",
     "rag-mcp-v1",
-    "rag-startup-sync-v1",
+    "rag-startup-warmup-v1",
     "rag-embedding-model-switch-v1",
+    "world-schema-registry-v1",
+    "structured-world-reader-v1",
+    "rag-request-revision-sync-v1",
+    "confirmed-fragments-search-v1",
+    "rag-stdio-autodiscovery-v1",
 ]
 
 
@@ -60,7 +65,7 @@ def create_rag_app(settings: Settings) -> FastAPI:
             "schemaVersion": SCHEMA_VERSION,
             "project": project_id,
             "features": RAG_FEATURES,
-            "syncMode": "startup-once",
+            "syncMode": "request-revision-incremental",
             "status": status,
             "mutationToken": app.state.mutation_token,
             "error": error,
@@ -71,7 +76,7 @@ def create_rag_app(settings: Settings) -> FastAPI:
         return {
             "ok": True,
             "service": "story-teller-rag",
-            "syncMode": "startup-once",
+            "syncMode": "request-revision-incremental",
         }
 
     app.include_router(create_rag_router(manager))

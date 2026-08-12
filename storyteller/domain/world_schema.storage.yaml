@@ -1,0 +1,1581 @@
+databaseSchemaVersion: 9
+tables:
+  assets:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: entities
+          column: id
+        review: internal
+      filename:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      media_type:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      content:
+        storageType: BLOB
+        required: true
+        primaryKey: false
+        review: internal
+      content_hash:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+  chapters:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      label:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - chapter.label
+      sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - chapter.sortKey
+  character_aliases:
+    columns:
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      alias:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - character.aliases
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  character_facts:
+    columns:
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      fact_key:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: internal
+      fact_value:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - character.facts
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  character_markers:
+    columns:
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      marker:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - character.markers
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  character_supplements:
+    columns:
+      id:
+        storageType: INTEGER
+        required: false
+        primaryKey: true
+        review: internal
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      content:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  characters:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      name:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - character.name
+      intro_markdown:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - character.intro
+      narrative_role:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - character.narrativeRole
+      character_scope:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - character.characterScope
+      side:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - character.side
+      main_plot_impact:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: domain
+        fields:
+        - character.mainPlotImpact
+      color:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#7d6bd6'''
+        review: internal
+      gradient:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      group_name:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      graph_visible:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  entities:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      kind:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      stable_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      title:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - plot.title
+        - fragment.title
+        - timeline_line.name
+      deleted_at:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      purge_at:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '1'
+        review: internal
+      extra_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: domain
+        fields:
+        - character.destinyOutline
+        - fragment.fragmentType
+        - fragment.parentFragmentId
+        - fragment.chapterNumber
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      updated_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+  entity_references:
+    columns:
+      id:
+        storageType: INTEGER
+        required: false
+        primaryKey: true
+        review: internal
+      source_entity_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: entities
+          column: id
+        review: internal
+      target_entity_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: entities
+          column: id
+        review: domain
+        fields:
+        - fragment.references
+      context:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''body'''
+        review: internal
+      marker:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      start_offset:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      end_offset:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      source:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''editor'''
+        review: internal
+  entries:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      name:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - entry.name
+      type:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: domain
+        fields:
+        - entry.type
+      subtype:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - entry.subtype
+      area:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - entry.area
+      body_markdown:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - entry.body
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - entry.status
+      accent:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#7d6bd6'''
+        review: internal
+  entry_aliases:
+    columns:
+      entry_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: entries
+          column: entity_id
+        review: internal
+      alias:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - entry.aliases
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  entry_characters:
+    columns:
+      entry_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: entries
+          column: entity_id
+        review: internal
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: domain
+        fields:
+        - entry.members
+      role:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''现成员'''
+        review: internal
+      sort_key:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  entry_tags:
+    columns:
+      entry_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: entries
+          column: entity_id
+        review: internal
+      tag:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - entry.tags
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  export_state:
+    columns:
+      project_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: projects
+          column: id
+        review: internal
+      requested_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      exported_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''ready'''
+        review: internal
+      last_error:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      updated_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+  fragment_tags:
+    columns:
+      fragment_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: fragments
+          column: entity_id
+        review: internal
+      tag:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - fragment.tags
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  fragments:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      body_markdown:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - fragment.body
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - fragment.status
+      accent:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#7d6bd6'''
+        review: internal
+  graph_cluster_members:
+    columns:
+      cluster_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: graph_clusters
+          column: id
+        review: internal
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+  graph_clusters:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      label:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      center_x:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      center_y:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      radius:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      strength:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+  graph_distances:
+    columns:
+      from_character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      to_character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      distance:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        review: internal
+      strength:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        review: internal
+  graph_nodes:
+    columns:
+      character_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      orbit_of:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: characters
+          column: entity_id
+        review: internal
+      orbit_distance:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      orbit_angle:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      strength:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      anchor_x:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+      anchor_y:
+        storageType: REAL
+        required: false
+        primaryKey: false
+        review: internal
+  graph_settings:
+    columns:
+      project_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: projects
+          column: id
+        review: internal
+      node_spacing:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '116'
+        review: internal
+      initial_jitter:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '38'
+        review: internal
+      relationship_distance:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '250'
+        review: internal
+      leaf_distance_extra:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '48'
+        review: internal
+      center_strength:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '1'
+        review: internal
+      group_strength:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '1'
+        review: internal
+      leaf_strength:
+        storageType: REAL
+        required: true
+        primaryKey: false
+        default: '1'
+        review: internal
+      extra_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: internal
+  merge_conflicts:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      session_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: merge_sessions
+          column: id
+        review: internal
+      table_name:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      primary_key_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      title:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      base_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      ours_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      theirs_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      merged_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      conflict_columns_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      resolution_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: internal
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''open'''
+        review: internal
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      resolved_at:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+  merge_sessions:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      source_path:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: internal
+      base_hash:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      ours_hash:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      theirs_hash:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      base_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      ours_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      theirs_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''open'''
+        review: internal
+      conflict_count:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      resolved_at:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+  metadata:
+    columns:
+      key:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      value:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+  operation_changes:
+    columns:
+      operation_id:
+        storageType: INTEGER
+        required: true
+        primaryKey: true
+        references:
+          table: operations
+          column: id
+        review: internal
+      table_name:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: internal
+      primary_key_json:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: internal
+      before_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      after_json:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      before_revision:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      after_revision:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+  operations:
+    columns:
+      id:
+        storageType: INTEGER
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      actor:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''local-user'''
+        review: internal
+      label:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      action:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''update'''
+        review: internal
+      entity_kind:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''content'''
+        review: internal
+      base_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      result_revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      details_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: internal
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      expires_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      undone_at:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: internal
+      undone_by:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        references:
+          table: operations
+          column: id
+        review: internal
+  plot_characters:
+    columns:
+      plot_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: characters
+          column: entity_id
+        review: domain
+        fields:
+        - plot.people
+      source:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''metadata'''
+        review: internal
+  plot_entries:
+    columns:
+      plot_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      entry_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: entries
+          column: entity_id
+        review: domain
+        fields:
+        - plot.entries
+      source:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''metadata'''
+        review: internal
+  plot_tags:
+    columns:
+      plot_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      tag:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        review: domain
+        fields:
+        - plot.tags
+      position:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  plot_timeline_lines:
+    columns:
+      plot_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      line_id:
+        storageType: TEXT
+        required: true
+        primaryKey: true
+        references:
+          table: timeline_lines
+          column: entity_id
+        review: internal
+      story_sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+  plots:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      chapter_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: chapters
+          column: entity_id
+        review: domain
+        fields:
+        - plot.chapterId
+      sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      story_sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - plot.storySortKey
+      story_order_mode:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''follow_reading'''
+        review: domain
+        fields:
+        - plot.storyOrderMode
+      story_anchor_plot_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      story_anchor_side:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        review: internal
+      summary:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - plot.summary
+      body_markdown:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - plot.body
+      status:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''草稿'''
+        review: domain
+        fields:
+        - plot.status
+      accent:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#7d6bd6'''
+        review: internal
+      is_key:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      is_climax:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+  projects:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      title:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      eyebrow:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''Story Teller'''
+        review: internal
+      revision:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: internal
+      extra_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: internal
+      created_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+      updated_at:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        review: internal
+  relationships:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      from_character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: characters
+          column: entity_id
+        review: domain
+        fields:
+        - relationship.from
+      to_character_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: characters
+          column: entity_id
+        review: domain
+        fields:
+        - relationship.to
+      from_role:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.fromRole
+      to_role:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.toRole
+      from_impression:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.fromImpression
+      to_impression:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.toImpression
+      graph_scope:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''core'''
+        review: domain
+        fields:
+        - relationship.graphScope
+      graph_line_mode:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''single'''
+        review: domain
+        fields:
+        - relationship.graphLineMode
+      label:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.label
+      type:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.type
+      color:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#8b95a7'''
+        review: internal
+      body_markdown:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: ''''''
+        review: domain
+        fields:
+        - relationship.body
+  timeline_connections:
+    columns:
+      id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        review: internal
+      project_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: projects
+          column: id
+        review: internal
+      source_line_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: timeline_lines
+          column: entity_id
+        review: internal
+      target_line_id:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        references:
+          table: timeline_lines
+          column: entity_id
+        review: internal
+      source_plot_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+      target_plot_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: plots
+          column: entity_id
+        review: internal
+  timeline_lines:
+    columns:
+      entity_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: entities
+          column: id
+        review: internal
+      color:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''#3f7fc1'''
+        review: internal
+      side:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''right'''
+        review: domain
+        fields:
+        - timeline_line.side
+      sort_key:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        review: internal
+      start_plot_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: plots
+          column: entity_id
+        review: domain
+        fields:
+        - timeline_line.startPlotId
+      end_plot_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: plots
+          column: entity_id
+        review: domain
+        fields:
+        - timeline_line.endPlotId
+  timeline_settings:
+    columns:
+      project_id:
+        storageType: TEXT
+        required: false
+        primaryKey: true
+        references:
+          table: projects
+          column: id
+        review: internal
+      main_line_id:
+        storageType: TEXT
+        required: false
+        primaryKey: false
+        references:
+          table: timeline_lines
+          column: entity_id
+        review: internal
+      line_spacing:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '72'
+        review: internal
+      top_padding:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '64'
+        review: internal
+      side_padding:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '36'
+        review: internal
+      pixels_per_story_unit:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '760'
+        review: internal
+      extra_json:
+        storageType: TEXT
+        required: true
+        primaryKey: false
+        default: '''{}'''
+        review: internal
