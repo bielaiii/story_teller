@@ -60,6 +60,34 @@ class MaintenanceService:
                         "DELETE FROM entities WHERE id=? AND project_id=?",
                         [(identifier, self.project_id) for identifier in sorted(relationship_entities)],
                     )
+                if purge_ids:
+                    placeholders = ",".join("?" for _ in purge_ids)
+                    identifiers = tuple(sorted(purge_ids))
+                    # Soft-deleted targets remain available during the recovery window.
+                    # Before permanent deletion, detach nullable ordering references that
+                    # intentionally use NO ACTION instead of cascading their owners.
+                    connection.execute(
+                        f"""
+                        UPDATE plots
+                        SET story_anchor_plot_id=NULL,
+                            story_anchor_side=NULL,
+                            story_order_mode='follow_reading'
+                        WHERE story_anchor_plot_id IN ({placeholders})
+                        """,
+                        identifiers,
+                    )
+                    connection.execute(
+                        f"UPDATE plots SET chapter_id=NULL WHERE chapter_id IN ({placeholders})",
+                        identifiers,
+                    )
+                    connection.execute(
+                        f"UPDATE timeline_lines SET start_plot_id=NULL WHERE start_plot_id IN ({placeholders})",
+                        identifiers,
+                    )
+                    connection.execute(
+                        f"UPDATE timeline_lines SET end_plot_id=NULL WHERE end_plot_id IN ({placeholders})",
+                        identifiers,
+                    )
                 connection.execute(
                     "DELETE FROM entities WHERE project_id=? AND deleted_at IS NOT NULL AND purge_at<=?",
                     (self.project_id, timestamp),
