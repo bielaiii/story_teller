@@ -10,6 +10,7 @@ from pathlib import Path
 
 from storyteller import SCHEMA_VERSION
 from storyteller.bootstrap import prepare_project
+from storyteller.exports.version import EXPORT_FORMAT_VERSION
 from storyteller.storage.schema import migrate_v4_to_v5
 
 
@@ -74,7 +75,7 @@ class BootstrapTests(unittest.TestCase):
         refreshed = prepare_project(self.project_root)
         self.assertFalse(refreshed["export"].get("skipped", False))
         self.assertEqual(
-            2,
+            EXPORT_FORMAT_VERSION,
             json.loads(content_index_path.read_text(encoding="utf-8"))["exportFormatVersion"],
         )
 
