@@ -34,8 +34,15 @@ test("碎片与剧情可以通过编辑器双向放入并保留删除入口", as
   await reader.getByRole("button", { name: `编辑${plotTitle}` }).click();
   const plotEditor = page.locator(".editor-dialog").filter({ has: page.locator(".markdown-workspace") });
   await expect(plotEditor.getByRole("button", { name: "删除剧情" })).toBeVisible();
-  await expect(plotEditor.getByRole("button", { name: "放入碎片箱" })).toBeVisible();
-  await plotEditor.getByRole("button", { name: "放入碎片箱" }).click();
+  const moveToFragments = plotEditor.getByRole("button", { name: "放入碎片箱" });
+  const settingsToggle = plotEditor.getByRole("button", { name: /剧情设置/ });
+  await expect(moveToFragments).toBeVisible();
+  const settingsBox = await settingsToggle.boundingBox();
+  const moveBox = await moveToFragments.boundingBox();
+  expect(settingsBox).not.toBeNull();
+  expect(moveBox).not.toBeNull();
+  expect(moveBox.x - (settingsBox.x + settingsBox.width)).toBeGreaterThanOrEqual(6);
+  await moveToFragments.click();
   await page.getByRole("alertdialog").getByRole("button", { name: "放入碎片箱" }).click();
 
   await expect(page.locator(".story-page")).toBeVisible();

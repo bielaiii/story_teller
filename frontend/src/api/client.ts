@@ -6,6 +6,7 @@ import type {
   MutationDelta,
   OperationItem,
   ProjectSnapshot,
+  RagRebuildResult,
   TrashItem,
 } from "./types";
 
@@ -87,10 +88,11 @@ export class StoryApi {
     path: string,
     method: "POST" | "PUT",
     payload?: Record<string, unknown>,
+    timeoutMs = 15_000,
   ): Promise<T> {
     return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
       method,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         "Content-Type": "application/json",
         "X-Story-Teller-Token": this.mutationToken,
@@ -103,16 +105,18 @@ export class StoryApi {
     path: string,
     method: "POST" | "PUT",
     payload?: Record<string, unknown>,
+    timeoutMs = 15_000,
+    unavailableMessage = "本地服务暂时不可用，已经保存的合并选择不会丢失",
   ): Promise<T> {
     try {
-      return await this.authorizedRequestOnce<T>(path, method, payload);
+      return await this.authorizedRequestOnce<T>(path, method, payload, timeoutMs);
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         await this.refreshMeta();
-        return this.authorizedRequestOnce<T>(path, method, payload);
+        return this.authorizedRequestOnce<T>(path, method, payload, timeoutMs);
       }
       if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
-        throw new ApiError("本地服务暂时不可用，已经保存的合并选择不会丢失", 0, "api_unavailable");
+        throw new ApiError(unavailableMessage, 0, "api_unavailable");
       }
       throw error;
     }
@@ -133,6 +137,16 @@ export class StoryApi {
     return this.authorizedRequest<MutationDelta>(
       `/merge-conflicts/${encodeURIComponent(sessionId)}/finalize`,
       "POST",
+    );
+  }
+
+  rebuildRag(): Promise<RagRebuildResult> {
+    return this.authorizedRequest<RagRebuildResult>(
+      "/rag/rebuild",
+      "POST",
+      undefined,
+      120_000,
+      "RAG 更新服务暂时不可用",
     );
   }
 

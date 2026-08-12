@@ -282,6 +282,23 @@ class RagTests(unittest.TestCase):
             self.assertEqual(404, client.get("/api/v1/projects/demo/rag/status").status_code)
             self.assertEqual(404, client.post("/mcp").status_code)
 
+    def test_main_service_rebuilds_current_projects_rag_without_a_second_http_service(self):
+        with TestClient(create_app(self.settings)) as client:
+            meta = client.get("/api/v1/meta?project=demo").json()
+            self.assertTrue(meta["routes"]["ragRebuild"])
+            self.assertIn("rag-rebuild-v1", meta["features"])
+            forbidden = client.post("/api/v1/projects/demo/rag/rebuild")
+            self.assertEqual(403, forbidden.status_code)
+            rebuilt = client.post(
+                "/api/v1/projects/demo/rag/rebuild",
+                headers={"X-Story-Teller-Token": meta["mutationToken"]},
+            )
+            self.assertEqual(200, rebuilt.status_code, rebuilt.text)
+            self.assertGreater(rebuilt.json()["documents"], 0)
+            self.assertTrue(rebuilt.json()["status"]["fresh"])
+            self.assertEqual("demo", rebuilt.json()["status"]["project"])
+            self.assertTrue(rag_path(self.project_root).is_file())
+
     def test_openai_compatible_embedding_model_can_be_selected(self):
         class EmbeddingHandler(BaseHTTPRequestHandler):
             def do_POST(self):
