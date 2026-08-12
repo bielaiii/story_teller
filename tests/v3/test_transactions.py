@@ -267,6 +267,46 @@ class V3TransactionTests(unittest.TestCase):
             self.assertFalse(connection.execute("SELECT 1 FROM entities WHERE id='relationship:7__4'").fetchone())
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
 
+    def test_hard_purge_detaches_active_plot_and_timeline_references(self):
+        deleted = self.service.delete("plot:3", self.revision(), now=4_100_000)
+        with self.database.write() as connection:
+            connection.execute(
+                """
+                UPDATE plots
+                SET story_order_mode='fixed', story_anchor_plot_id='plot:3', story_anchor_side='before'
+                WHERE entity_id='plot:1'
+                """
+            )
+            line_id = str(connection.execute(
+                "SELECT entity_id FROM timeline_lines ORDER BY sort_key LIMIT 1"
+            ).fetchone()[0])
+            connection.execute(
+                "UPDATE timeline_lines SET start_plot_id='plot:3', end_plot_id=NULL WHERE entity_id=?",
+                (line_id,),
+            )
+
+        result = MaintenanceService(self.database, "demo").purge_expired(
+            now=4_100_000 + 8 * 24 * 60 * 60
+        )
+
+        self.assertGreaterEqual(result["purgedEntities"], 1)
+        with self.database.read() as connection:
+            self.assertFalse(connection.execute(
+                "SELECT 1 FROM entities WHERE id='plot:3'"
+            ).fetchone())
+            active = connection.execute(
+                """
+                SELECT story_order_mode, story_anchor_plot_id, story_anchor_side
+                FROM plots WHERE entity_id='plot:1'
+                """
+            ).fetchone()
+            self.assertEqual(("follow_reading", None, None), tuple(active))
+            line = connection.execute(
+                "SELECT start_plot_id FROM timeline_lines WHERE entity_id=?", (line_id,)
+            ).fetchone()
+            self.assertIsNone(line[0])
+            self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
     def test_plot_save_archives_unknown_named_speaker_as_one_time_character(self):
         body = "\n".join((
             "**方启年：**",
