@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter
+from copy import deepcopy
 from typing import Annotated, Any
 
 from mcp.server import MCPServer
@@ -20,15 +22,68 @@ WORKSPACE_SELECTOR = Annotated[
 ]
 
 
+class WorkspaceOptionMCPServer(MCPServer):
+    """Expose live workspace choices in every routed tool's JSON Schema."""
+
+    def __init__(self, registry: HubRegistry, **kwargs: Any):
+        self._workspace_registry = registry
+        super().__init__(**kwargs)
+
+    async def list_tools(self):
+        tools = await super().list_tools()
+        records = self._workspace_registry.records()
+        if not records:
+            return tools
+
+        name_counts = Counter(record.display_name for record in records)
+        options = [
+            {
+                "value": (
+                    record.display_name
+                    if name_counts[record.display_name] == 1
+                    else record.workspace_id
+                ),
+                "label": record.display_name,
+                "project": record.project,
+            }
+            for record in records
+        ]
+        values = [option["value"] for option in options]
+        description = (
+            "从当前 Hub 提供的工作区选项中选择；无法根据任务判断时先调用 "
+            "list_world_workspaces。只有一个工作区时可省略。"
+        )
+        rendered = []
+        for tool in tools:
+            schema = deepcopy(tool.input_schema)
+            workspace = schema.get("properties", {}).get("workspace")
+            if not isinstance(workspace, dict):
+                rendered.append(tool)
+                continue
+            workspace.pop("default", None)
+            workspace["title"] = "工作区"
+            workspace["description"] = description
+            workspace["enum"] = values
+            workspace["x-workspace-options"] = options
+            if len(records) > 1:
+                required = list(schema.get("required", []))
+                if "workspace" not in required:
+                    required.append("workspace")
+                schema["required"] = required
+            rendered.append(tool.model_copy(update={"input_schema": schema}))
+        return rendered
+
+
 def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServer:
-    server = MCPServer(
+    server = WorkspaceOptionMCPServer(
+        registry=registry,
         name="story-world-hub",
         title="Story World Hub",
         description="通过一个本机端口只读访问多个 Git 小说仓库的世界资料。",
         instructions=(
-            "先调用 list_world_workspaces。只有一个工作区时 workspace 可省略；多个工作区同时注册时，"
-            "后续每次调用的 workspace 优先传简短的 displayName（例如 fuchounvshen）；只有名称重名时"
-            "才传 workspaceId。禁止根据相似名称猜测。精确事实优先使用结构化工具，"
+            "需要 workspace 的工具会直接提供当前可用选项。根据用户正在讨论的小说选择；无法判断时"
+            "调用 list_world_workspaces 或询问用户。只有一个工作区时 workspace 可省略。禁止根据相似"
+            "名称猜测。精确事实优先使用结构化工具，"
             "模糊探索再使用 search_world 或 build_world_context。碎片默认属于确定内容。"
         ),
     )
