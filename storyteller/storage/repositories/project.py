@@ -12,6 +12,10 @@ from storyteller.domain.uow import UnitOfWork
 from storyteller.storage.connection import Database
 
 
+LEGACY_PERSONA_PREFIX = re.compile(r"^人物定位\s*\d+\s*[：:]\s*")
+PERSONA_KV_TEXT = re.compile(r"^(?P<key>[^：:\n]{1,40})\s*[：:]\s*(?P<value>.+)$")
+
+
 def json_value(raw: str | None, fallback: Any) -> Any:
     try:
         value = json.loads(raw or "")
@@ -31,18 +35,22 @@ def preview(text: str, length: int = 420) -> str:
     return f"{clipped}\n\n…"
 
 
-def persona_from_lines(values: str | Iterable[str], fallback_key: str) -> list[dict[str, str]]:
+def persona_from_lines(values: str | Iterable[str], fallback_key: str = "") -> list[dict[str, str]]:
     lines = str(values or "").splitlines() if isinstance(values, str) else list(values)
     result: list[dict[str, str]] = []
-    for index, raw in enumerate(lines):
+    for raw in lines:
         line = str(raw or "").strip().lstrip("-• ").strip()
         if not line:
             continue
         separator = "：" if "：" in line else ":" if ":" in line else ""
         if separator:
             key, value = (part.strip() for part in line.split(separator, 1))
+            if re.fullmatch(r"人物定位\s*\d+", key):
+                key = ""
+            elif re.fullmatch(r"要点\s*\d+", key):
+                key = ""
         else:
-            key = fallback_key if not result else f"{fallback_key} {index + 1}"
+            key = ""
             value = line
         if key and value:
             result.append({"key": key, "value": value})
@@ -59,8 +67,15 @@ def stored_persona(extra: dict[str, Any], section: str, fallback: list[dict[str,
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip()
-        value = str(item.get("value") or "").strip()
-        if key and value:
+        if re.fullmatch(r"要点\s*\d+", key):
+            key = ""
+        value = LEGACY_PERSONA_PREFIX.sub("", str(item.get("value") or "").strip(), count=1)
+        if not key:
+            legacy_pair = PERSONA_KV_TEXT.fullmatch(value)
+            if legacy_pair:
+                key = legacy_pair.group("key").strip()
+                value = legacy_pair.group("value").strip()
+        if value:
             result.append({"key": key, "value": value})
     return result
 

@@ -17,11 +17,7 @@ interface EditablePair {
   rowId: string;
   key: string;
   value: string;
-}
-
-interface EditableBullet {
-  rowId: string;
-  value: string;
+  kind: "kv" | "value";
 }
 
 interface CharacterDraft {
@@ -29,8 +25,8 @@ interface CharacterDraft {
   aliases: string[];
   markers: string[];
   facts: EditablePair[];
-  corePersona: EditableBullet[];
-  supplementPersona: EditableBullet[];
+  corePersona: EditablePair[];
+  supplementPersona: EditablePair[];
   destinyOutline: string;
   references: string[];
   narrativeRole: "主角" | "反派" | "中立" | "配角";
@@ -43,9 +39,9 @@ interface CharacterDraft {
 
 let pairSequence = 0;
 
-function editablePair(key = "", value = ""): EditablePair {
+function editablePair(key = "", value = "", kind: "kv" | "value" = "kv"): EditablePair {
   pairSequence += 1;
-  return { rowId: `persona-${pairSequence}`, key, value };
+  return { rowId: `persona-${pairSequence}`, key, value, kind };
 }
 
 function editablePairs(items: Array<{ key: string; value: string }> = []): EditablePair[] {
@@ -53,21 +49,46 @@ function editablePairs(items: Array<{ key: string; value: string }> = []): Edita
 }
 
 function personaText(item: { key: string; value: string }): string {
-  return /^要点 \d+$/.test(item.key) ? item.value : [item.key, item.value].filter(Boolean).join("：");
+  return item.key ? `${item.key}：${item.value}` : item.value;
 }
 
-function editableBullets(items: Array<{ key: string; value: string }> = []): EditableBullet[] {
-  return items.map((item) => ({ rowId: editablePair().rowId, value: personaText(item) }));
+function editablePersona(items: Array<{ key: string; value: string }> = []): EditablePair[] {
+  return items.map((item) => {
+    const legacyValue = /^要点\s*\d+$/.test(item.key) || /^人物定位\s*\d+$/.test(item.key);
+    return editablePair(legacyValue ? "" : item.key, item.value, legacyValue || !item.key ? "value" : "kv");
+  });
 }
 
-function newBullet(): EditableBullet {
-  return { rowId: editablePair().rowId, value: "" };
+function normalizePersonaValue(value: string): string {
+  return value.replace(/^(?:人物定位|要点)\s*\d+\s*[：:]\s*/, "").trim();
+}
+
+function normalizePersonaDraft(items: Array<Partial<EditablePair>> = []): EditablePair[] {
+  return items.map((item) => {
+    const rawKey = typeof item.key === "string" ? item.key.trim() : "";
+    const legacyKey = /^(?:要点|人物定位)\s*\d+$/.test(rawKey);
+    let key = legacyKey ? "" : rawKey;
+    let value = typeof item.value === "string" ? normalizePersonaValue(item.value) : "";
+    if (!key) {
+      const legacyPair = value.match(/^([^：:\n]{1,40})\s*[：:]\s*(.+)$/);
+      if (legacyPair) {
+        key = legacyPair[1].trim();
+        value = legacyPair[2].trim();
+      }
+    }
+    const row = editablePair(key, value, item.kind === "kv" || (!item.kind && Boolean(key)) ? "kv" : "value");
+    return typeof item.rowId === "string" && item.rowId ? { ...row, rowId: item.rowId } : row;
+  });
+}
+
+function newPersonaItem(mode: "kv" | "value"): EditablePair {
+  return editablePair("", "", mode);
 }
 
 function blankDraft(): CharacterDraft {
   return {
     name: "", aliases: [], markers: [], facts: [],
-    corePersona: [newBullet()], supplementPersona: [], destinyOutline: "", references: [],
+    corePersona: [], supplementPersona: [], destinyOutline: "", references: [],
     narrativeRole: "配角", characterScope: "常驻人物",
     mainPlotImpact: 50, color: randomContentColor(), group: "", graphVisible: false,
   };
@@ -77,8 +98,8 @@ function fromCharacter(item: Character): CharacterDraft {
   return {
     name: item.name, aliases: [...item.aliases], markers: [...item.markers],
     facts: editablePairs(Object.entries(item.facts).map(([key, value]) => ({ key, value }))),
-    corePersona: editableBullets(item.corePersona || []),
-    supplementPersona: editableBullets(item.supplementPersona || []), destinyOutline: item.destinyOutline || "", narrativeRole: displayRole(item),
+    corePersona: editablePersona(item.corePersona || []),
+    supplementPersona: editablePersona(item.supplementPersona || []), destinyOutline: item.destinyOutline || "", narrativeRole: displayRole(item),
     characterScope: item.characterScope, mainPlotImpact: item.mainPlotImpact,
     color: item.color, group: item.group, graphVisible: item.graphVisible !== false,
     references: [...(item.references || [])],
@@ -116,6 +137,10 @@ export function relationshipImpressionFor(
   return "";
 }
 
+export function personaItemKey(characterId: string, section: "core" | "supplement", index: number): string {
+  return `${characterId}:${section}:${index}`;
+}
+
 function cleanPairs(items: EditablePair[]): Array<{ key: string; value: string }> {
   return items
     .map((item) => ({ key: item.key.trim(), value: item.value.trim() }))
@@ -130,11 +155,10 @@ function pairError(items: EditablePair[], label: string): string {
   return duplicate ? `${label}中存在重复名称“${duplicate}”` : "";
 }
 
-function cleanBullets(items: EditableBullet[]): Array<{ key: string; value: string }> {
+function cleanPersona(items: EditablePair[]): Array<{ key: string; value: string }> {
   return items
-    .map((item) => item.value.trim())
-    .filter(Boolean)
-    .map((value, index) => ({ key: `要点 ${index + 1}`, value }));
+    .map((item) => ({ key: item.key.trim(), value: item.value.trim() }))
+    .filter((item) => item.value);
 }
 
 function AutoSizeTextarea({ value, onChange, ...props }: {
@@ -151,23 +175,27 @@ function AutoSizeTextarea({ value, onChange, ...props }: {
   return <textarea ref={ref} rows={1} value={value} onChange={(event) => onChange(event.target.value)} {...props} />;
 }
 
-function BulletPersonaSection({
+function PersonaSection({
   title, description, items, onChange, tone,
 }: {
   title: string;
   description: string;
-  items: EditableBullet[];
-  onChange: (items: EditableBullet[]) => void;
+  items: EditablePair[];
+  onChange: (items: EditablePair[]) => void;
   tone: "core" | "supplement";
 }) {
-  const update = (rowId: string, value: string) => onChange(items.map((item) => item.rowId === rowId ? { ...item, value } : item));
+  const update = (rowId: string, key: "key" | "value", value: string) => onChange(items.map((item) => item.rowId === rowId ? { ...item, [key]: value } : item));
+  const add = (mode: "kv" | "value") => onChange([...items, newPersonaItem(mode)]);
   return <section className={`persona-editor-section persona-bullet-section is-${tone}`} aria-label={title}>
-    <header><div className="persona-section-title"><div><h3>{title}</h3><span>{items.length} 项</span></div><p>{description}</p></div><button className="persona-add-action" type="button" onClick={() => onChange([...items, newBullet()])}><Icon name="plus" /><span>添加一项</span></button></header>
-    {items.length ? <div className="persona-bullet-editor">{items.map((item, index) => <article key={item.rowId}>
+    <header><div className="persona-section-title"><div><h3>{title}</h3><span>{items.length} 项</span></div><p>{description}</p></div><div className="persona-add-actions"><button className="persona-add-action" type="button" onClick={() => add("kv")}><Icon name="plus" /><span>键值对</span></button><button className="persona-add-action" type="button" onClick={() => add("value")}><Icon name="plus" /><span>纯文本</span></button></div></header>
+    {items.length ? <div className="persona-bullet-editor">{items.map((item) => <article className={item.kind === "kv" ? "persona-persona-row is-kv" : "persona-persona-row is-value"} key={item.rowId}>
       <span className="persona-bullet-mark" aria-hidden="true" />
-      <AutoSizeTextarea aria-label={`${title}第 ${index + 1} 项`} value={item.value} placeholder="输入完整的人设描述…" onChange={(value) => update(item.rowId, value)} />
-      <button className="icon-button is-danger" type="button" aria-label={`移除${title}第 ${index + 1} 项`} title="移除这一项" onClick={() => onChange(items.filter((candidate) => candidate.rowId !== item.rowId))}><Icon name="trash" /></button>
-    </article>)}</div> : <button className="persona-empty-add" type="button" onClick={() => onChange([newBullet()])}><Icon name="plus" /><span>添加第一项{title}</span></button>}
+      {item.kind === "kv" ? <>
+        <input aria-label={`${title}名称`} value={item.key} placeholder="例如：核心欲望" onChange={(event) => update(item.rowId, "key", event.target.value)} />
+        <AutoSizeTextarea aria-label={`${title}内容`} value={item.value} placeholder="输入内容…" onChange={(value) => update(item.rowId, "value", value)} />
+      </> : <AutoSizeTextarea aria-label={`${title}纯文本内容`} value={item.value} placeholder="输入完整的人设描述…" onChange={(value) => update(item.rowId, "value", value)} />}
+      <button className="icon-button is-danger" type="button" aria-label={`移除${title}`} title="移除这一项" onClick={() => onChange(items.filter((candidate) => candidate.rowId !== item.rowId))}><Icon name="trash" /></button>
+    </article>)}</div> : <div className="persona-empty-actions"><button className="persona-empty-add" type="button" onClick={() => add("kv")}><Icon name="plus" /><span>添加键值对</span></button><button className="persona-empty-add" type="button" onClick={() => add("value")}><Icon name="plus" /><span>添加纯文本</span></button></div>}
   </section>;
 }
 
@@ -185,11 +213,10 @@ function KeyValueSection({
   )));
   return <section className={`persona-editor-section is-${tone}`} aria-label={title}>
     <header><div className="persona-section-title"><div><h3>{title}</h3><span>{items.length} 项</span></div><p>{description}</p></div><button className="persona-add-action" type="button" onClick={() => onChange([...items, editablePair()])}><Icon name="plus" /><span>添加一项</span></button></header>
-    {items.length ? <div className="persona-kv-list"><div className="persona-kv-head" aria-hidden="true"><span /><span>名称</span><span>描述</span><span /></div>{items.map((item, index) => <article className="persona-kv-row" key={item.rowId}>
-      <span className="persona-row-index" aria-hidden="true">{index + 1}</span>
-      <label><input aria-label={`${title} ${index + 1} 名称`} value={item.key} placeholder={tone === "core" ? "例如：核心欲望" : tone === "supplement" ? "例如：生活习惯" : "例如：职业"} onChange={(event) => update(item.rowId, "key", event.target.value)} /></label>
-      <label><textarea aria-label={`${title} ${index + 1} 内容`} rows={1} value={item.value} placeholder={tone === "core" ? "决定人物选择和冲突的设定" : tone === "supplement" ? "丰富人物但不改变核心逻辑的细节" : "客观、稳定、便于快速查阅的信息"} onChange={(event) => update(item.rowId, "value", event.target.value)} /></label>
-      <button className="icon-button is-danger" type="button" aria-label={`移除${title}第 ${index + 1} 项`} title="移除这一项" onClick={() => onChange(items.filter((candidate) => candidate.rowId !== item.rowId))}><Icon name="trash" /></button>
+    {items.length ? <div className="persona-kv-list"><div className="persona-kv-head" aria-hidden="true"><span>名称</span><span>描述</span><span /></div>{items.map((item) => <article className="persona-kv-row" key={item.rowId}>
+      <label><input aria-label={`${title}名称`} value={item.key} placeholder={tone === "core" ? "例如：核心欲望" : tone === "supplement" ? "例如：生活习惯" : "例如：职业"} onChange={(event) => update(item.rowId, "key", event.target.value)} /></label>
+      <label><textarea aria-label={`${title}内容`} rows={1} value={item.value} placeholder={tone === "core" ? "决定人物选择和冲突的设定" : tone === "supplement" ? "丰富人物但不改变核心逻辑的细节" : "客观、稳定、便于快速查阅的信息"} onChange={(event) => update(item.rowId, "value", event.target.value)} /></label>
+      <button className="icon-button is-danger" type="button" aria-label={`移除${title}`} title="移除这一项" onClick={() => onChange(items.filter((candidate) => candidate.rowId !== item.rowId))}><Icon name="trash" /></button>
     </article>)}</div> : <button className="persona-empty-add" type="button" onClick={() => onChange([editablePair()])}><Icon name="plus" /><span>添加第一项{title}</span></button>}
   </section>;
 }
@@ -238,7 +265,12 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
   useEffect(() => {
     const next = currentId === "new" ? blankDraft() : detail.data?.data ? fromCharacter(detail.data.data) : null;
     if (next) {
-      setDraft(restoreBrowserDraft(browserDraftKey(project, "character", currentId), next));
+      const restored = restoreBrowserDraft(browserDraftKey(project, "character", currentId), next);
+      setDraft({
+        ...restored,
+        corePersona: normalizePersonaDraft(restored.corePersona),
+        supplementPersona: normalizePersonaDraft(restored.supplementPersona),
+      });
       setBaseline(JSON.stringify(next));
     }
   }, [currentId, detail.data, project]);
@@ -269,8 +301,8 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
     ].find(Boolean);
     if (validation) { setMessage(validation); return; }
     try {
-      const corePersona = cleanBullets(draft.corePersona);
-      const supplementPersona = cleanBullets(draft.supplementPersona);
+      const corePersona = cleanPersona(draft.corePersona);
+      const supplementPersona = cleanPersona(draft.supplementPersona);
       const classification = storedClassification(draft.narrativeRole);
       const result = await mutation.mutateAsync({
         path: currentId === "new" ? "/characters" : `/characters/${encodeURIComponent(currentId)}`,
@@ -350,8 +382,8 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
             <header><div><h3>人物大纲</h3><p>讲述人物的命运走向、关键转折和最终归宿；留空时不会在人物详情中显示。</p></div></header>
             <AutoSizeTextarea aria-label="人物大纲" value={draft.destinyOutline} placeholder="例如：她从被家族安排的人生中逐渐醒来，最终选择离开既定轨道……" onChange={(value) => change("destinyOutline", value)} />
           </section>
-          <BulletPersonaSection title="核心人设" description="决定人物长期选择、关系和冲突。" items={draft.corePersona} onChange={(items) => change("corePersona", items)} tone="core" />
-          <BulletPersonaSection title="补充人设" description="习惯、偏好、经历等扩展细节。" items={draft.supplementPersona} onChange={(items) => change("supplementPersona", items)} tone="supplement" />
+          <PersonaSection title="核心人设" description="决定人物长期选择、关系和冲突。" items={draft.corePersona} onChange={(items) => change("corePersona", items)} tone="core" />
+          <PersonaSection title="补充人设" description="习惯、偏好、经历等扩展细节。" items={draft.supplementPersona} onChange={(items) => change("supplementPersona", items)} tone="supplement" />
           <KeyValueSection title="人物档案" description="年龄、职业、身份、住址等客观信息。" items={draft.facts} onChange={(items) => change("facts", items)} tone="facts" />
         </main>
       </div>
@@ -411,8 +443,8 @@ export default function CharactersPage() {
         <header><span className="large-avatar" style={{ background: avatarBackground(current) }}>{current.name.slice(0, 1)}</span><div><small>{current.group || "未分组"}{duplicateNames.has(current.name) ? ` · ID ${current.id}` : ""}</small><h2>{current.name}</h2><p>{displayRole(current)} · {current.characterScope}</p></div>{writable && <button className="icon-button" aria-label="编辑人物档案" title="编辑档案" onClick={() => setEditor(current.entityId)}><Icon name="edit" /></button>}</header>
         <div className="profile-kv-grid"><div><span>主线影响</span><strong>{current.mainPlotImpact}</strong></div>{Object.entries(current.facts).map(([key, value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div>
         {Boolean(current.destinyOutline?.trim()) && <section className="character-outline-detail"><h3>人物大纲</h3><p>{current.destinyOutline}</p></section>}
-        <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
-        {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item) => <div key={item.key}><dd>{personaText(item)}</dd></div>)}</dl></section>}
+        <section><h3>核心人设</h3>{current.corePersona?.length ? <dl className="persona-read-list is-core">{current.corePersona.map((item, index) => <div key={personaItemKey(current.entityId, "core", index)}><dd>{personaText(item)}</dd></div>)}</dl> : <p className="empty-copy">还没有核心人设</p>}</section>
+        {Boolean(current.supplementPersona?.length) && <section><h3>补充人设</h3><dl className="persona-read-list">{current.supplementPersona?.map((item, index) => <div key={personaItemKey(current.entityId, "supplement", index)}><dd>{personaText(item)}</dd></div>)}</dl></section>}
         <section><h3>所属组织</h3>{organizations.length ? <div className="character-organizations">{organizations.map((organization) => { const membership = (organization.members || []).find((member) => member.characterId === current.entityId); return <button key={organization.entityId} onClick={() => { useUiStore.getState().selectEntry(organization.entityId); useUiStore.getState().navigate("entries"); }}><span style={{ background: organization.accent }} /><strong>{organization.name}</strong><small>{membership?.role || membership?.status || organization.subtype}</small></button>; })}</div> : <p className="empty-copy">还没有加入组织；家庭、帮派和公司可在设定页统一维护</p>}</section>
         <section><h3>相关剧情</h3><CollapsibleList items={relatedStories} itemKey={(story) => `${story.kind}:${story.item.entityId}`} resetKey={current.entityId} label={`${current.name}的相关剧情`} className="related-cards character-related-plots" emptyText="还没有相关剧情或碎片" renderItem={(story) => story.kind === "plot" ? <button onClick={() => { openPlotFromCharacter(story.item.entityId, current.entityId); useUiStore.getState().navigate("story"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.summary || story.item.bodyPreview || "还没有剧情摘要")} className="character-related-plot-preview content-card-preview" /></span><small>剧情 · 第 {story.item.sequence} 章</small></button> : <button onClick={() => { selectFragment(story.item.entityId); useUiStore.getState().navigate("fragments"); }}><span><strong>{story.item.title}</strong><CompleteBlockPreview source={compactStoryPreview(story.item.bodyPreview || "还没有碎片正文")} className="character-related-plot-preview content-card-preview" /></span><small>{story.item.parentFragmentId ? `剧情线碎片${story.item.chapterNumber ? ` · 第 ${story.item.chapterNumber} 章` : ""}` : "灵感碎片"}</small></button>} /></section>
         <section>

@@ -5,6 +5,7 @@ import {
   graphVisibilityAfterRole,
   graphVisibilityAfterScope,
   orderCharactersForList,
+  personaItemKey,
   relationshipImpressionFor,
   storedClassification,
 } from "./CharactersPage";
@@ -47,6 +48,14 @@ describe("directional relationship impressions", () => {
     expect(relationshipImpressionFor(relationship, "character:vito")).toContain("商业天赋");
     expect(relationshipImpressionFor(relationship, "character:selena")).toContain("不认同");
     expect(relationshipImpressionFor(relationship, "character:other")).toBe("");
+  });
+});
+
+describe("persona list identity", () => {
+  it("keeps value-only rows unique and remounts them when the selected character changes", () => {
+    expect(personaItemKey("character:widow", "core", 0)).not.toBe(personaItemKey("character:widow", "core", 1));
+    expect(personaItemKey("character:widow", "core", 0)).not.toBe(personaItemKey("character:vito", "core", 0));
+    expect(personaItemKey("character:widow", "core", 0)).not.toBe(personaItemKey("character:widow", "supplement", 0));
   });
 });
 

@@ -19,6 +19,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from storyteller.app import create_app
 from storyteller.domain.content import ContentService
 from storyteller.domain.services import EntityService
+from storyteller.rag.background import RagSyncScheduler
 from storyteller.rag.app import create_rag_app
 from storyteller.rag.index import rag_path
 from storyteller.rag.manager import RagManager
@@ -61,6 +62,27 @@ class RagTests(unittest.TestCase):
         entity = self.manager.entity("demo", "character:1")
         self.assertIn("林秋", entity["content"])
         self.assertIn("citation", entity)
+
+    def test_background_scheduler_coalesces_rapid_revisions(self):
+        class Manager:
+            def __init__(self):
+                self.calls = 0
+
+            def ensure_fresh(self, _project):
+                self.calls += 1
+
+        manager = Manager()
+        scheduler = RagSyncScheduler(manager, delay_seconds=0.05)
+        scheduler.start()
+        try:
+            scheduler.schedule("demo", 1)
+            scheduler.schedule("demo", 2)
+            scheduler.schedule("demo", 3)
+            self.assertTrue(scheduler.wait_for_idle("demo", timeout=2))
+            self.assertEqual(1, manager.calls)
+            self.assertEqual(3, scheduler.status("demo")["requestedRevision"])
+        finally:
+            scheduler.close()
 
     def test_source_revision_change_is_synchronized_before_the_next_read(self):
         original = self.manager.ensure_fresh("demo")
@@ -298,6 +320,37 @@ class RagTests(unittest.TestCase):
             self.assertTrue(rebuilt.json()["status"]["fresh"])
             self.assertEqual("demo", rebuilt.json()["status"]["project"])
             self.assertTrue(rag_path(self.project_root).is_file())
+
+    def test_successful_save_updates_rag_in_background_before_any_ai_query(self):
+        app = create_app(self.settings)
+        with TestClient(app) as client:
+            self.assertTrue(app.state.rag_sync.wait_for_idle("demo", timeout=10))
+            before = app.state.rag_manager.status("demo")
+            snapshot = client.get("/api/v1/projects/demo/snapshot").json()
+            character = next(
+                item for item in snapshot["characters"] if item["entityId"] == "character:1"
+            )
+            saved = client.patch(
+                "/api/v1/projects/demo/characters/character:1",
+                headers={"X-Story-Teller-Token": app.state.mutation_token},
+                json={
+                    "baseRevision": snapshot["project"]["revision"],
+                    "entityRevision": character["revision"],
+                    "intro": "保存响应之后由后台同步进入 RAG，不等待 AI 第一次查询。",
+                },
+            )
+            self.assertEqual(200, saved.status_code, saved.text)
+            self.assertEqual("scheduled", saved.json()["rag"]["status"])
+            self.assertTrue(app.state.rag_sync.wait_for_idle("demo", timeout=10))
+            after = app.state.rag_manager.status("demo")
+            self.assertTrue(after["fresh"])
+            self.assertGreater(after["sourceRevision"], before["sourceRevision"])
+            self.assertEqual("incremental", after["lastSyncMode"])
+            with sqlite3.connect(rag_path(self.project_root)) as connection:
+                content = connection.execute(
+                    "SELECT content FROM documents WHERE entity_id='character:1'"
+                ).fetchone()[0]
+            self.assertIn("不等待 AI 第一次查询", content)
 
     def test_openai_compatible_embedding_model_can_be_selected(self):
         class EmbeddingHandler(BaseHTTPRequestHandler):

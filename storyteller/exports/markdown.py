@@ -267,9 +267,9 @@ class MarkdownExporter:
             "aiGateway": {
                 "stdioCommand": ["story-world-mcp"],
                 "hubMcp": "http://127.0.0.1:4181/mcp/",
-                "workspaceSelection": "Hub 工具会在 workspace 参数中动态提供当前仓库选项；无法根据任务判断时调用 list_world_workspaces 或询问用户",
+                "workspaceSelection": "Hub 工具会动态提供 workspace 与 project 选项；project 省略时优先匹配同名 workspace，否则单项目自动选中",
                 "recommendedFlow": [
-                    "list_world_workspaces", "describe_world", "world_catalog", "resolve_world_entity",
+                    "list_world_workspaces", "list_world_projects", "describe_world", "world_catalog", "resolve_world_entity",
                     "query_world", "get_world_entity", "get_related_world",
                     "search_world", "build_world_context",
                 ],

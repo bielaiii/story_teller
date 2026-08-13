@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import secrets
 from pathlib import Path
 
@@ -48,6 +49,7 @@ from storyteller.domain.services import EntityService
 from storyteller.domain.structure import StructureService
 from storyteller.domain.uow import UnitOfWork
 from storyteller.exports import ExportCoordinator
+from storyteller.rag.background import RagSyncScheduler
 from storyteller.rag.manager import RagManager
 from storyteller.settings import Settings
 from storyteller.storage.connection import Database
@@ -71,13 +73,26 @@ FEATURES = [
     "automatic-content-colors-v1",
     "git-database-merge-v1",
     "rag-rebuild-v1",
+    "rag-background-sync-v1",
 ]
 
 def create_app(settings: Settings) -> FastAPI:
-    app = FastAPI(title="Story Teller", version="1.0.0")
+    rag_manager = RagManager(settings)
+    rag_sync = RagSyncScheduler(rag_manager)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        rag_sync.start(rag_manager.projects())
+        try:
+            yield
+        finally:
+            rag_sync.close()
+
+    app = FastAPI(title="Story Teller", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.mutation_token = secrets.token_urlsafe(32)
-    rag_manager = RagManager(settings)
+    app.state.rag_manager = rag_manager
+    app.state.rag_sync = rag_sync
 
     def database_for(project: str) -> Database:
         try:
@@ -111,6 +126,7 @@ def create_app(settings: Settings) -> FastAPI:
             }
             response["warnings"] = []
             return response
+        scheduled = rag_sync.schedule(project, result.project_revision)
         try:
             export = ExportCoordinator(database, project).export()
             response["export"] = export
@@ -118,6 +134,10 @@ def create_app(settings: Settings) -> FastAPI:
         except (OSError, ValueError, RuntimeError) as error:
             response["export"] = {"status": "failed"}
             response["warnings"] = [f"数据已经保存，但文本导出待修复：{error}"]
+        response["rag"] = {
+            "status": "scheduled" if scheduled else "request-fallback",
+            "revision": result.project_revision,
+        }
         return response
 
     @app.exception_handler(NotFoundError)

@@ -14,8 +14,8 @@ entityKinds:
       side: {label: 阵营, type: enum, source: characters.side, aiVisible: true, searchable: true, exportable: true}
       markers: {label: 标记, type: text-list, source: character_markers.marker, aiVisible: true, searchable: true, exportable: true}
       facts: {label: 人物资料, type: key-value, source: character_facts.fact_value, aiVisible: true, searchable: true, exportable: true}
-      corePersona: {label: 核心人设, type: key-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
-      supplementPersona: {label: 补充人设, type: key-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
+      corePersona: {label: 核心人设, type: key-value-or-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
+      supplementPersona: {label: 补充人设, type: key-value-or-value-list, derived: true, aiVisible: true, searchable: true, exportable: true}
       destinyOutline: {label: 命运大纲, type: markdown, source: entities.extra_json, aiVisible: true, searchable: true, exportable: true}
       intro: {label: 人物介绍, type: markdown, source: characters.intro_markdown, aiVisible: true, searchable: true, exportable: true}
       mainPlotImpact: {label: 主线影响, type: integer, source: characters.main_plot_impact, aiVisible: true, searchable: false, exportable: true}

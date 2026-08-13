@@ -151,6 +151,26 @@ class V3ApiTests(unittest.TestCase):
         self.assertIn("corePersona:", exported)
         self.assertIn("supplementPersona:", exported)
 
+    def test_character_persona_accepts_value_only_without_generated_number(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        saved = self.client.patch(
+            "/api/v1/projects/demo/characters/character:1",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "corePersona": [
+                    {"value": "她习惯在做决定前先整理桌面"},
+                    {"key": "要点 2", "value": "人物定位 2：旧格式也应被视为纯文本"},
+                ],
+            },
+        )
+        self.assertEqual(200, saved.status_code, saved.text)
+        detail = self.client.get("/api/v1/projects/demo/entities/character:1").json()["data"]
+        self.assertEqual("", detail["corePersona"][0]["key"])
+        self.assertEqual("", detail["corePersona"][1]["key"])
+        self.assertEqual("她习惯在做决定前先整理桌面\n旧格式也应被视为纯文本", detail["intro"])
+        self.assertEqual("旧格式也应被视为纯文本", detail["corePersona"][1]["value"])
+
     def test_unchanged_names_can_save_when_trash_has_a_duplicate(self):
         from storyteller.storage.connection import Database
 

@@ -29,7 +29,7 @@ describe("Markdown exports", () => {
       name: "沈清妙",
       intro: "人物简介正文。",
       destinyOutline: "人物命运。",
-      corePersona: [{ key: "要点 1", value: "冷静" }],
+      corePersona: [{ key: "", value: "冷静" }],
       supplementPersona: [],
       facts: { 身份: "调查者" },
     } as unknown as Character);
