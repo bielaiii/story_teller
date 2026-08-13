@@ -3,7 +3,18 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "./browserDraft";
 
 describe("browser drafts", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("separates same-named projects in different content workspaces", () => {
+    window.history.replaceState({}, "", "/w/workspace-alpha/?project=demo");
+    const alpha = browserDraftKey("demo", "plot", "plot:1");
+    window.history.replaceState({}, "", "/w/workspace-beta/?project=demo");
+    const beta = browserDraftKey("demo", "plot", "plot:1");
+    expect(alpha).not.toBe(beta);
+  });
 
   it("restores a saved editor value", () => {
     const key = browserDraftKey("demo", "character", "new");

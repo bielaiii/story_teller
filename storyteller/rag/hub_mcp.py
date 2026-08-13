@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 
 from mcp.server import MCPServer
 from pydantic import Field
@@ -35,13 +35,23 @@ PROJECT_SELECTOR = Annotated[
 class WorkspaceOptionMCPServer(MCPServer):
     """Expose live workspace choices in every routed tool's JSON Schema."""
 
-    def __init__(self, registry: HubRegistry, **kwargs: Any):
+    def __init__(
+        self,
+        registry: HubRegistry,
+        records_provider: Callable[[], list] | None = None,
+        projects_provider: Callable[[Any], list[str]] | None = None,
+        default_project_provider: Callable[[Any], str] | None = None,
+        **kwargs: Any,
+    ):
         self._workspace_registry = registry
+        self._records_provider = records_provider or registry.records
+        self._projects_provider = projects_provider or registry.projects
+        self._default_project_provider = default_project_provider or registry.default_project
         super().__init__(**kwargs)
 
     async def list_tools(self):
         tools = await super().list_tools()
-        records = self._workspace_registry.records()
+        records = self._records_provider()
         if not records:
             return tools
 
@@ -54,7 +64,7 @@ class WorkspaceOptionMCPServer(MCPServer):
                     else record.workspace_id
                 ),
                 "label": record.display_name,
-                "projects": self._workspace_registry.projects(record),
+                "projects": self._projects_provider(record),
             }
             for record in records
         ]
@@ -66,7 +76,7 @@ class WorkspaceOptionMCPServer(MCPServer):
                 "workspace": workspace_option["value"],
             }
             for record, workspace_option in zip(records, workspace_options)
-            for project in self._workspace_registry.projects(record)
+            for project in self._projects_provider(record)
         ]
         project_values = sorted({option["value"] for option in project_options})
         workspace_description = (
@@ -101,7 +111,7 @@ class WorkspaceOptionMCPServer(MCPServer):
                 project["x-project-options"] = project_options
                 conditions = list(schema.get("allOf", []))
                 for record, workspace_option in zip(records, workspace_options):
-                    projects = self._workspace_registry.projects(record)
+                    projects = self._projects_provider(record)
                     rule: dict[str, Any] = {
                         "if": {
                             "properties": {"workspace": {"const": workspace_option["value"]}},
@@ -109,14 +119,14 @@ class WorkspaceOptionMCPServer(MCPServer):
                         },
                         "then": {"properties": {"project": {"enum": projects}}},
                     }
-                    if not self._workspace_registry.default_project(record) and len(projects) > 1:
+                    if not self._default_project_provider(record) and len(projects) > 1:
                         rule["then"]["required"] = ["project"]
                     conditions.append(rule)
                 schema["allOf"] = conditions
                 if len(records) == 1:
-                    only_projects = self._workspace_registry.projects(records[0])
+                    only_projects = self._projects_provider(records[0])
                     if (
-                        not self._workspace_registry.default_project(records[0])
+                        not self._default_project_provider(records[0])
                         and len(only_projects) > 1
                     ):
                         required = list(schema.get("required", []))
@@ -127,9 +137,23 @@ class WorkspaceOptionMCPServer(MCPServer):
         return rendered
 
 
-def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServer:
+def create_hub_mcp_server(
+    registry: HubRegistry,
+    workers: WorkerPool,
+    records_provider: Callable[[], list] | None = None,
+    projects_provider: Callable[[Any], list[str]] | None = None,
+    default_project_provider: Callable[[Any], str] | None = None,
+    resolve_project_provider: Callable[[Any, str], str] | None = None,
+) -> MCPServer:
+    active_records = records_provider or registry.records
+    projects_for = projects_provider or registry.projects
+    default_for = default_project_provider or registry.default_project
+    resolve_for = resolve_project_provider or registry.resolve_project
     server = WorkspaceOptionMCPServer(
         registry=registry,
+        records_provider=active_records,
+        projects_provider=projects_for,
+        default_project_provider=default_for,
         name="story-world-hub",
         title="Story World Hub",
         description="通过一个本机端口只读访问多个 Git 小说仓库的世界资料。",
@@ -143,7 +167,22 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     )
 
     def select(workspace: str):
-        return registry.resolve(workspace)
+        records = active_records()
+        clean = str(workspace or "").strip()
+        if not clean:
+            if len(records) == 1:
+                return records[0]
+            choices = ", ".join(record.display_name for record in records)
+            raise ValueError(f"请指定 workspace；当前可用：{choices or '无'}")
+        exact = [
+            record for record in records
+            if clean in {record.workspace_id, record.display_name, record.project}
+        ]
+        if len(exact) == 1:
+            return exact[0]
+        if not exact:
+            raise ValueError(f"工作区未运行：{clean}")
+        raise ValueError(f"工作区名称不唯一，请使用 workspaceId：{clean}")
 
     async def forward(
         workspace: str,
@@ -152,7 +191,7 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
         arguments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         record = select(workspace)
-        selected_project = registry.resolve_project(record, project)
+        selected_project = resolve_for(record, project)
         forwarded = dict(arguments or {})
         forwarded["project"] = selected_project
         result = await workers.call(record, tool, forwarded)
@@ -164,10 +203,15 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     @server.tool(title="列出世界工作区", structured_output=True)
     async def list_world_workspaces() -> dict[str, Any]:
         """列出 Hub 当前注册的 Git 小说仓库以及 worker 连接状态。"""
-        records = registry.records()
+        records = active_records()
         return {
             "workspaces": [
-                {**registry.public_dict(record), "connected": workers.connected(record.workspace_id)}
+                {
+                    **registry.public_dict(record),
+                    "projects": projects_for(record),
+                    "defaultProject": default_for(record),
+                    "connected": workers.connected(record.workspace_id),
+                }
                 for record in records
             ],
             "requiresWorkspaceSelection": len(records) != 1,
@@ -177,8 +221,8 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     async def list_world_projects(workspace: WORKSPACE_SELECTOR = "") -> dict[str, Any]:
         """列出所选 Git 仓库 content 下当前可用的 story.db 项目。"""
         record = select(workspace)
-        projects = registry.projects(record)
-        default = registry.default_project(record)
+        projects = projects_for(record)
+        default = default_for(record)
         return {
             "workspaceId": record.workspace_id,
             "workspaceName": record.display_name,

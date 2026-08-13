@@ -2,96 +2,52 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PORT=4180
 HUB_PORT=${STORY_WORLD_HUB_PORT:-4181}
+WEB_PORT=${STORY_TELLER_WEB_PORT:-4180}
 CONTENT_ROOT=${STORY_TELLER_CONTENT_ROOT:-"$ROOT/content"}
 DEFAULT_PROJECT=${STORY_TELLER_DEFAULT_PROJECT:-}
+PROJECT=$DEFAULT_PROJECT
 
-listener_pids() {
-  lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true
-}
-
-process_cwd() {
-  lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
-}
-
-process_name() {
-  lsof -a -p "$1" -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -n 1
-}
-
-stop_listener() {
-  pid=$1
-  cwd=$(process_cwd "$pid")
-  name=$(process_name "$pid")
-  trusted=false
-
-  case "$name" in
-    Python|python|python3) [ "$cwd" = "$ROOT" ] && trusted=true ;;
-  esac
-
-  if [ "$trusted" != true ]; then
-    printf '端口 %s 正被其他程序占用：%s（PID %s）\n' "$PORT" "${name:-未知程序}" "$pid"
-    if [ ! -t 0 ]; then
-      printf '为避免误关其他程序，本次启动已取消。\n'
-      exit 1
+if [ -z "$PROJECT" ] && [ -f "$CONTENT_ROOT/demo/story.db" ]; then
+  PROJECT=demo
+fi
+if [ -z "$PROJECT" ]; then
+  for candidate in "$CONTENT_ROOT"/*; do
+    if [ -d "$candidate" ] && [ -f "$candidate/story.db" ]; then
+      PROJECT=$(basename "$candidate")
+      break
     fi
-    printf '是否关闭这个程序并继续启动？[y/N] '
-    read -r answer
-    case "$answer" in
-      y|Y|yes|YES) ;;
-      *) printf '已取消启动。\n'; exit 1 ;;
-    esac
-  else
-    printf '正在关闭本项目占用 %s 端口的旧服务（PID %s）…\n' "$PORT" "$pid"
-  fi
-
-  kill "$pid"
-  attempts=0
-  while listener_pids | grep -qx "$pid"; do
-    attempts=$((attempts + 1))
-    if [ "$attempts" -ge 30 ]; then
-      printf '旧服务未能正常关闭，请稍后再试。\n'
-      exit 1
-    fi
-    sleep 0.1
   done
-}
+fi
+if [ -z "$PROJECT" ]; then
+  printf 'content 下没有可部署的 Project：%s\n' "$CONTENT_ROOT" >&2
+  exit 1
+fi
+PROJECT_ROOT="$CONTENT_ROOT/$PROJECT"
 
-for pid in $(listener_pids); do
-  stop_listener "$pid"
-done
+if [ ! -f "$PROJECT_ROOT/story.db" ]; then
+  printf '找不到默认内容包数据库：%s\n' "$PROJECT_ROOT/story.db" >&2
+  exit 1
+fi
 
 cd "$ROOT"
 "$ROOT/scripts/build_frontend.sh"
 
-PROJECT=${DEFAULT_PROJECT:-demo}
-PROJECT_ROOT="$CONTENT_ROOT/$PROJECT"
-if [ ! -f "$PROJECT_ROOT/story.db" ]; then
-  printf '找不到内容包数据库：%s\n' "$PROJECT_ROOT/story.db" >&2
-  exit 1
-fi
-printf '正在检查内容包 %s…\n' "$PROJECT"
-"$ROOT/scripts/python.sh" -m storyteller.bootstrap "$PROJECT_ROOT"
+# Project 检查由 Hub 分别执行；单个损坏或版本不兼容的 Project 不应拖垮整个 Content。
 
-REPOSITORY_ROOT=$(git -C "$CONTENT_ROOT/.." rev-parse --show-toplevel 2>/dev/null || true)
+REPOSITORY_ROOT=$(git -C "$CONTENT_ROOT" rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$REPOSITORY_ROOT" ]; then
-  printf 'content 必须位于 Git 仓库根目录下：%s\n' "$CONTENT_ROOT" >&2
+  printf 'content 必须位于 Git 仓库内：%s\n' "$CONTENT_ROOT" >&2
   exit 1
 fi
-printf '正在启动或复用 Story World Hub，并注册当前内容包…\n'
-"$ROOT/scripts/python.sh" -m storyteller.rag.hubctl register \
+
+printf '正在注册 Content，并启动统一 Web / MCP Hub…\n'
+exec "$ROOT/scripts/python.sh" -m storyteller.rag.hubctl attach \
   --bind 127.0.0.1 \
   --port "$HUB_PORT" \
+  --web-port "$WEB_PORT" \
   --repository-root "$REPOSITORY_ROOT" \
   --content-root "$CONTENT_ROOT" \
   --framework-root "$ROOT" \
   --project "$PROJECT" \
   --display-name "$(basename "$REPOSITORY_ROOT")"
-
-printf '正在启动 Story Teller：http://127.0.0.1:%s/\n' "$PORT"
-exec "$ROOT/scripts/python.sh" -m storyteller \
-  --bind 127.0.0.1 \
-  --port "$PORT" \
-  --content-root "$CONTENT_ROOT" \
-  --frontend-root "$ROOT/dist" \
-  --default-project "$DEFAULT_PROJECT"

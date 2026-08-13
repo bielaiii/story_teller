@@ -33,6 +33,16 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return body as T;
 }
 
+export function workspaceFromLocation(): string {
+  const match = window.location.pathname.match(/^\/w\/([^/]+)(?:\/|$)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function localApiUrl(path: string): string {
+  const workspace = workspaceFromLocation();
+  return `${workspace ? `/w/${encodeURIComponent(workspace)}` : ""}${path}`;
+}
+
 export class StoryApi {
   private mutationToken = "";
   private refreshingMeta: Promise<MetaResponse> | null = null;
@@ -42,7 +52,7 @@ export class StoryApi {
 
   async meta(): Promise<MetaResponse> {
     const value = await parseResponse<MetaResponse>(
-      await fetch(`/api/v1/meta?project=${encodeURIComponent(this.project)}`, { cache: "no-store" }),
+      await fetch(localApiUrl(`/api/v1/meta?project=${encodeURIComponent(this.project)}`), { cache: "no-store" }),
     );
     if (!value || typeof value !== "object" || typeof value.apiVersion !== "number") {
       throw new ApiError("当前地址没有可用的本地 Story Teller API", 503, "api_unavailable");
@@ -53,33 +63,33 @@ export class StoryApi {
   }
 
   snapshot(): Promise<ProjectSnapshot> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/snapshot`, { cache: "no-store" })
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/snapshot`), { cache: "no-store" })
       .then(parseResponse<ProjectSnapshot>);
   }
 
   detail<T>(entityId: string): Promise<EntityDetail<T>> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/entities/${encodeURIComponent(entityId)}`)
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/entities/${encodeURIComponent(entityId)}`))
       .then(parseResponse<EntityDetail<T>>);
   }
 
   trashDetail<T>(entityId: string): Promise<EntityDetail<T>> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/trash/${encodeURIComponent(entityId)}`)
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/trash/${encodeURIComponent(entityId)}`))
       .then(parseResponse<EntityDetail<T>>);
   }
 
   trash(): Promise<{ items: TrashItem[] }> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/trash`, { cache: "no-store" })
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/trash`), { cache: "no-store" })
       .then(parseResponse<{ items: TrashItem[] }>);
   }
 
   operations(): Promise<{ items: OperationItem[] }> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/operations`, { cache: "no-store" })
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/operations`), { cache: "no-store" })
       .then(parseResponse<{ items: OperationItem[] }>);
   }
 
   mergeConflicts(): Promise<MergeConflictState> {
     return fetch(
-      `/api/v1/projects/${encodeURIComponent(this.project)}/merge-conflicts`,
+      localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/merge-conflicts`),
       { cache: "no-store" },
     ).then(parseResponse<MergeConflictState>);
   }
@@ -90,7 +100,7 @@ export class StoryApi {
     payload?: Record<string, unknown>,
     timeoutMs = 15_000,
   ): Promise<T> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`), {
       method,
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
@@ -155,7 +165,7 @@ export class StoryApi {
     method: "POST" | "PATCH" | "PUT" | "DELETE",
     payload: Record<string, unknown>,
   ): Promise<MutationDelta> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`, {
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}${path}`), {
       method,
       signal: AbortSignal.timeout(15_000),
       headers: {
@@ -232,7 +242,7 @@ export class StoryApi {
     items: Array<{ entityId: string; chapterNumber: number | null; currentTitle: string; candidateTitle: string; candidateSource: string; bodyPreview: string; stories: string[]; recommendedAction: string }>;
     count: number;
   }> {
-    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/maintenance/plot-titles`, { cache: "no-store" })
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/maintenance/plot-titles`), { cache: "no-store" })
       .then(parseResponse<{
         items: Array<{ entityId: string; chapterNumber: number | null; currentTitle: string; candidateTitle: string; candidateSource: string; bodyPreview: string; stories: string[]; recommendedAction: string }>;
         count: number;

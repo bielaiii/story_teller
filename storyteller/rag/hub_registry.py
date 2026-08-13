@@ -6,12 +6,12 @@ import os
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace as dataclass_replace
 from pathlib import Path
 from typing import Any
 
 
-HUB_PROTOCOL_VERSION = 1
+HUB_PROTOCOL_VERSION = 3
 PROJECT_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -32,6 +32,9 @@ class WorkspaceRegistration:
     framework_root: str
     registered_at: int
     last_seen_at: int
+    independent_mcp: bool = False
+    managed_web: bool = False
+    disabled_projects: tuple[str, ...] = ()
 
     def public_dict(self) -> dict[str, Any]:
         return {
@@ -39,8 +42,11 @@ class WorkspaceRegistration:
             "displayName": self.display_name,
             "project": self.project,
             "repositoryRoot": self.repository_root,
+            "contentRoot": self.content_root,
             "registeredAt": self.registered_at,
             "lastSeenAt": self.last_seen_at,
+            "independentMcp": self.independent_mcp,
+            "managedWeb": self.managed_web,
         }
 
 
@@ -52,8 +58,8 @@ class HubRegistry:
         self._load()
 
     @staticmethod
-    def _workspace_id(repository_root: Path) -> str:
-        digest = hashlib.sha256(str(repository_root).encode("utf-8")).hexdigest()[:16]
+    def _workspace_id(content_root: Path) -> str:
+        digest = hashlib.sha256(str(content_root).encode("utf-8")).hexdigest()[:16]
         return f"workspace-{digest}"
 
     @staticmethod
@@ -66,8 +72,8 @@ class HubRegistry:
             raise ValueError("项目名称不合法")
         if not repository_root.is_dir() or not (repository_root / ".git").exists():
             raise ValueError(f"不是可用的 Git 仓库：{repository_root}")
-        if content_root != (repository_root / "content").resolve():
-            raise ValueError("contentRoot 必须是 Git 仓库直属的 content 目录")
+        if content_root == repository_root or repository_root not in content_root.parents:
+            raise ValueError("contentRoot 必须位于当前 Git 仓库内")
         if not (content_root / project / "story.db").is_file():
             raise ValueError(f"项目没有 story.db：{content_root / project}")
         allowed_frameworks = {
@@ -85,7 +91,7 @@ class HubRegistry:
     def prepare(self, value: dict[str, Any]) -> WorkspaceRegistration:
         repository_root, content_root, framework_root, project = self._paths(value)
         now = int(time.time())
-        identifier = self._workspace_id(repository_root)
+        identifier = self._workspace_id(content_root)
         existing = self._records.get(identifier)
         return WorkspaceRegistration(
             workspace_id=identifier,
@@ -96,6 +102,9 @@ class HubRegistry:
             framework_root=str(framework_root),
             registered_at=existing.registered_at if existing else now,
             last_seen_at=now,
+            independent_mcp=existing.independent_mcp if existing else False,
+            managed_web=existing.managed_web if existing else False,
+            disabled_projects=existing.disabled_projects if existing else (),
         )
 
     def upsert(self, record: WorkspaceRegistration) -> None:
@@ -116,7 +125,7 @@ class HubRegistry:
         return sorted(values, key=lambda item: (item.display_name.casefold(), item.workspace_id))
 
     @staticmethod
-    def projects(record: WorkspaceRegistration) -> list[str]:
+    def all_projects(record: WorkspaceRegistration) -> list[str]:
         content_root = Path(record.content_root)
         if not content_root.is_dir():
             return []
@@ -127,6 +136,56 @@ class HubRegistry:
             and PROJECT_PATTERN.fullmatch(path.name)
             and (path / "story.db").is_file()
         )
+
+    @classmethod
+    def projects(cls, record: WorkspaceRegistration) -> list[str]:
+        disabled = set(record.disabled_projects)
+        return [project for project in cls.all_projects(record) if project not in disabled]
+
+    def set_independent_mcp(self, workspace_id: str, enabled: bool) -> WorkspaceRegistration:
+        with self._lock:
+            current = self._records.get(workspace_id)
+            if current is None:
+                raise ValueError(f"工作区不存在：{workspace_id}")
+            updated = dataclass_replace(current, independent_mcp=bool(enabled), last_seen_at=int(time.time()))
+            self._records[workspace_id] = updated
+            self._save()
+            return updated
+
+    def set_managed_web(self, workspace_id: str, enabled: bool) -> WorkspaceRegistration:
+        with self._lock:
+            current = self._records.get(workspace_id)
+            if current is None:
+                raise ValueError(f"工作区不存在：{workspace_id}")
+            updated = dataclass_replace(
+                current, managed_web=bool(enabled), last_seen_at=int(time.time())
+            )
+            self._records[workspace_id] = updated
+            self._save()
+            return updated
+
+    def set_project_enabled(self, workspace_id: str, project: str, enabled: bool) -> WorkspaceRegistration:
+        if not PROJECT_PATTERN.fullmatch(project):
+            raise ValueError("项目名称不合法")
+        with self._lock:
+            current = self._records.get(workspace_id)
+            if current is None:
+                raise ValueError(f"工作区不存在：{workspace_id}")
+            if project not in self.all_projects(current):
+                raise ValueError(f"项目不存在：{project}")
+            disabled = set(current.disabled_projects)
+            if enabled:
+                disabled.discard(project)
+            else:
+                disabled.add(project)
+            updated = dataclass_replace(
+                current,
+                disabled_projects=tuple(sorted(disabled)),
+                last_seen_at=int(time.time()),
+            )
+            self._records[workspace_id] = updated
+            self._save()
+            return updated
 
     def default_project(self, record: WorkspaceRegistration) -> str:
         projects = self.projects(record)
@@ -165,6 +224,8 @@ class HubRegistry:
             **record.public_dict(),
             "registeredProject": record.project,
             "projects": projects,
+            "allProjects": self.all_projects(record),
+            "disabledProjects": list(record.disabled_projects),
             "defaultProject": default,
             "requiresProjectSelection": not bool(default) and len(projects) > 1,
         }
@@ -193,13 +254,25 @@ class HubRegistry:
     @classmethod
     def is_valid(cls, record: WorkspaceRegistration) -> bool:
         try:
-            cls._paths({
-                "repositoryRoot": record.repository_root,
-                "contentRoot": record.content_root,
-                "frameworkRoot": record.framework_root,
-                "project": record.project,
-            })
-        except ValueError:
+            repository_root = Path(record.repository_root).expanduser().resolve()
+            content_root = Path(record.content_root).expanduser().resolve()
+            framework_root = Path(record.framework_root).expanduser().resolve()
+            if not repository_root.is_dir() or not (repository_root / ".git").exists():
+                return False
+            if content_root == repository_root or repository_root not in content_root.parents:
+                return False
+            if not cls.all_projects(record):
+                return False
+            if framework_root not in {
+                repository_root,
+                (repository_root / "story_teller").resolve(),
+            }:
+                return False
+            if not (framework_root / "scripts" / "python.sh").is_file():
+                return False
+            if not (framework_root / "storyteller" / "rag" / "stdio.py").is_file():
+                return False
+        except (OSError, ValueError):
             return False
         return True
 
@@ -219,13 +292,22 @@ class HubRegistry:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise ValueError(f"Hub 注册表损坏：{self.path}") from error
-        if int(payload.get("protocolVersion", 0)) != HUB_PROTOCOL_VERSION:
+        stored_version = int(payload.get("protocolVersion", 0))
+        if stored_version not in {1, 2, HUB_PROTOCOL_VERSION}:
             raise ValueError("Hub 注册表协议版本不兼容")
         for value in payload.get("workspaces", []):
             try:
+                value = dict(value)
+                value.setdefault("independent_mcp", False)
+                value.setdefault("managed_web", False)
+                value.setdefault("disabled_projects", ())
+                value["disabled_projects"] = tuple(value["disabled_projects"])
                 record = WorkspaceRegistration(**value)
             except (TypeError, ValueError):
                 continue
+            expected_id = self._workspace_id(Path(record.content_root).expanduser().resolve())
+            if record.workspace_id != expected_id:
+                record = dataclass_replace(record, workspace_id=expected_id)
             self._records[record.workspace_id] = record
 
     def _save(self) -> None:
