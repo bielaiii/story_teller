@@ -61,7 +61,7 @@ export function GlobalSearch() {
     if (!deferred) return [];
     const candidates = [
       ...snapshot.characters.map((item) => ({ id: item.entityId, label: item.name, detail: `人物 · ${item.characterScope} · ID ${item.id}`, page: "characters" as const, search: [item.name, item.id, ...item.aliases, item.introPreview].join(" "), preview: item.introPreview })),
-      ...snapshot.plots.map((item) => ({ id: item.entityId, label: item.title, detail: `剧情 · 第 ${item.sequence} 篇`, page: "story" as const, search: `${item.title} ${item.summary} ${item.bodyPreview}`, preview: `${item.summary}\n${item.bodyPreview}` })),
+      ...snapshot.plots.map((item) => ({ id: item.entityId, label: item.title, detail: `剧情 · 第 ${item.chapterNumber ?? item.sequence} 篇`, page: "story" as const, search: `${item.title} ${item.summary} ${item.bodyPreview}`, preview: `${item.summary}\n${item.bodyPreview}` })),
       ...snapshot.entries.map((item) => ({ id: item.entityId, label: item.name, detail: `设定 · ${item.type}`, page: "entries" as const, search: [item.name, ...item.aliases, ...item.tags, item.bodyPreview].join(" "), preview: item.bodyPreview })),
       ...snapshot.fragments.map((item) => ({ id: item.entityId, label: item.title, detail: "灵感碎片", page: "fragments" as const, search: `${item.title} ${item.bodyPreview}`, preview: item.bodyPreview })),
     ];

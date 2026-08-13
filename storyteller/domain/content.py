@@ -217,7 +217,9 @@ def stored_fragment_chapter_number(
     match = re.match(r"^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)", str(title or ""))
     if match:
         return int(match.group(1))
-    return fragment_order + 1 if parent_id else None
+    # Fragment 内部章号是可选标签；视觉顺序由 fragmentOrder 决定，
+    # 不能再把顺序偷偷升级成正式章号。
+    return None
 
 
 def entity_id(kind: str, stable_id: object) -> str:
@@ -694,17 +696,16 @@ class ContentService:
     ) -> None:
         rows = list(connection.execute(
             """
-            SELECT p.entity_id, p.sort_key, e.title
+            SELECT p.entity_id, p.sort_key, p.chapter_number, e.title
             FROM active_plots p JOIN active_entities e ON e.id=p.entity_id
             ORDER BY p.sort_key
             """
         ))
         numbered: list[dict[str, Any]] = []
         for index, row in enumerate(rows, start=1):
-            match = PLOT_CHAPTER_TITLE.fullmatch(str(row["title"]).strip())
             numbered.append({
                 "id": str(row["entity_id"]),
-                "number": int(match.group(1)) if match else index,
+                "number": int(row["chapter_number"]) if row["chapter_number"] is not None else index,
                 "order": index,
                 "title": str(row["title"]),
             })
@@ -743,15 +744,9 @@ class ContentService:
             )
         for index, item in enumerate(ordered, start=1):
             connection.execute(
-                "UPDATE plots SET sort_key=? WHERE entity_id=?",
-                (f"{index * RANK_STEP:024d}", item["id"]),
+                "UPDATE plots SET sort_key=?, chapter_number=? WHERE entity_id=?",
+                (f"{index * RANK_STEP:024d}", item["number"], item["id"]),
             )
-            next_title = f"第 {item['number']} 章"
-            if item["title"] != next_title:
-                connection.execute(
-                    "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
-                    (next_title, now, item["id"]),
-                )
         ContentService._sync_follow_reading_story_sort_keys(connection)
     @staticmethod
     def _replace_values(
@@ -1363,28 +1358,29 @@ class ContentService:
 
     def create_plot(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         now = int(time.time())
-        chapter_number = payload.get("chapter_number")
-        title = (
-            f"第 {int(chapter_number)} 章"
-            if chapter_number is not None
-            else clean_text(payload.get("title"), "剧情标题", required=True)
-        )
+        requested_chapter_number = payload.get("chapter_number")
+        title = clean_text(payload.get("title"), "剧情标题", required=True)
         body = clean_body(payload.get("body", ""), "剧情正文")
 
         def mutation(connection: sqlite3.Connection):
+            chapter_number = requested_chapter_number
             stable = clean_text(payload.get("stable_id"), "剧情 ID", 60) or self._next_numeric_id(connection, self.project_id, "plot")
             identifier = self._create_entity(connection, "plot", stable, title, now)
             chapter = payload.get("chapter_id") or None
             if chapter and not connection.execute("SELECT 1 FROM active_chapters WHERE entity_id=?", (chapter,)).fetchone():
                 raise DomainError("篇章不存在")
             rank = self._rank_after(connection, "plots", payload.get("after_entity_id"))
+            if chapter_number is None:
+                chapter_number = int(connection.execute(
+                    "SELECT COALESCE(MAX(chapter_number), 0) + 1 FROM active_plots"
+                ).fetchone()[0])
             connection.execute(
                 """
-                INSERT INTO plots(entity_id, chapter_id, sort_key, story_sort_key, story_order_mode, summary, body_markdown, status, accent, is_key, is_climax)
-                VALUES(?, ?, ?, ?, 'follow_reading', ?, ?, ?, ?, ?, ?)
+                INSERT INTO plots(entity_id, chapter_id, chapter_number, sort_key, story_sort_key, story_order_mode, summary, body_markdown, status, accent, is_key, is_climax)
+                VALUES(?, ?, ?, ?, ?, 'follow_reading', ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    identifier, chapter, rank, rank, clean_text(payload.get("summary", ""), "剧情摘要", 1000),
+                    identifier, chapter, int(chapter_number) if chapter_number is not None else None, rank, rank, clean_text(payload.get("summary", ""), "剧情摘要", 1000),
                     body, clean_text(payload.get("status", "草稿"), "剧情状态", 40, required=True),
                     clean_color(payload.get("accent")), int(bool(payload.get("key"))), int(bool(payload.get("climax"))),
                 ),
@@ -1430,8 +1426,6 @@ class ContentService:
                 "accent": ("accent", clean_color), "key": ("is_key", lambda value: int(bool(value))),
                 "climax": ("is_climax", lambda value: int(bool(value))),
             }
-            if chapter_number is not None:
-                mappings.pop("title")
             for key, (column, cleaner) in mappings.items():
                 if key in payload:
                     updates[column] = cleaner(payload[key])
@@ -1463,6 +1457,7 @@ class ContentService:
                 connection, identifier, automatic_people
             )
             if chapter_number is not None:
+                connection.execute("UPDATE plots SET chapter_number=? WHERE entity_id=?", (int(chapter_number), identifier))
                 self._apply_plot_chapter_number(
                     connection, identifier, int(chapter_number), bool(payload.get("shift_following")), now
                 )
@@ -1510,14 +1505,16 @@ class ContentService:
             )
             connection.execute(
                 """
-                INSERT INTO fragments(entity_id, body_markdown, status, accent)
-                VALUES(?, ?, ?, ?)
+                INSERT INTO fragments(entity_id, body_markdown, status, accent, is_key, is_climax)
+                VALUES(?, ?, ?, ?, ?, ?)
                 """,
                 (
                     target_id,
                     str(row["body_markdown"]),
                     str(row["status"]),
                     str(row["accent"]),
+                    int(row["is_key"]),
+                    int(row["is_climax"]),
                 ),
             )
             self._replace_values(
@@ -1559,8 +1556,9 @@ class ContentService:
             now=now,
         )
 
-    def move_fragment_to_plot(self, identifier: str, base_revision: int) -> MutationResult:
+    def move_fragment_to_plot(self, identifier: str, base_revision: int, conversion_payload: dict[str, Any] | None = None) -> MutationResult:
         now = int(time.time())
+        conversion_payload = conversion_payload or {}
         source_title = self._title(identifier)
 
         def mutation(connection: sqlite3.Connection):
@@ -1594,13 +1592,9 @@ class ContentService:
                     (target_id,),
                 ).fetchone()
             ]
-            numbered = [
-                int(match.group(1))
-                for item in connection.execute(
-                    "SELECT title FROM active_plots ORDER BY sort_key"
-                )
-                if (match := PLOT_CHAPTER_TITLE.fullmatch(str(item[0]).strip()))
-            ]
+            numbered = [int(item[0]) for item in connection.execute(
+                "SELECT chapter_number FROM active_plots WHERE chapter_number IS NOT NULL"
+            )]
             active_count = int(connection.execute(
                 "SELECT COUNT(*) FROM active_plots"
             ).fetchone()[0])
@@ -1618,39 +1612,48 @@ class ContentService:
                     planned = plan.get(identifier) if isinstance(plan, dict) else None
                     if isinstance(planned, int) and 1 <= planned <= 99999:
                         planned_chapter_number = planned
+            requested_number = conversion_payload.get("chapter_number")
             chapter_number = (
+                int(requested_number)
+                if requested_number is not None
+                else
                 planned_chapter_number
                 if planned_chapter_number is not None
                 else max(numbered + [active_count], default=0) + 1
             )
-            title = f"第 {chapter_number} 章"
+            title = clean_text(conversion_payload.get("title") or source_title, "剧情标题", required=True)
             stable = self._next_numeric_id(connection, self.project_id, "plot")
             target_id = self._create_entity(connection, "plot", stable, title, now)
             rank = self._next_rank(connection, "plots")
             connection.execute(
                 """
                 INSERT INTO plots(
-                    entity_id, chapter_id, sort_key, story_sort_key, story_order_mode, summary, body_markdown,
+                    entity_id, chapter_id, chapter_number, sort_key, story_sort_key, story_order_mode, summary, body_markdown,
                     status, accent, is_key, is_climax
-                ) VALUES(?, NULL, ?, ?, 'follow_reading', ?, ?, '草稿', ?, 0, 0)
+                ) VALUES(?, NULL, ?, ?, ?, 'follow_reading', ?, ?, '草稿', ?, ?, ?)
                 """,
                 (
                     target_id,
+                    chapter_number,
                     rank,
                     rank,
-                    source_title,
+                    "",
                     str(row["body_markdown"]),
                     str(row["accent"]),
+                    int(row["is_key"]),
+                    int(row["is_climax"]),
                 ),
             )
             target_payload = {
                 "body": str(row["body_markdown"]),
-                "summary": source_title,
+                "summary": "",
                 "tags": tags,
                 "entries": entries,
                 "references": references,
                 "chapter_number": chapter_number,
             }
+            if conversion_payload.get("stories"):
+                target_payload["stories"] = conversion_payload["stories"]
             self._sync_follow_reading_story_sort_keys(connection)
             automatic_people = self._replace_plot_collections(
                 connection, target_id, target_payload, rank, now, default_main_line=True
@@ -1751,6 +1754,8 @@ class ContentService:
                 f"INSERT INTO {table}(plot_id, {target_column}) VALUES(?, ?)",
                 [(identifier, value) for value in values],
             )
+        if "stories" in payload and payload.get("stories"):
+            payload = {**payload, "lanes": payload.get("stories")}
         if "lanes" in payload or default_main_line:
             values = self._require_targets(
                 connection, clean_values(payload.get("lanes", []), "剧情线"), "active_timeline_lines", "剧情线"
@@ -2029,7 +2034,8 @@ class ContentService:
             if raw_chapter_number is not None:
                 chapter_number = int(raw_chapter_number)
             elif creating:
-                chapter_number = max(sibling_numbers, default=0) + 1
+                # Fragment child 的内部章号可为空；只有用户明确提供时才编号。
+                chapter_number = None
             else:
                 current_title_row = connection.execute(
                     "SELECT title FROM entities WHERE id=?",
@@ -2040,8 +2046,8 @@ class ContentService:
                     str(current_title_row["title"]) if current_title_row else "",
                     fragment_order,
                     parent_id,
-                ) or max(sibling_numbers, default=0) + 1
-            if chapter_number <= 0:
+                )
+            if chapter_number is not None and chapter_number <= 0:
                 raise DomainError("章号必须是正整数")
             if chapter_number in sibling_numbers:
                 if not bool(payload.get("shift_following")):
@@ -2141,8 +2147,8 @@ class ContentService:
                 )
             else:
                 connection.execute(
-                    "INSERT INTO fragments(entity_id, body_markdown, status, accent) VALUES(?, ?, ?, ?)",
-                    (identifier, clean_body(payload.get("body", ""), "碎片正文"), clean_text(payload.get("status", ""), "状态", 40), clean_color(payload.get("accent"))),
+                    "INSERT INTO fragments(entity_id, body_markdown, status, accent, is_key, is_climax) VALUES(?, ?, ?, ?, ?, ?)",
+                    (identifier, clean_body(payload.get("body", ""), "碎片正文"), clean_text(payload.get("status", ""), "状态", 40), clean_color(payload.get("accent")), int(bool(payload.get("key"))), int(bool(payload.get("climax")))),
                 )
                 extra = self._fragment_metadata(
                     connection, payload, identifier=identifier, creating=True
@@ -2198,6 +2204,8 @@ class ContentService:
                     "body": ("body_markdown", lambda value: clean_body(value, "碎片正文")),
                     "status": ("status", lambda value: clean_text(value, "状态", 40)),
                     "accent": ("accent", clean_color),
+                    "key": ("is_key", lambda value: int(bool(value))),
+                    "climax": ("is_climax", lambda value: int(bool(value))),
                 }
             for key, (column, cleaner) in mappings.items():
                 if key in payload:

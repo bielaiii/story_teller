@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Fragment } from "../api/types";
 import {
   fragmentChapterNumberOf,
+  fragmentDownloadFilename,
+  fragmentDownloadMarkdown,
   fragmentDisplayTitle,
   fragmentLinePreviewOf,
   fragmentParentOf,
@@ -37,6 +39,31 @@ function item(
 }
 
 describe("fragment story-line grouping", () => {
+  it("builds a safe Markdown download for one fragment card", () => {
+    const chapter = {
+      ...item("fragment:chapter", "chapter", "fragment:line", 0, 7),
+      title: "第 7 章：潮汐记录 / 初稿",
+      tags: ["悬疑", "线索"],
+    };
+
+    expect(fragmentDownloadFilename(chapter)).toBe("潮汐记录 _ 初稿.md");
+    expect(fragmentDownloadMarkdown(chapter, "正文内容")).toBe(
+      "# 潮汐记录 / 初稿\n章节：第 7 章\n标签：悬疑、线索\n\n正文内容\n",
+    );
+  });
+
+  it("packages every chapter under a story line into one Markdown download", () => {
+    const line = item("fragment:line", "line");
+    const chapters = [
+      { item: item("fragment:1", "chapter", line.entityId, 0, 1), body: "第一章正文" },
+      { item: item("fragment:3", "chapter", line.entityId, 1, 3), body: "第三章正文" },
+    ];
+
+    expect(fragmentDownloadMarkdown(line, "", chapters)).toBe(
+      "# fragment:line\n\n## 所属篇章\n### 第 1 章 · fragment:1\n第一章正文\n\n### 第 3 章 · fragment:3\n第三章正文\n",
+    );
+  });
+
   it("keeps lines and standalone chapters at the top level and orders children", () => {
     const line = item("fragment:line", "line");
     const second = item("fragment:2", "chapter", line.entityId, 2);

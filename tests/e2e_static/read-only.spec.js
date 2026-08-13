@@ -24,7 +24,12 @@ test("静态快照可以完整阅读且不会调用本地写入接口", async ({
   await reader.getByRole("button", { name: "返回剧情列表" }).click();
 
   await page.getByRole("button", { name: "碎片" }).click();
-  await expect(page.locator(".fragment-card-new .icon-button")).toHaveCount(0);
+  const downloadButton = page.locator(".fragment-card-new .icon-button").first();
+  await expect(downloadButton).toHaveAttribute("aria-label", /^下载/);
+  const downloadPromise = page.waitForEvent("download");
+  await downloadButton.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.md$/);
   await page.locator(".fragment-card-new").first().click();
   await expect(page.locator(".reader-dialog .reader-prose")).toContainText(staticSnapshot.fragments[0].body.slice(0, 20));
   await page.getByRole("button", { name: "关闭阅读" }).click();

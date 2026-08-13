@@ -48,7 +48,8 @@ export function StoryReader({ plot, previous, next, onBack, backLabel = "返回�
       return `<h${level} id="${id}">${content}</h${level}>`;
     });
   }, [body, outline]);
-  const chapter = snapshot.chapters.find((item) => item.entityId === plot.chapterId)?.label || "未安排篇章";
+  const stories = (plot.stories || []).map((id) => snapshot.timeline.lines.find((line) => line.entityId === id)?.name).filter(Boolean).join("、") || "主线";
+  const chapter = `第 ${plot.chapterNumber ?? plot.sequence} 章 · ${stories}`;
   const people = plot.people.map((id) => snapshot.characters.find((item) => item.entityId === id)).filter(Boolean);
   const entries = plot.entries.map((id) => snapshot.entries.find((item) => item.entityId === id)).filter(Boolean);
 

@@ -6,7 +6,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icon";
 import { RenderedMarkdown } from "../components/RenderedMarkdown";
 import { useUiStore } from "../state/ui";
-import { plotChapterNumber } from "../storyOptions";
 
 interface LineDraft {
   entityId: string;
@@ -585,7 +584,7 @@ export default function TimelinePage() {
         lineIds: [...new Set(nodes.map((node) => node.lineId))],
         storySortKey: nodes.map((node) => node.storySortKey).sort()[0] || rank(index + 1),
         storyPosition: TIMELINE_TOP + index * TIMELINE_STEP,
-        chapterNumber: plotChapterNumber(plot.title, plot.sequence),
+        chapterNumber: plot.chapterNumber ?? 0,
         storyOrderMode: plot.storyOrderMode,
       };
     });
@@ -885,7 +884,7 @@ export default function TimelinePage() {
     if (!lines.length || !mainLineId || mutation.isPending || dragStateRef.current) return;
     const chapterNumbersChanged = assignments.some((item) => {
       const plot = snapshot.plots.find((candidate) => candidate.entityId === item.plotId);
-      return plot && item.chapterNumber !== plotChapterNumber(plot.title, plot.sequence);
+      return plot && item.chapterNumber !== plot.chapterNumber;
     });
     try {
       const result = await mutation.mutateAsync({

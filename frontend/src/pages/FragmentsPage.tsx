@@ -15,7 +15,6 @@ import { Icon } from "../components/Icon";
 import { ReadOnlyArticle } from "../components/ReadOnlyArticle";
 import { Pagination } from "../components/Pagination";
 import { useUiStore } from "../state/ui";
-import { plotChapterNumber } from "../storyOptions";
 
 interface Draft {
   stableId: string;
@@ -31,6 +30,8 @@ interface Draft {
   parentFragmentId: string | null;
   fragmentOrder: number;
   chapterNumber: number | null;
+  key: boolean;
+  climax: boolean;
   plotChapterPlan: Record<string, number>;
 }
 const blank: Draft = {
@@ -47,6 +48,8 @@ const blank: Draft = {
   parentFragmentId: null,
   fragmentOrder: 0,
   chapterNumber: null,
+  key: false,
+  climax: false,
   plotChapterPlan: {},
 };
 const FRAGMENTS_PER_PAGE = 9;
@@ -65,9 +68,7 @@ export function fragmentChapterNumberOf(item: Fragment): number | null {
   if (typeof direct === "number" && Number.isInteger(direct) && direct > 0) return direct;
   const legacy = item.title.match(/^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)/);
   if (legacy) return Number(legacy[1]);
-  const parentId = fragmentParentOf(item);
-  const order = item.fragmentOrder ?? Number(item.extra?.fragmentOrder);
-  return parentId && Number.isFinite(order) ? order + 1 : null;
+  return null;
 }
 
 export function fragmentPlotChapterPlanOf(item: Fragment): Record<string, number> {
@@ -91,6 +92,43 @@ export function fragmentDisplayTitle(item: Fragment): string {
 
 export function fragmentLinePreviewOf(line: Fragment, chapters: Fragment[]): string {
   return chapters[0]?.bodyPreview || line.bodyPreview || "第一章还没有正文";
+}
+
+export function fragmentDownloadFilename(item: Fragment): string {
+  const title = fragmentDisplayTitle(item).trim() || "未命名碎片";
+  return `${title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80)}.md`;
+}
+
+export function fragmentDownloadMarkdown(
+  item: Fragment,
+  body: string,
+  chapters: Array<{ item: Fragment; body: string }> = [],
+): string {
+  const metadata = [
+    fragmentParentOf(item) && fragmentChapterNumberOf(item) ? `章节：第 ${fragmentChapterNumberOf(item)} 章` : null,
+    item.tags.length ? `标签：${item.tags.join("、")}` : null,
+  ].filter(Boolean);
+  if (chapters.length > 0) {
+    return [
+      `# ${fragmentDisplayTitle(item) || "未命名碎片"}`,
+      ...metadata,
+      body ? ["", body] : [],
+      "",
+      "## 所属篇章",
+      ...chapters.flatMap(({ item: chapter, body: chapterBody }, index) => [
+        `### 第 ${fragmentChapterNumberOf(chapter) ?? index + 1} 章 · ${fragmentDisplayTitle(chapter) || "未命名章节"}`,
+        chapterBody || chapter.bodyPreview || "_还没有正文。_",
+        "",
+      ]),
+    ].flat().join("\n");
+  }
+  return [
+    `# ${fragmentDisplayTitle(item) || "未命名碎片"}`,
+    ...metadata,
+    metadata.length ? "" : null,
+    body || "_还没有正文。_",
+    "",
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 export function groupFragments(items: Fragment[]) {
@@ -160,15 +198,14 @@ function FragmentEditor({
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmConvertId, setConfirmConvertId] = useState<string | null>(null);
+  const [convertChapterNumber, setConvertChapterNumber] = useState("");
+  const [convertStories, setConvertStories] = useState<string[]>([]);
   const draftKey = browserDraftKey(project, "fragment", currentId);
   const supportsConversion = Boolean(
     meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
   );
   const supportsStacks = Boolean(
     meta?.routes.fragmentStacks || meta?.features.includes("fragment-stacks-v1")
-  );
-  const supportsPlotPlanning = Boolean(
-    meta?.routes.fragmentPlotPlanning || meta?.features.includes("fragment-plot-planning-v1")
   );
   const supportsAppearancePeople = Boolean(
     meta?.routes.appearancePeople || meta?.features.includes("appearance-people-v1")
@@ -221,6 +258,8 @@ function FragmentEditor({
         parentFragmentId: fragmentParentOf(item),
         fragmentOrder: item.fragmentOrder ?? (Number(item.extra?.fragmentOrder) || 0),
         chapterNumber: fragmentChapterNumberOf(item),
+        key: Boolean(item.key),
+        climax: Boolean(item.climax),
         plotChapterPlan: fragmentTypeOf(item) === "line" ? fragmentPlotChapterPlanOf(item) : {},
       } : null;
     if (next) {
@@ -241,13 +280,6 @@ function FragmentEditor({
       : [...current.references, reference.entityId],
   }));
   const save = async (): Promise<string | null> => {
-    if (draft.fragmentType === "line") {
-      const plannedNumbers = Object.values(draft.plotChapterPlan);
-      if (new Set(plannedNumbers).size !== plannedNumbers.length) {
-        setMessage("同一个正式剧情章号不能分配给多个碎片章节");
-        return null;
-      }
-    }
     try {
       const missingNames = missingAppearanceNames(draft.appearanceNames, draft.body);
       if (draft.fragmentType === "chapter" && missingNames.length) {
@@ -267,6 +299,10 @@ function FragmentEditor({
         people,
         references,
       } as unknown as Record<string, unknown>;
+      // Fragment status/accent are legacy storage fields; daily editing is
+      // intentionally story-teller controlled and never sent by this UI.
+      delete payload.status;
+      delete payload.accent;
       if (!supportsAppearancePeople || draft.fragmentType === "line") {
         delete payload.appearanceNames;
         delete payload.people;
@@ -275,8 +311,7 @@ function FragmentEditor({
         payload.shiftFollowing = true;
       }
       if (currentId !== "new") delete payload.stableId;
-      if (draft.fragmentType !== "line") delete payload.plotChapterPlan;
-      if (!supportsPlotPlanning) delete payload.plotChapterPlan;
+      delete payload.plotChapterPlan;
       if (!supportsStacks) {
         delete payload.fragmentType;
         delete payload.parentFragmentId;
@@ -340,6 +375,14 @@ function FragmentEditor({
       setMessage("请先保存当前修改，再放入剧情");
       return;
     }
+    const next = Math.max(0, ...snapshot.plots.map((plot) => plot.chapterNumber ?? 0)) + 1;
+    setConvertChapterNumber(String(next));
+    const target = snapshot.fragments.find((item) => item.entityId === targetId);
+    const parent = target?.parentFragmentId ? snapshot.fragments.find((item) => item.entityId === target?.parentFragmentId) : undefined;
+    const inheritedStory = parent
+      ? snapshot.timeline.lines.find((line) => line.name === parent.title || line.name.replace(/[篇线]$/, "") === parent.title.replace(/[篇线]$/, ""))?.entityId
+      : undefined;
+    setConvertStories(inheritedStory ? [inheritedStory] : []);
     setConfirmConvertId(targetId);
   };
   const convertToPlot = async () => {
@@ -351,7 +394,7 @@ function FragmentEditor({
       const result = await mutation.mutateAsync({
         path: `/fragments/${encodeURIComponent(targetId)}/to-plot`,
         method: "POST",
-        payload: {},
+        payload: { chapterNumber: Number(convertChapterNumber), stories: convertStories },
       });
       const created = result.changed.plots?.find((item) =>
         !snapshot.plots.some((existing) => existing.entityId === item.entityId)
@@ -364,11 +407,6 @@ function FragmentEditor({
         "success",
       );
       if (keepLineWorkspaceOpen) {
-        const plotChapterPlan = { ...draft.plotChapterPlan };
-        delete plotChapterPlan[targetId];
-        const nextDraft = { ...draft, plotChapterPlan };
-        setDraft(nextDraft);
-        setBaseline(JSON.stringify(nextDraft));
         clearBrowserDraft(draftKey);
         setMessage(created?.title ? `已转正为${created.title}` : "章节已转正");
       } else {
@@ -411,30 +449,9 @@ function FragmentEditor({
     setCurrentId("new");
     setNewDraftNonce((value) => value + 1);
   };
-  const updatePlotChapterPlan = (chapterId: string, rawValue: string) => {
-    setDraft((current) => {
-      const plotChapterPlan = { ...current.plotChapterPlan };
-      if (!rawValue) delete plotChapterPlan[chapterId];
-      else plotChapterPlan[chapterId] = Math.max(1, Math.min(99999, Math.trunc(Number(rawValue))));
-      return { ...current, plotChapterPlan };
-    });
-  };
-  const duplicatePlannedNumbers = new Set(
-    Object.values(draft.plotChapterPlan).filter((number, index, values) => values.indexOf(number) !== index),
-  );
-  const occupiedPlotNumbers = new Set(
-    snapshot.plots.map((plot) => plotChapterNumber(plot.title, plot.sequence)),
-  );
   const confirmConvertTarget = confirmConvertId
     ? snapshot.fragments.find((item) => item.entityId === confirmConvertId)
     : null;
-  const confirmConvertPlannedNumber = confirmConvertId
-    ? draft.fragmentType === "line"
-      ? draft.plotChapterPlan[confirmConvertId]
-      : workspaceLine
-        ? fragmentPlotChapterPlanOf(workspaceLine)[confirmConvertId]
-        : undefined
-    : undefined;
   if (!workspaceLineId && currentId !== "new" && detail.isPending) return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取灵感…</div></div>;
   const settingsAndEditor = currentId !== "new" && detail.isPending
     ? <div className="fragment-line-authoring-loading">正在读取章节…</div>
@@ -452,9 +469,9 @@ function FragmentEditor({
         <label><span>章号</span><input type="number" min="1" step="1" value={draft.chapterNumber ?? ""} onChange={(event) => change("chapterNumber", event.target.value ? Math.max(1, Math.trunc(Number(event.target.value))) : null)} /></label>
         <label className="wide"><span>章节标题</span><input value={draft.title} onChange={(event) => change("title", event.target.value)} /></label>
       </> : <label className="wide"><span>{draft.fragmentType === "line" ? "剧情线标题" : "章节标题"}</span><input value={draft.title} onChange={(event) => change("title", event.target.value)} /></label>}
-      <label><span>状态</span><input value={draft.status} onChange={(event) => change("status", event.target.value)} /></label>
-      <label><span>颜色</span><input type="color" value={draft.accent} onChange={(event) => change("accent", event.target.value)} /></label>
       <label className="wide"><span>标签</span><input value={draft.tags.join("，")} onChange={(event) => change("tags", event.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} /></label>
+      <label><span>关键剧情</span><input type="checkbox" checked={draft.key} onChange={(event) => change("key", event.target.checked)} /></label>
+      <label><span>高潮剧情</span><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} /></label>
       {supportsAppearancePeople && draft.fragmentType === "chapter" && <AppearancePeopleField
         characters={snapshot.characters}
         text={draft.body}
@@ -464,39 +481,7 @@ function FragmentEditor({
         onAppearanceNamesChange={(names) => change("appearanceNames", names)}
       />}
     </EditorSettingsSection>
-    {draft.fragmentType === "line" && supportsPlotPlanning
-      ? <section className="fragment-line-settings-panel">
-        <header>
-          <span className="fragment-line-settings-mark"><Icon name="timeline" /></span>
-          <div><strong>正式剧情位置</strong><p>碎片章号只表示这条灵感线的内部顺序；这里单独规划每章转正后在剧情中的实际章号。</p></div>
-          <button className="primary-action" type="button" disabled={!dirty || mutation.isPending || duplicatePlannedNumbers.size > 0} onClick={() => void save()}>{mutation.isPending ? "正在保存…" : "保存设置"}</button>
-        </header>
-        {workspaceChapters.length > 0 ? <div className="fragment-plot-plan" role="table" aria-label="正式剧情章号规划">
-          <div className="fragment-plot-plan-head" role="row">
-            <span role="columnheader">碎片线内</span><span role="columnheader">章节</span><span role="columnheader">正式剧情</span><span role="columnheader">操作</span>
-          </div>
-          {workspaceChapters.map((chapter, index) => {
-            const plannedNumber = draft.plotChapterPlan[chapter.entityId];
-            const duplicate = plannedNumber !== undefined && duplicatePlannedNumbers.has(plannedNumber);
-            const occupied = plannedNumber !== undefined && occupiedPlotNumbers.has(plannedNumber);
-            return <div className={`fragment-plot-plan-row${duplicate ? " is-invalid" : ""}`} role="row" key={chapter.entityId}>
-              <span className="fragment-plot-plan-source" role="cell"><b>{fragmentChapterNumberOf(chapter) ?? index + 1}</b><small>碎片章号</small></span>
-              <span className="fragment-plot-plan-title" role="cell"><strong>{fragmentDisplayTitle(chapter)}</strong><small>{chapter.status || "未设状态"}</small></span>
-              <label className="fragment-plot-plan-target" role="cell">
-                <span>第</span>
-                <input type="number" min="1" max="99999" step="1" aria-label={`${fragmentDisplayTitle(chapter)}的正式剧情章号`} placeholder="未设置" value={plannedNumber ?? ""} onChange={(event) => updatePlotChapterPlan(chapter.entityId, event.target.value)} />
-                <span>章</span>
-                <small>{duplicate ? "与其他规划重复" : occupied ? "已有剧情占用，转正时向后顺延" : plannedNumber ? "转正时按此位置插入" : "转正时自动追加到末尾"}</small>
-              </label>
-              <span className="fragment-plot-plan-action" role="cell">
-                <button className="icon-button" type="button" aria-label={`把${fragmentDisplayTitle(chapter)}放入剧情`} title="将这一章转正" disabled={duplicate || mutation.isPending} onClick={() => requestConvert(chapter.entityId)}><Icon name="replace" /></button>
-              </span>
-            </div>;
-          })}
-        </div> : <div className="fragment-plot-plan-empty"><Icon name="book" /><p>添加章节后，就可以在这里逐章规划正式剧情位置。</p></div>}
-        <footer><span>章号可以不连续，也不会改变左侧碎片线的内部顺序。</span><span>发生冲突时，会从目标章开始顺延已有的连续章节。</span></footer>
-      </section>
-      : draft.fragmentType === "line"
+    {draft.fragmentType === "line"
         ? <div className="fragment-line-settings-panel is-legacy">
           <span className="fragment-line-settings-mark"><Icon name="timeline" /></span>
           <div><strong>剧情线设置</strong><p>当前服务版本只能保存剧情线的基础设置。</p></div>
@@ -537,7 +522,10 @@ function FragmentEditor({
     </section>
     <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份灵感草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.title}”？`} message={draft.fragmentType === "line" ? workspaceChapters.length ? `剧情线和线内 ${workspaceChapters.length} 个章节会作为一个整体移入回收站；恢复剧情线时会一并恢复。` : "空剧情线会进入回收站保留 7 天。" : "碎片会进入统一回收站保留 7 天。"} confirmLabel={draft.fragmentType === "line" ? "整条移入回收站" : "移入回收站"} danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
-    <ConfirmDialog open={Boolean(confirmConvertId)} title={`把“${confirmConvertTarget ? fragmentDisplayTitle(confirmConvertTarget) : draft.title}”放入剧情？`} message={confirmConvertPlannedNumber ? `正文、标签、颜色和引用会迁移到正式剧情第 ${confirmConvertPlannedNumber} 章；如该位置已有剧情，后续连续章节会顺延。原碎片会进入回收站，整次操作可以撤销。` : "正文、标签、颜色和引用会迁移到正式剧情末尾的新章节；原碎片会进入回收站，整次操作可以撤销。"} confirmLabel="放入剧情" onCancel={() => setConfirmConvertId(null)} onConfirm={convertToPlot} />
+    <ConfirmDialog open={Boolean(confirmConvertId)} title={`把“${confirmConvertTarget ? fragmentDisplayTitle(confirmConvertTarget) : draft.title}”放入剧情？`} message="转正时必须指定正式章号；故事归属和 tags 会一并继承。" confirmLabel="放入剧情" confirmDisabled={!/^[1-9]\d{0,4}$/.test(convertChapterNumber)} onCancel={() => setConfirmConvertId(null)} onConfirm={convertToPlot}>
+      <label className="confirm-field"><span>正式章号</span><input type="number" min="1" max="99999" step="1" value={convertChapterNumber} onChange={(event) => setConvertChapterNumber(event.target.value)} /></label>
+      <label className="confirm-field"><span>故事</span><select multiple value={convertStories} onChange={(event) => setConvertStories(Array.from(event.target.selectedOptions, (option) => option.value).filter(Boolean))}><option value="">主线（默认）</option>{snapshot.timeline.lines.map((line) => <option key={line.entityId} value={line.entityId}>{line.name}</option>)}</select></label>
+    </ConfirmDialog>
   </div>;
 }
 
@@ -564,6 +552,7 @@ export default function FragmentsPage() {
   const [clipboardDialog, setClipboardDialog] = useState(false);
   const [clipboardText, setClipboardText] = useState("");
   const [clipboardHint, setClipboardHint] = useState("");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const paginationScroll = useRef<number | null>(null);
   const supportsClipboardImport = Boolean(
     meta?.routes.fragmentClipboardImport
@@ -688,9 +677,45 @@ export default function FragmentsPage() {
     setNewParentId(null);
     setEditor(item.entityId);
   };
+  const download = async (event: React.MouseEvent, item: Fragment, chapters: Fragment[] = []) => {
+    event.stopPropagation();
+    if (downloadingId) return;
+    setDownloadingId(item.entityId);
+    try {
+      let body = item.body || "";
+      if (!body && !snapshot.readonly) {
+        const detail = await api.detail<Fragment>(item.entityId);
+        body = detail.data.body || "";
+      }
+      const chapterBodies = await Promise.all(chapters.map(async (chapter) => {
+        let chapterBody = chapter.body || "";
+        if (!chapterBody && !snapshot.readonly) {
+          const detail = await api.detail<Fragment>(chapter.entityId);
+          chapterBody = detail.data.body || "";
+        }
+        return { item: chapter, body: chapterBody };
+      }));
+      const content = chapters.length > 0
+        ? fragmentDownloadMarkdown(item, body, chapterBodies)
+        : fragmentDownloadMarkdown(item, body || item.bodyPreview);
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
+      link.href = url;
+      link.download = fragmentDownloadFilename(item);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      useUiStore.getState().showNotice(`已下载“${fragmentDisplayTitle(item)}”`, "success");
+    } catch (error) {
+      useUiStore.getState().showNotice(error instanceof Error ? `下载失败：${error.message}` : "下载失败，请重试", "error");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
   const chapterCard = (item: Fragment, label: string, compact = false) => <article key={item.entityId} className={`fragment-card-new${compact ? " is-child" : ""}`} role="button" tabIndex={0} style={{ "--accent": item.accent } as React.CSSProperties} onClick={() => setReader(item.entityId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setReader(item.entityId); }}>
     <div className={`fragment-card-index${compact ? " is-chapter-number" : ""}`}>{label}</div>
-    <header>{!compact && !["", "空", "待补充"].includes(item.status) && <span>{item.status}</span>}{writable && <button className="icon-button" aria-label={`编辑${fragmentDisplayTitle(item)}`} title="编辑碎片" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
+    <header>{(item.key || item.climax) && <span>{item.key ? "关键" : "高潮"}</span>}<button className="icon-button" disabled={downloadingId === item.entityId} aria-label={`下载${fragmentDisplayTitle(item)}`} title={downloadingId === item.entityId ? "正在下载…" : "下载碎片"} onClick={(event) => void download(event, item)}><Icon name="download" /></button>{writable && <button className="icon-button" aria-label={`编辑${fragmentDisplayTitle(item)}`} title="编辑碎片" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
     <div className="fragment-card-copy"><h2>{fragmentDisplayTitle(item)}</h2><CompleteBlockPreview source={item.bodyPreview || "还没有正文"} className="fragment-card-preview content-card-preview" /></div>
     <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
   </article>;
@@ -712,7 +737,7 @@ export default function FragmentsPage() {
       return <ReactFragment key={item.entityId}>
         <article className={`fragment-card-new is-line${expanded ? " is-expanded" : ""}`} role="button" tabIndex={0} aria-expanded={expanded} aria-haspopup="dialog" style={{ "--accent": item.accent } as React.CSSProperties} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") toggle(); }}>
           <div className="fragment-card-index"><Icon name="timeline" /></div>
-          <header><span>{children.length} 个章节</span>{writable && <button className="icon-button" aria-label={`编辑${item.title}`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
+          <header><span>{children.length} 个章节{item.key || item.climax ? ` · ${item.key ? "关键" : "高潮"}` : ""}</span><button className="icon-button" disabled={downloadingId === item.entityId} aria-label={`下载${item.title}`} title={downloadingId === item.entityId ? "正在打包…" : "打包下载全部章节"} onClick={(event) => void download(event, item, children)}><Icon name="download" /></button>{writable && <button className="icon-button" aria-label={`编辑${item.title}`} title="编辑剧情线" onClick={(event) => edit(event, item)}><Icon name="edit" /></button>}</header>
           <div className="fragment-card-copy"><small>STORY LINE</small><h2>{item.title}</h2><CompleteBlockPreview source={fragmentLinePreviewOf(item, children)} className="fragment-card-preview content-card-preview" /></div>
           <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
           <span className="fragment-card-arrow" aria-hidden="true"><Icon name={expanded ? "collapse" : "expand"} /></span>

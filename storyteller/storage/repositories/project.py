@@ -65,6 +65,14 @@ def stored_persona(extra: dict[str, Any], section: str, fallback: list[dict[str,
     return result
 
 
+def story_name_key(value: str) -> str:
+    """Normalize legacy 篇/线 labels for the read-only stories compatibility view."""
+    text = str(value or "").strip()
+    if text in {"主线", "主故事"}:
+        return "主线"
+    return re.sub(r"(?:篇|线)$", "", text).strip() or text
+
+
 class ProjectRepository:
     def __init__(self, database: Database, project_id: str):
         self.database = database
@@ -145,12 +153,29 @@ class ProjectRepository:
             ):
                 lanes[str(row["plot_id"])].append(str(row["line_id"]))
 
+            timeline_name_ids = {
+                story_name_key(str(row["title"])): str(row["entity_id"])
+                for row in connection.execute(
+                    "SELECT l.entity_id, e.title FROM timeline_lines l JOIN entities e ON e.id=l.entity_id WHERE e.deleted_at IS NULL"
+                )
+            }
+            chapter_story_ids = {
+                str(row["entity_id"]): timeline_name_ids.get(story_name_key(str(row["label"])))
+                for row in connection.execute(
+                    "SELECT c.entity_id, c.label FROM chapters c JOIN entities e ON e.id=c.entity_id WHERE e.deleted_at IS NULL"
+                )
+            }
+
             characters = [self._character(row, aliases, markers, facts, supplements, include_body=False) for row in connection.execute(
                 "SELECT * FROM active_characters ORDER BY main_plot_impact DESC, stable_id"
             )]
             plots = [self._plot(row, plot_tags, plot_people, plot_entries, lanes, include_body=False) for row in connection.execute(
-                "SELECT * FROM active_plots ORDER BY sort_key, stable_id"
+                "SELECT * FROM active_plots ORDER BY chapter_number IS NULL, chapter_number, sort_key, stable_id"
             )]
+            for plot in plots:
+                legacy_story = chapter_story_ids.get(plot["chapterId"])
+                if legacy_story and legacy_story not in plot["stories"]:
+                    plot["stories"] = [*plot["stories"], legacy_story]
             entries = [self._entry(row, entry_aliases, entry_tags, entry_members, include_body=False) for row in connection.execute(
                 "SELECT * FROM active_entries ORDER BY type, stable_id"
             )]
@@ -240,6 +265,7 @@ class ProjectRepository:
             "entityId": identifier,
             "id": str(row["stable_id"]),
             "title": str(row["title"]),
+            "chapterNumber": int(row["chapter_number"]) if row["chapter_number"] is not None else None,
             "chapterId": str(row["chapter_id"] or ""),
             "sortKey": str(row["sort_key"]),
             "storySortKey": str(row["story_sort_key"]),
@@ -257,6 +283,7 @@ class ProjectRepository:
             "people": people.get(identifier, []),
             "entries": entries.get(identifier, []),
             "lanes": lanes.get(identifier, []),
+            "stories": lanes.get(identifier, []),
             "revision": int(row["revision"]),
             "extra": json_value(row["extra_json"], {}),
         }
@@ -303,19 +330,17 @@ class ProjectRepository:
         chapter_number = extra.get("chapterNumber")
         if not isinstance(chapter_number, int) or chapter_number <= 0:
             legacy_match = re.match(r"^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)", str(row["title"]))
-            chapter_number = (
-                int(legacy_match.group(1))
-                if legacy_match
-                else int(fragment_order) + 1
-                if parent_fragment_id and isinstance(fragment_order, int)
-                else None
-            )
+            # Fragment 章号是可选元数据；未提供时不以 fragmentOrder 推导，
+            # 否则仅仅调整视觉顺序就会改变用户看到的内部章号。
+            chapter_number = int(legacy_match.group(1)) if legacy_match else None
         result = {
             "entityId": identifier,
             "id": str(row["stable_id"]),
             "title": str(row["title"]),
             "status": str(row["status"]),
             "accent": str(row["accent"]),
+            "key": bool(row["is_key"]),
+            "climax": bool(row["is_climax"]),
             "tags": tags.get(identifier, []),
             "bodyPreview": preview(row["body_markdown"]),
             "revision": int(row["revision"]),
@@ -464,6 +489,18 @@ class ProjectRepository:
                 for item in connection.execute(f"SELECT line_id FROM {lanes_table} WHERE plot_id=?", (entity_id,)):
                     lanes[entity_id].append(str(item[0]))
                 base["data"] = self._plot(row, tags, people, entries, lanes, include_body=True)
+                legacy_chapter = str(row["chapter_id"] or "")
+                if legacy_chapter:
+                    chapter = connection.execute(
+                        "SELECT label FROM chapters WHERE entity_id=?", (legacy_chapter,)
+                    ).fetchone()
+                    if chapter:
+                        line = connection.execute(
+                            "SELECT l.entity_id FROM timeline_lines l JOIN entities e ON e.id=l.entity_id WHERE e.deleted_at IS NULL AND lower(trim(e.title)) IN (?, ?) LIMIT 1",
+                            (story_name_key(str(chapter[0])).lower(), (story_name_key(str(chapter[0])) + "线").lower()),
+                        ).fetchone()
+                        if line and str(line[0]) not in base["data"]["stories"]:
+                            base["data"]["stories"].append(str(line[0]))
             elif kind == "entry":
                 row = connection.execute("SELECT d.*, e.* FROM entries d JOIN entities e ON e.id=d.entity_id WHERE d.entity_id=?", (entity_id,)).fetchone()
                 aliases = self._values(connection, "entry_aliases", "entry_id", "alias")

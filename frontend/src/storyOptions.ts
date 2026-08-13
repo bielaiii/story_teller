@@ -1,6 +1,7 @@
 export const PLOT_STATUS_OPTIONS = ["素材", "草稿", "待串联", "已接入", "已完成"] as const;
 
-export function plotChapterNumber(title: string, fallback: number): number {
+export function plotChapterNumber(title: string, fallback: number, explicit?: number | null): number {
+  if (typeof explicit === "number" && Number.isFinite(explicit)) return explicit;
   const match = /^第\s*(\d+)\s*章$/.exec(title.trim());
   return match ? Number(match[1]) : fallback;
 }

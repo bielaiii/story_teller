@@ -512,7 +512,10 @@
 .fragment-card-new::before { content: none; }
 .fragment-card-new p { max-height: none; overflow: visible; white-space: pre-wrap; }
 .fragment-card-new .icon-button { width: 34px; height: 34px; background: transparent; box-shadow: none; }
-.fragment-card-new header .icon-button { margin-left: auto; }
+.fragment-card-new .icon-button:hover:not(:disabled),
+.fragment-card-new .icon-button:focus-visible { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface-solid)); }
+.fragment-card-new .icon-button:disabled { cursor: wait; opacity: .55; }
+.fragment-card-new header .icon-button:first-of-type { margin-left: auto; }
 .fragment-page-actions {
   display: flex;
   align-items: center;

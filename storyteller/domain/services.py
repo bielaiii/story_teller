@@ -13,7 +13,6 @@ from storyteller.storage.connection import Database
 
 RETENTION_SECONDS = 7 * 24 * 60 * 60
 RANK_STEP = 10**12
-PLOT_CHAPTER_TITLE = re.compile(r"^第\s*(\d+)\s*章$")
 FRAGMENT_CHAPTER_TITLE = re.compile(r"^第\s*(\d+)\s*章(?:\s*[：:·—-]\s*|\s+)")
 ORDERED_ENTITIES = {
     "plot": ("plots", "active_plots"),
@@ -94,27 +93,19 @@ class EntityService:
         timestamp: int,
     ) -> None:
         occupied = {
-            int(match.group(1)): (str(row["entity_id"]), str(row["title"]))
+            int(row["chapter_number"]): str(row["entity_id"])
             for row in connection.execute(
                 """
-                SELECT p.entity_id, e.title
+                SELECT p.entity_id, p.chapter_number
                 FROM active_plots p
-                JOIN active_entities e ON e.id=p.entity_id
+                WHERE p.chapter_number IS NOT NULL
                 """
             )
-            if (match := PLOT_CHAPTER_TITLE.fullmatch(str(row["title"]).strip()))
         }
         next_number = deleted_number + 1
         while next_number in occupied:
-            entity_id, _ = occupied[next_number]
-            connection.execute(
-                """
-                UPDATE entities
-                SET title=?, revision=revision+1, updated_at=?
-                WHERE id=?
-                """,
-                (f"第 {next_number - 1} 章", timestamp, entity_id),
-            )
+            entity_id = occupied[next_number]
+            connection.execute("UPDATE plots SET chapter_number=? WHERE entity_id=?", (next_number - 1, entity_id))
             next_number += 1
 
     @staticmethod
@@ -124,15 +115,15 @@ class EntityService:
         timestamp: int,
     ) -> None:
         occupied = {
-            int(match.group(1)): str(row["entity_id"])
+            int(row["chapter_number"]): str(row["entity_id"])
             for row in connection.execute(
                 """
-                SELECT p.entity_id, e.title
+                SELECT p.entity_id, p.chapter_number
                 FROM active_plots p
                 JOIN active_entities e ON e.id=p.entity_id
+                WHERE p.chapter_number IS NOT NULL
                 """
             )
-            if (match := PLOT_CHAPTER_TITLE.fullmatch(str(row["title"]).strip()))
         }
         displaced: list[tuple[int, str]] = []
         next_number = chapter_number
@@ -140,14 +131,7 @@ class EntityService:
             displaced.append((next_number, occupied[next_number]))
             next_number += 1
         for number, entity_id in reversed(displaced):
-            connection.execute(
-                """
-                UPDATE entities
-                SET title=?, revision=revision+1, updated_at=?
-                WHERE id=?
-                """,
-                (f"第 {number + 1} 章", timestamp, entity_id),
-            )
+            connection.execute("UPDATE plots SET chapter_number=? WHERE entity_id=?", (number + 1, entity_id))
 
     @staticmethod
     def _compact_fragment_chapters(
@@ -206,8 +190,8 @@ class EntityService:
             deleted_fragment_parent: str | None = None
             deleted_fragment_number: int | None = None
             if entity["kind"] == "plot":
-                match = PLOT_CHAPTER_TITLE.fullmatch(str(entity["title"]).strip())
-                deleted_plot_number = int(match.group(1)) if match else None
+                plot_row = connection.execute("SELECT chapter_number FROM plots WHERE entity_id=?", (entity_id,)).fetchone()
+                deleted_plot_number = int(plot_row[0]) if plot_row and plot_row[0] is not None else None
             if entity["kind"] == "chapter":
                 count = int(connection.execute(
                     """
@@ -376,11 +360,11 @@ class EntityService:
                             timestamp,
                         )
             if entity["kind"] == "plot":
-                match = PLOT_CHAPTER_TITLE.fullmatch(str(entity["title"]).strip())
-                if match:
+                plot_row = connection.execute("SELECT chapter_number FROM plots WHERE entity_id=?", (entity_id,)).fetchone()
+                if plot_row and plot_row[0] is not None:
                     self._open_plot_chapter_slot(
                         connection,
-                        int(match.group(1)),
+                        int(plot_row[0]),
                         timestamp,
                     )
             ordered = ORDERED_ENTITIES.get(str(entity["kind"]))

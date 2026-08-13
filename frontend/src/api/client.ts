@@ -216,6 +216,28 @@ export class StoryApi {
       throw error;
     }
   }
+
+  markdownImportPreview(payload: Record<string, unknown>): Promise<{
+    baseRevision: number;
+    items: Array<Record<string, unknown>>;
+    conflicts: Array<Record<string, unknown>>;
+    requiresResolution: boolean;
+    fileCount: number;
+    fingerprint: string;
+  }> {
+    return this.authorizedRequest(`/imports/markdown/preview`, "POST", payload);
+  }
+
+  plotTitlePreview(): Promise<{
+    items: Array<{ entityId: string; chapterNumber: number | null; currentTitle: string; candidateTitle: string; candidateSource: string; bodyPreview: string; stories: string[]; recommendedAction: string }>;
+    count: number;
+  }> {
+    return fetch(`/api/v1/projects/${encodeURIComponent(this.project)}/maintenance/plot-titles`, { cache: "no-store" })
+      .then(parseResponse<{
+        items: Array<{ entityId: string; chapterNumber: number | null; currentTitle: string; candidateTitle: string; candidateSource: string; bodyPreview: string; stories: string[]; recommendedAction: string }>;
+        count: number;
+      }>);
+  }
 }
 
 export async function loadStaticSnapshot(): Promise<ProjectSnapshot> {

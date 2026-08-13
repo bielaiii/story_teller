@@ -4,7 +4,7 @@ interface Props {
     | "settings" | "undo" | "redo" | "arrow" | "bold" | "italic" | "heading" | "bullet"
     | "numbered" | "quote" | "code" | "link" | "up" | "down" | "replace" | "preview"
     | "expand" | "collapse" | "save" | "check" | "help" | "warning" | "info"
-    | "filter" | "tag" | "more" | "sidebar" | "timeline" | "clipboard";
+    | "filter" | "tag" | "more" | "sidebar" | "timeline" | "clipboard" | "download";
 }
 
 const paths: Record<Props["name"], React.ReactNode> = {
@@ -46,6 +46,7 @@ const paths: Record<Props["name"], React.ReactNode> = {
   sidebar: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M12 8h6M12 12h6M12 16h4" /></>,
   timeline: <><path d="M8 3v18M8 8h4a4 4 0 0 1 4 4v1" /><circle cx="8" cy="6" r="2" /><circle cx="8" cy="18" r="2" /><circle cx="16" cy="15" r="2" /></>,
   clipboard: <><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4.5V3h6v1.5A1.5 1.5 0 0 1 13.5 6h-3A1.5 1.5 0 0 1 9 4.5ZM8.5 10h7M8.5 14h7M8.5 18h4" /></>,
+  download: <><path d="M12 3v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
 };
 
 export function Icon({ name }: Props) {

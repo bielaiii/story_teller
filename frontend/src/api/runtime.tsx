@@ -83,6 +83,7 @@ export function useProjectMutation() {
         return await api.mutate(path, method, { ...requestPayload, baseRevision: submitted.project.revision });
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
+        if (path.endsWith("/imports/markdown/apply")) throw error;
         const latest = await api.snapshot();
         const canRetry = canRetryAgainstLatest(path, submitted, latest)
           || (method === "POST" && isContentCreatePath(path));

@@ -349,6 +349,10 @@ class V3Migrator:
                 "INSERT OR REPLACE INTO metadata(key, value) VALUES('migrated_from_sha256', ?)",
                 (file_sha256(self.source.database_path),),
             )
+            if "chapter_number" in {str(row[1]) for row in connection.execute("PRAGMA table_info(plots)")}:
+                connection.execute(
+                    "UPDATE plots SET chapter_number=(SELECT COUNT(*) FROM plots earlier WHERE earlier.sort_key <= plots.sort_key) WHERE chapter_number IS NULL"
+                )
             violations = [tuple(row) for row in connection.execute("PRAGMA foreign_key_check")]
             if violations:
                 raise ValueError(f"迁移后的数据库存在外键错误：{violations[:5]}")
@@ -1052,7 +1056,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
         }
     if current_version == 4:
         source_digest = file_sha256(database)
-        backup = database.with_name(f"story.{source_digest[:12]}.v4-backup.db")
+        backup = database.with_name(f"story.{source_digest[:12]}.v{current_version}-backup.db")
         if keep_backup and not backup.exists():
             shutil.copy2(database, backup)
         try:
@@ -1076,7 +1080,7 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
             "ok": True,
             "alreadyMigrated": False,
             "database": str(database),
-            "sourceSchemaVersion": 4,
+            "sourceSchemaVersion": current_version,
             "schemaVersion": SCHEMA_VERSION,
             "backup": str(backup) if keep_backup else "",
         }
@@ -1138,6 +1142,14 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
     try:
         report = V3Migrator(database, root.name).migrate_to(temporary)
         with sqlite3.connect(temporary) as connection:
+            # V3Migrator builds the normalized V6 shape through initialize_schema.
+            # Ensure legacy placeholder titles also get a durable chapter number.
+            if schema_version(connection) == 5:
+                migrate_v5_to_v6(connection)
+            if "chapter_number" in {str(row[1]) for row in connection.execute("PRAGMA table_info(plots)")}:
+                connection.execute(
+                    "UPDATE plots SET chapter_number=(SELECT COUNT(*) FROM plots earlier WHERE earlier.sort_key <= plots.sort_key) WHERE chapter_number IS NULL"
+                )
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
             foreign_keys = list(connection.execute("PRAGMA foreign_key_check"))
         if integrity != "ok" or foreign_keys:
