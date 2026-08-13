@@ -24,6 +24,7 @@ from storyteller.storage.schema import (
     migrate_v6_to_v7,
     migrate_v7_to_v8,
     migrate_v8_to_v9,
+    repair_schema_v9_compatibility,
 )
 
 
@@ -936,6 +937,33 @@ def migrate_database_atomic(project_root: Path, *, keep_backup: bool = True) -> 
     with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as source:
         current_version = schema_version(source)
     if current_version == SCHEMA_VERSION:
+        with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as source:
+            plot_columns = {str(row[1]) for row in source.execute("PRAGMA table_info(plots)")}
+            fragment_columns = {str(row[1]) for row in source.execute("PRAGMA table_info(fragments)")}
+            needs_compatibility_repair = (
+                "chapter_number" not in plot_columns
+                or any(column not in fragment_columns for column in ("is_key", "is_climax"))
+            )
+        if needs_compatibility_repair:
+            source_digest = file_sha256(database)
+            backup = database.with_name(f"story.{source_digest[:12]}.v9-compat-backup.db")
+            if keep_backup and not backup.exists():
+                shutil.copy2(database, backup)
+            with sqlite3.connect(database) as connection:
+                repair_schema_v9_compatibility(connection)
+                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Schema V9 兼容修复后数据库完整性检查失败")
+                if list(connection.execute("PRAGMA foreign_key_check")):
+                    raise ValueError("Schema V9 兼容修复后数据库外键检查失败")
+            Database(root).require_v3()
+            return {
+                "ok": True,
+                "alreadyMigrated": False,
+                "database": str(database),
+                "sourceSchemaVersion": SCHEMA_VERSION,
+                "schemaVersion": SCHEMA_VERSION,
+                "backup": str(backup) if keep_backup else "",
+            }
         Database(root).require_v3()
         normalized = normalize_graph_visibility(database, root.name)
         return {

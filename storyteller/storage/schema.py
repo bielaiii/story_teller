@@ -503,6 +503,48 @@ def initialize_schema(connection) -> None:
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+def repair_schema_v9_compatibility(connection) -> bool:
+    """Repair V9 databases created before the durable story structure fields existed."""
+    plot_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(plots)")}
+    fragment_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(fragments)")}
+    missing_chapter_number = "chapter_number" not in plot_columns
+    missing_fragment_flags = {
+        column for column in ("is_key", "is_climax") if column not in fragment_columns
+    }
+    if not missing_chapter_number and not missing_fragment_flags:
+        return False
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        if missing_chapter_number:
+            connection.execute(
+                "ALTER TABLE plots ADD COLUMN chapter_number INTEGER "
+                "CHECK(chapter_number IS NULL OR chapter_number BETWEEN 1 AND 99999)"
+            )
+            connection.execute(
+                """
+                UPDATE plots
+                SET chapter_number = CAST(substr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), 2,
+                    instr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), '章') - 2) AS INTEGER)
+                WHERE trim((SELECT title FROM entities WHERE id=plots.entity_id)) GLOB '第 * 章'
+                  AND trim((SELECT title FROM entities WHERE id=plots.entity_id)) NOT GLOB '第 * 章* *'
+                """
+            )
+            connection.execute(
+                "UPDATE plots SET chapter_number=(SELECT COUNT(*) FROM plots earlier "
+                "WHERE earlier.sort_key <= plots.sort_key) WHERE chapter_number IS NULL"
+            )
+        for column in sorted(missing_fragment_flags):
+            connection.execute(
+                f"ALTER TABLE fragments ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(" + column + " IN (0, 1))"
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    return True
+
+
 def migrate_v3_to_v4(connection) -> None:
     """Add durable Git merge sessions without rewriting normalized content."""
     connection.executescript(
