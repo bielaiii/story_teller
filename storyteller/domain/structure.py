@@ -109,10 +109,6 @@ class StructureService:
                 )
             for index, identifier in enumerate(plot_ids, start=1):
                 connection.execute("UPDATE plots SET sort_key=? WHERE entity_id=?", (rank(index), identifier))
-                connection.execute(
-                    "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
-                    (f"第 {index} 章", now, identifier),
-                )
             ContentService._sync_follow_reading_story_sort_keys(connection)
 
         return self.uow.mutate(
@@ -201,24 +197,14 @@ class StructureService:
                     raise DomainError("剧情引用了不存在或待删除的篇章")
                 row = active_plots[identifier]
                 next_rank = rank(index)
-                next_title = f"第 {index} 章"
-                current_title = connection.execute(
-                    "SELECT title FROM active_entities WHERE id=?", (identifier,)
-                ).fetchone()[0]
                 changed = (
                     str(row["chapter_id"] or "") != chapter_id
                     or str(row["sort_key"]) != next_rank
-                    or str(current_title) != next_title
                 )
                 connection.execute(
-                    "UPDATE plots SET chapter_id=?, sort_key=? WHERE entity_id=?",
-                    (chapter_id or None, next_rank, identifier),
+                    "UPDATE plots SET chapter_id=?, chapter_number=?, sort_key=? WHERE entity_id=?",
+                    (chapter_id or None, index, next_rank, identifier),
                 )
-                if changed:
-                    connection.execute(
-                        "UPDATE entities SET title=?, revision=revision+1, updated_at=? WHERE id=?",
-                        (next_title, now, identifier),
-                    )
 
             for identifier in set(existing_chapters) - retained_set:
                 if connection.execute(
@@ -456,7 +442,7 @@ class StructureService:
             str(row["entity_id"]): row
             for row in connection.execute(
                 """
-                SELECT plot.entity_id, plot.sort_key, entity.title
+            SELECT plot.entity_id, plot.sort_key
                 FROM active_plots plot
                 JOIN active_entities entity ON entity.id=plot.entity_id
                 """
@@ -470,21 +456,10 @@ class StructureService:
             )
         for index, plot_id in enumerate(ordered, start=1):
             next_sort_key = rank(index)
-            next_title = f"第 {submitted[plot_id]} 章"
-            previous = current_rows[plot_id]
             connection.execute(
-                "UPDATE plots SET sort_key=? WHERE entity_id=?",
-                (next_sort_key, plot_id),
+                "UPDATE plots SET sort_key=?, chapter_number=? WHERE entity_id=?",
+                (next_sort_key, submitted[plot_id], plot_id),
             )
-            if str(previous["sort_key"]) != next_sort_key or str(previous["title"]) != next_title:
-                connection.execute(
-                    """
-                    UPDATE entities
-                    SET title=?, revision=revision+1, updated_at=?
-                    WHERE id=?
-                    """,
-                    (next_title, now, plot_id),
-                )
 
     def update_graph(self, base_revision: int, payload: dict[str, Any]) -> MutationResult:
         now = int(time.time())

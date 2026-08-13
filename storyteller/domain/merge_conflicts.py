@@ -21,6 +21,7 @@ FIELD_LABELS = {
     "summary": "摘要",
     "status": "状态",
     "chapter_id": "所属篇章",
+    "chapter_number": "正式章号",
     "sort_key": "排列位置",
     "story_sort_key": "故事顺序",
     "story_order_mode": "故事时间模式",

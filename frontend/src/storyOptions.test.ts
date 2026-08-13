@@ -5,6 +5,10 @@ describe("plot chapter numbers", () => {
   it("uses the chapter number in the title instead of the reading sequence", () => {
     expect(plotChapterNumber("第 17 章", 2)).toBe(17);
   });
+
+  it("prefers the persisted chapter number over a title or reading fallback", () => {
+    expect(plotChapterNumber("港口重逢", 2, 999)).toBe(999);
+  });
 });
 
 describe("tag colors", () => {

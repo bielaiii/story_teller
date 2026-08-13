@@ -45,7 +45,7 @@ export interface Plot {
   entityId: string;
   id: string;
   title: string;
-  chapterId: string;
+  chapterNumber?: number | null;
   sortKey: string;
   storySortKey?: string;
   storyOrderMode?: "follow_reading" | "fixed";
@@ -57,12 +57,12 @@ export interface Plot {
   body?: string;
   status: string;
   accent: string;
-  key: boolean;
-  climax: boolean;
+  key?: boolean;
+  climax?: boolean;
   tags: string[];
   people: string[];
   entries: string[];
-  lanes: string[];
+  stories?: string[];
   references?: string[];
   revision: number;
   extra: Record<string, unknown>;
@@ -100,6 +100,8 @@ export interface Fragment {
   title: string;
   status: string;
   accent: string;
+  key?: boolean;
+  climax?: boolean;
   tags: string[];
   bodyPreview: string;
   body?: string;

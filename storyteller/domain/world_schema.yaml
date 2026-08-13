@@ -44,10 +44,13 @@ entityKinds:
     fields:
       title: {label: 标题, type: text, source: entities.title, aiVisible: true, searchable: true, exportable: true}
       chapterId: {label: 篇章, type: entity-reference, source: plots.chapter_id, target: chapter, aiVisible: true, searchable: true, exportable: true}
+      chapterNumber: {label: 章号, type: integer, source: plots.chapter_number, aiVisible: true, searchable: false, exportable: true}
       summary: {label: 概要, type: text, source: plots.summary, aiVisible: true, searchable: true, exportable: true}
       body: {label: 正文, type: markdown, source: plots.body_markdown, aiVisible: true, searchable: true, exportable: true}
       status: {label: 状态, type: text, source: plots.status, aiVisible: true, searchable: true, exportable: true}
       tags: {label: 标签, type: text-list, source: plot_tags.tag, aiVisible: true, searchable: true, exportable: true}
+      key: {label: 关键剧情, type: boolean, source: plots.is_key, aiVisible: true, searchable: false, exportable: true}
+      climax: {label: 高潮剧情, type: boolean, source: plots.is_climax, aiVisible: true, searchable: false, exportable: true}
       people: {label: 出场人物, type: entity-reference-list, source: plot_characters.character_id, target: character, aiVisible: true, searchable: true, exportable: true}
       entries: {label: 相关设定, type: entity-reference-list, source: plot_entries.entry_id, target: entry, aiVisible: true, searchable: true, exportable: true}
       storySortKey: {label: 故事时间位置, type: rank, source: plots.story_sort_key, aiVisible: true, searchable: false, exportable: true}
@@ -63,6 +66,8 @@ entityKinds:
       body: {label: 内容, type: markdown, source: fragments.body_markdown, aiVisible: true, searchable: true, exportable: true}
       status: {label: 状态, type: text, source: fragments.status, aiVisible: true, searchable: true, exportable: true}
       tags: {label: 标签, type: text-list, source: fragment_tags.tag, aiVisible: true, searchable: true, exportable: true}
+      key: {label: 关键片段, type: boolean, source: fragments.is_key, aiVisible: true, searchable: false, exportable: true}
+      climax: {label: 高潮片段, type: boolean, source: fragments.is_climax, aiVisible: true, searchable: false, exportable: true}
       fragmentType: {label: 碎片类型, type: enum, source: entities.extra_json, aiVisible: true, searchable: true, exportable: true}
       parentFragmentId: {label: 所属剧情线, type: entity-reference, source: entities.extra_json, target: fragment, aiVisible: true, searchable: false, exportable: true}
       chapterNumber: {label: 规划章号, type: integer, source: entities.extra_json, aiVisible: true, searchable: false, exportable: true}

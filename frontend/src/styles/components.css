@@ -682,3 +682,9 @@
 .empty-state { min-height: 300px; display: grid; place-content: center; justify-items: center; color: var(--muted); }
 .empty-state .icon { width: 35px; height: 35px; }
 .empty-state.compact { min-height: 140px; }
+.plot-card-title {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.35;
+}

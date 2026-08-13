@@ -65,7 +65,7 @@ class CharacterPatch(MutationRequest):
 class PlotCreate(MutationRequest):
     stable_id: str = Field(default="", alias="stableId")
     title: str
-    chapter_number: int | None = Field(default=None, alias="chapterNumber", ge=1, le=99999)
+    chapter_number: int = Field(alias="chapterNumber", ge=1, le=99999)
     shift_following: bool = Field(default=False, alias="shiftFollowing")
     chapter_id: str | None = Field(default=None, alias="chapterId")
     after_entity_id: str | None = Field(default=None, alias="afterEntityId")
@@ -80,6 +80,7 @@ class PlotCreate(MutationRequest):
     appearance_names: list[str] = Field(default=[], alias="appearanceNames")
     entries: list[str] = []
     lanes: list[str] = []
+    stories: list[str] = []
     story_position_mode: Literal["follow_reading", "before", "after", "fixed"] = Field(default="follow_reading", alias="storyPositionMode")
     story_anchor_plot_id: str | None = Field(default=None, alias="storyAnchorPlotId")
     story_sort_key: str | None = Field(default=None, alias="storySortKey")
@@ -102,6 +103,7 @@ class PlotPatch(MutationRequest):
     appearance_names: list[str] | None = Field(default=None, alias="appearanceNames")
     entries: list[str] | None = None
     lanes: list[str] | None = None
+    stories: list[str] | None = None
     story_position_mode: Literal["follow_reading", "before", "after", "fixed"] | None = Field(default=None, alias="storyPositionMode")
     story_anchor_plot_id: str | None = Field(default=None, alias="storyAnchorPlotId")
     story_sort_key: str | None = Field(default=None, alias="storySortKey")
@@ -152,6 +154,8 @@ class FragmentCreate(MutationRequest):
     body: str = ""
     status: str = ""
     accent: str = "#7d6bd6"
+    key: bool = False
+    climax: bool = False
     tags: list[str] = []
     people: list[str] = []
     appearance_names: list[str] = Field(default=[], alias="appearanceNames")
@@ -169,6 +173,8 @@ class FragmentPatch(MutationRequest):
     body: str | None = None
     status: str | None = None
     accent: str | None = None
+    key: bool | None = None
+    climax: bool | None = None
     tags: list[str] | None = None
     people: list[str] | None = None
     appearance_names: list[str] | None = Field(default=None, alias="appearanceNames")
@@ -183,6 +189,43 @@ class FragmentPatch(MutationRequest):
 
 class FragmentClipboardImport(MutationRequest):
     text: str
+
+
+class MarkdownImportFile(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    path: str
+    text: str
+    modified_at: int | None = Field(default=None, alias="modifiedAt", ge=0)
+
+
+class MarkdownImportRequest(MutationRequest):
+    files: list[MarkdownImportFile]
+    allow_conflicts: bool = Field(default=False, alias="allowConflicts")
+    preview_fingerprint: str | None = Field(default=None, alias="previewFingerprint")
+
+
+class PlotTitleRepairApply(MutationRequest):
+    plot_ids: list[str] = Field(alias="plotIds", min_length=1)
+
+
+class PlotTitleRepairConfirmItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    plot_id: str = Field(alias="plotId")
+    title: str
+
+
+class PlotTitleRepairConfirm(MutationRequest):
+    items: list[PlotTitleRepairConfirmItem] = Field(min_length=1)
+
+
+class StoryMigrationApply(MutationRequest):
+    acknowledge_warnings: bool = Field(default=False, alias="acknowledgeWarnings")
+
+
+class FragmentToPlotRequest(MutationRequest):
+    chapter_number: int = Field(alias="chapterNumber", ge=1, le=99999)
+    title: str | None = None
+    stories: list[str] = []
 
 
 class RelationshipCreate(MutationRequest):

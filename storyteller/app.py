@@ -21,6 +21,11 @@ from storyteller.api.models import (
     GraphUpdate,
     MergeConflictResolutionRequest,
     MutationRequest,
+    MarkdownImportRequest,
+    PlotTitleRepairApply,
+    PlotTitleRepairConfirm,
+    StoryMigrationApply,
+    FragmentToPlotRequest,
     PlotCreate,
     PlotPatch,
     PlotOrderUpdate,
@@ -32,6 +37,7 @@ from storyteller.api.models import (
     mutation_payload,
 )
 from storyteller.domain.content import ContentService
+from storyteller.domain.maintenance import MaintenanceService
 from storyteller.domain.errors import (
     ConflictError,
     DomainError,
@@ -48,6 +54,7 @@ from storyteller.rag.manager import RagManager
 from storyteller.settings import Settings
 from storyteller.storage.connection import Database
 from storyteller.storage.repositories import ProjectRepository
+from storyteller.imports.markdown import MarkdownFile, MarkdownImportService
 
 
 FEATURES = [
@@ -57,6 +64,8 @@ FEATURES = [
     "timeline-drag-chapter-swap-v1",
     "fragment-stacks-v1",
     "fragment-clipboard-import-v1",
+    "markdown-bulk-import-v1",
+    "stories-unification-v1",
     "fragment-plot-planning-v1",
     "appearance-people-v1",
     "organizations-and-layered-relationships-v1",
@@ -188,7 +197,10 @@ def create_app(settings: Settings) -> FastAPI:
                 "timelineChapterSwap": True,
                 "fragmentStacks": True,
                 "fragmentClipboardImport": True,
-                "fragmentPlotPlanning": True,
+                "markdownImport": True,
+                "fragmentPlotPlanning": False,
+                "storiesMaintenance": True,
+                "plotTitleMaintenance": True,
                 "appearancePeople": True,
                 "mergeConflicts": True,
                 "ragRebuild": True,
@@ -198,6 +210,38 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/v1/projects/{project}/snapshot")
     def project_snapshot(project: str):
         return ProjectRepository(database_for(project), project).snapshot()
+
+    @app.get("/api/v1/projects/{project}/maintenance/plot-titles")
+    def preview_plot_titles(project: str):
+        return MaintenanceService(database_for(project), project).preview_plot_titles()
+
+    @app.post("/api/v1/projects/{project}/maintenance/plot-titles/move-to-fragments", dependencies=[Depends(require_write_token)])
+    def move_unresolved_plot_titles(project: str, payload: PlotTitleRepairApply):
+        database = database_for(project)
+        result = MaintenanceService(database, project).move_unresolved_plots_to_fragments(payload.base_revision, payload.plot_ids)
+        return finish_mutation(database, project, result)
+
+    @app.post("/api/v1/projects/{project}/maintenance/plot-titles/apply", dependencies=[Depends(require_write_token)])
+    def apply_plot_title_candidates(project: str, payload: PlotTitleRepairConfirm):
+        database = database_for(project)
+        result = MaintenanceService(database, project).apply_plot_title_candidates(
+            payload.base_revision,
+            [item.model_dump() for item in payload.items],
+        )
+        return finish_mutation(database, project, result)
+
+    @app.get("/api/v1/projects/{project}/maintenance/stories")
+    def preview_story_migration(project: str):
+        return MaintenanceService(database_for(project), project).preview_stories()
+
+    @app.post("/api/v1/projects/{project}/maintenance/stories/migrate", dependencies=[Depends(require_write_token)])
+    def migrate_stories(project: str, payload: StoryMigrationApply):
+        database = database_for(project)
+        result = MaintenanceService(database, project).migrate_stories(
+            payload.base_revision,
+            acknowledge_warnings=payload.acknowledge_warnings,
+        )
+        return finish_mutation(database, project, result)
 
     @app.get("/api/v1/projects/{project}/merge-conflicts")
     def merge_conflicts(project: str):
@@ -314,6 +358,30 @@ def create_app(settings: Settings) -> FastAPI:
         )
         return finish_mutation(database, project, result)
 
+    @app.post(
+        "/api/v1/projects/{project}/imports/markdown/preview",
+        dependencies=[Depends(require_write_token)],
+    )
+    def preview_markdown_import(project: str, payload: MarkdownImportRequest):
+        files = [MarkdownFile(item.path, item.text, item.modified_at) for item in payload.files]
+        return MarkdownImportService(database_for(project), project).preview(payload.base_revision, files)
+
+    @app.post(
+        "/api/v1/projects/{project}/imports/markdown/apply",
+        dependencies=[Depends(require_write_token)],
+    )
+    def apply_markdown_import(project: str, payload: MarkdownImportRequest):
+        database = database_for(project)
+        files = [MarkdownFile(item.path, item.text, item.modified_at) for item in payload.files]
+        result = MarkdownImportService(database, project).apply(
+            payload.base_revision, files,
+            allow_conflicts=payload.allow_conflicts,
+            preview_fingerprint=payload.preview_fingerprint,
+        )
+        response = finish_mutation(database, project, result)
+        response["import"] = result.callback_result
+        return response
+
     @app.patch("/api/v1/projects/{project}/fragments/{entity_id:path}", dependencies=[Depends(require_write_token)])
     def update_fragment(project: str, entity_id: str, payload: FragmentPatch):
         database = database_for(project)
@@ -321,10 +389,10 @@ def create_app(settings: Settings) -> FastAPI:
         return finish_mutation(database, project, result)
 
     @app.post("/api/v1/projects/{project}/fragments/{entity_id}/to-plot", dependencies=[Depends(require_write_token)])
-    def move_fragment_to_plot(project: str, entity_id: str, payload: MutationRequest):
+    def move_fragment_to_plot(project: str, entity_id: str, payload: FragmentToPlotRequest):
         database = database_for(project)
         result = ContentService(database, project).move_fragment_to_plot(
-            entity_id, payload.base_revision
+            entity_id, payload.base_revision, mutation_payload(payload)
         )
         return finish_mutation(database, project, result)
 

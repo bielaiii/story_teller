@@ -14,19 +14,19 @@ const snapshot: ProjectSnapshot = {
   characters: [],
   plots: [
     {
-      entityId: "plot:a", id: "a", title: "第 12 章", chapterId: "", sortKey: "001",
+      entityId: "plot:a", id: "a", title: "第 12 章", chapterNumber: 12, sortKey: "001",
       sequence: 1, summary: "甲", bodyPreview: "甲", status: "草稿", accent: "#c94f62",
-      key: false, climax: false, tags: [], people: [], entries: [], lanes: [], revision: 1, extra: {},
+      key: false, climax: false, tags: [], people: [], entries: [], stories: [], revision: 1, extra: {},
     },
     {
-      entityId: "plot:b", id: "b", title: "第 37 章", chapterId: "", sortKey: "002",
+      entityId: "plot:b", id: "b", title: "第 37 章", chapterNumber: 37, sortKey: "002",
       sequence: 2, summary: "乙", bodyPreview: "乙", status: "草稿", accent: "#3979b8",
-      key: false, climax: false, tags: [], people: [], entries: [], lanes: [], revision: 1, extra: {},
+      key: false, climax: false, tags: [], people: [], entries: [], stories: [], revision: 1, extra: {},
     },
     {
-      entityId: "plot:c", id: "c", title: "第 999 章", chapterId: "", sortKey: "003",
+      entityId: "plot:c", id: "c", title: "第 999 章", chapterNumber: 999, sortKey: "003",
       sequence: 3, summary: "丙", bodyPreview: "丙", status: "草稿", accent: "#2b8a72",
-      key: false, climax: false, tags: [], people: [], entries: [], lanes: [], revision: 1, extra: {},
+      key: false, climax: false, tags: [], people: [], entries: [], stories: [], revision: 1, extra: {},
     },
   ],
   entries: [],

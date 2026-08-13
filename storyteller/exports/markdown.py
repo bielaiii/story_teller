@@ -79,29 +79,22 @@ class MarkdownExporter:
             name = safe_filename(detail["name"], detail["id"])
             files[f"characters/{detail['id']}-{name}.md"] = markdown_document(metadata, detail["intro"]).encode("utf-8")
 
-        chapter_stable = {item["entityId"]: item["id"] for item in chapters}
         line_names = {item["entityId"]: item["name"] for item in snapshot["timeline"]["lines"]}
         for item in snapshot["plots"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
             detail = hydrate_registered_fields(self.database, "plot", item["entityId"], detail)
             metadata = {
-                "id": int(detail["id"]) if detail["id"].isdigit() else detail["id"],
-                "chapter": chapter_stable.get(detail["chapterId"], ""),
-                "title": detail["title"], "summary": detail["summary"],
-                "people": [value.removeprefix("character:") for value in detail["people"]],
-                "entries": [value.removeprefix("entry:") for value in detail["entries"]],
-                "accent": detail["accent"],
-                "lanes": [line_names.get(value, value.removeprefix("timeline_line:")) for value in detail["lanes"]],
+                "chapterNumber": detail.get("chapterNumber"),
+                "stories": [line_names.get(value, value.removeprefix("timeline_line:")) for value in (detail.get("stories") or detail.get("lanes", []))],
+                "summary": detail["summary"],
                 "status": detail["status"], "tags": detail["tags"],
                 "key": detail["key"], "climax": detail["climax"],
-                "references": detail.get("references", []),
             }
             metadata.update(detail.get("extra", {}))
             for key, value in exportable_metadata("plot", detail).items():
                 metadata.setdefault(key, value)
             title = safe_filename(detail["title"], detail["id"])
-            prefix = f"{int(detail['id']):03d}" if detail["id"].isdigit() else safe_filename(detail["id"], "plot")
-            files[f"plots/{prefix}-{title}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
+            files[f"plots/{title}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
 
         for item in snapshot["entries"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]
@@ -127,18 +120,35 @@ class MarkdownExporter:
                 metadata.setdefault(key, value)
             files[f"entries/{safe_filename(detail['id'], 'entry')}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
 
-        for item in snapshot["fragments"]:
-            detail = self.repository.entity_detail(item["entityId"])["data"]
-            detail = hydrate_registered_fields(self.database, "fragment", item["entityId"], detail)
+        fragment_details = {
+            item["entityId"]: hydrate_registered_fields(
+                self.database,
+                "fragment",
+                item["entityId"],
+                self.repository.entity_detail(item["entityId"])["data"],
+            )
+            for item in snapshot["fragments"]
+        }
+        for detail in fragment_details.values():
+            if detail.get("fragmentType") == "line":
+                directory = safe_filename(detail["title"], detail["id"])
+                files[f"fragments/{directory}/_story.md"] = markdown_document(
+                    {"tags": detail["tags"], "key": detail["key"], "climax": detail["climax"]},
+                    detail.get("body", ""),
+                ).encode("utf-8")
+                continue
+            parent = fragment_details.get(str(detail.get("parentFragmentId"))) if detail.get("parentFragmentId") else None
             metadata = {
-                "id": detail["id"], "title": detail["title"], "status": detail["status"],
-                "tags": detail["tags"], "accent": detail["accent"],
-                "references": detail.get("references", []),
+                "story": parent["title"] if parent else None,
+                "order": detail.get("fragmentOrder", 0),
+                "chapterNumber": detail.get("chapterNumber"),
+                "tags": detail["tags"], "key": detail["key"], "climax": detail["climax"],
             }
             metadata.update(detail.get("extra", {}))
             for key, value in exportable_metadata("fragment", detail).items():
                 metadata.setdefault(key, value)
-            files[f"fragments/{safe_filename(detail['id'], 'fragment')}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
+            directory = f"{safe_filename(parent['title'], parent['id'])}/" if parent else ""
+            files[f"fragments/{directory}{safe_filename(detail['title'], detail['id'])}.md"] = markdown_document(metadata, detail.get("body", "")).encode("utf-8")
 
         for item in snapshot["relationships"]:
             detail = self.repository.entity_detail(item["entityId"])["data"]

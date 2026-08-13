@@ -614,6 +614,22 @@ tables:
         primaryKey: false
         default: '''#7d6bd6'''
         review: internal
+      is_key:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: domain
+        fields:
+        - fragment.key
+      is_climax:
+        storageType: INTEGER
+        required: true
+        primaryKey: false
+        default: '0'
+        review: domain
+        fields:
+        - fragment.climax
   graph_cluster_members:
     columns:
       cluster_id:
@@ -1211,6 +1227,13 @@ tables:
         review: domain
         fields:
         - plot.chapterId
+      chapter_number:
+        storageType: INTEGER
+        required: false
+        primaryKey: false
+        review: domain
+        fields:
+        - plot.chapterNumber
       sort_key:
         storageType: TEXT
         required: true
@@ -1280,13 +1303,17 @@ tables:
         required: true
         primaryKey: false
         default: '0'
-        review: internal
+        review: domain
+        fields:
+        - plot.key
       is_climax:
         storageType: INTEGER
         required: true
         primaryKey: false
         default: '0'
-        review: internal
+        review: domain
+        fields:
+        - plot.climax
   projects:
     columns:
       id:

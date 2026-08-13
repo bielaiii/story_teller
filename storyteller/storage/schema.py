@@ -173,7 +173,9 @@ CREATE TABLE fragments (
     entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     body_markdown TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '',
-    accent TEXT NOT NULL DEFAULT '#7d6bd6'
+    accent TEXT NOT NULL DEFAULT '#7d6bd6',
+    is_key INTEGER NOT NULL DEFAULT 0 CHECK(is_key IN (0, 1)),
+    is_climax INTEGER NOT NULL DEFAULT 0 CHECK(is_climax IN (0, 1))
 );
 
 CREATE TABLE fragment_tags (
@@ -186,6 +188,7 @@ CREATE TABLE fragment_tags (
 CREATE TABLE plots (
     entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     chapter_id TEXT REFERENCES chapters(entity_id),
+    chapter_number INTEGER CHECK(chapter_number IS NULL OR chapter_number BETWEEN 1 AND 99999),
     sort_key TEXT NOT NULL,
     story_sort_key TEXT NOT NULL DEFAULT '',
     story_order_mode TEXT NOT NULL DEFAULT 'follow_reading' CHECK(story_order_mode IN ('follow_reading', 'fixed')),
@@ -500,12 +503,54 @@ def initialize_schema(connection) -> None:
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+def repair_schema_v9_compatibility(connection) -> bool:
+    """Repair V9 databases created before the durable story structure fields existed."""
+    plot_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(plots)")}
+    fragment_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(fragments)")}
+    missing_chapter_number = "chapter_number" not in plot_columns
+    missing_fragment_flags = {
+        column for column in ("is_key", "is_climax") if column not in fragment_columns
+    }
+    if not missing_chapter_number and not missing_fragment_flags:
+        return False
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        if missing_chapter_number:
+            connection.execute(
+                "ALTER TABLE plots ADD COLUMN chapter_number INTEGER "
+                "CHECK(chapter_number IS NULL OR chapter_number BETWEEN 1 AND 99999)"
+            )
+            connection.execute(
+                """
+                UPDATE plots
+                SET chapter_number = CAST(substr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), 2,
+                    instr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), '章') - 2) AS INTEGER)
+                WHERE trim((SELECT title FROM entities WHERE id=plots.entity_id)) GLOB '第 * 章'
+                  AND trim((SELECT title FROM entities WHERE id=plots.entity_id)) NOT GLOB '第 * 章* *'
+                """
+            )
+            connection.execute(
+                "UPDATE plots SET chapter_number=(SELECT COUNT(*) FROM plots earlier "
+                "WHERE earlier.sort_key <= plots.sort_key) WHERE chapter_number IS NULL"
+            )
+        for column in sorted(missing_fragment_flags):
+            connection.execute(
+                f"ALTER TABLE fragments ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(" + column + " IN (0, 1))"
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    return True
+
+
 def migrate_v3_to_v4(connection) -> None:
     """Add durable Git merge sessions without rewriting normalized content."""
     connection.executescript(
         "BEGIN IMMEDIATE;\n"
         + MERGE_SCHEMA_SQL
-        + f"""
+        + """
         UPDATE metadata SET value='4' WHERE key='schema_version';
         PRAGMA user_version = 4;
         COMMIT;
@@ -535,8 +580,7 @@ def migrate_v4_to_v5(connection) -> None:
     connection.executescript(
         "BEGIN IMMEDIATE;\n"
         + "".join(additions)
-        +
-        "UPDATE plots SET story_sort_key = COALESCE((SELECT MIN(story_sort_key) FROM plot_timeline_lines WHERE plot_id=plots.entity_id), sort_key) WHERE story_sort_key='';\n"
+        + "UPDATE plots SET story_sort_key = COALESCE((SELECT MIN(story_sort_key) FROM plot_timeline_lines WHERE plot_id=plots.entity_id), sort_key) WHERE story_sort_key='';\n"
         "UPDATE metadata SET value='5' WHERE key='schema_version';\n"
         "PRAGMA user_version = 5;\n"
         "COMMIT;"
@@ -544,21 +588,35 @@ def migrate_v4_to_v5(connection) -> None:
 
 
 def migrate_v5_to_v6(connection) -> None:
-    """Store each endpoint's independent impression of the other person."""
-    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(relationships)")}
-    additions = []
-    if "from_impression" not in columns:
+    """Add chapter/fragment flags and directional relationship impressions."""
+    plot_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(plots)")}
+    fragment_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(fragments)")}
+    relationship_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(relationships)")}
+    additions: list[str] = []
+    if "chapter_number" not in plot_columns:
+        additions.append(
+            "ALTER TABLE plots ADD COLUMN chapter_number INTEGER CHECK(chapter_number IS NULL OR chapter_number BETWEEN 1 AND 99999);\n"
+        )
+    if "is_key" not in fragment_columns:
+        additions.append("ALTER TABLE fragments ADD COLUMN is_key INTEGER NOT NULL DEFAULT 0 CHECK(is_key IN (0, 1));\n")
+    if "is_climax" not in fragment_columns:
+        additions.append("ALTER TABLE fragments ADD COLUMN is_climax INTEGER NOT NULL DEFAULT 0 CHECK(is_climax IN (0, 1));\n")
+    if "from_impression" not in relationship_columns:
         additions.append(
             "ALTER TABLE relationships ADD COLUMN from_impression TEXT NOT NULL DEFAULT '';\n"
         )
-    if "to_impression" not in columns:
+    if "to_impression" not in relationship_columns:
         additions.append(
             "ALTER TABLE relationships ADD COLUMN to_impression TEXT NOT NULL DEFAULT '';\n"
         )
     connection.executescript(
         "BEGIN IMMEDIATE;\n"
         + "".join(additions)
-        +
+        + "UPDATE plots SET chapter_number = CAST(substr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), 2, instr(trim((SELECT title FROM entities WHERE id=plots.entity_id)), '章') - 2) AS INTEGER)\n"
+        "WHERE chapter_number IS NULL\n"
+        "AND trim((SELECT title FROM entities WHERE id=plots.entity_id)) GLOB '第 * 章'\n"
+        "AND trim((SELECT title FROM entities WHERE id=plots.entity_id)) NOT GLOB '第 * 章* *';\n"
+        "UPDATE plots SET chapter_number = (SELECT COUNT(*) FROM plots earlier WHERE earlier.sort_key <= plots.sort_key) WHERE chapter_number IS NULL;\n"
         "UPDATE metadata SET value='6' WHERE key='schema_version';\n"
         "PRAGMA user_version = 6;\n"
         "COMMIT;"

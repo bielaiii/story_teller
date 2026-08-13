@@ -25,7 +25,7 @@ export function selectExportItems<T>(
 }
 
 export function plotMarkdown(plot: Plot): string {
-  const heading = `# 第 ${plot.sequence} 章${plot.title.trim() ? ` · ${plot.title.trim()}` : ""}`;
+  const heading = `# 第 ${plot.chapterNumber ?? plot.sequence} 章${plot.title.trim() ? ` · ${plot.title.trim()}` : ""}`;
   return `${heading}\n\n${(plot.body || "").trim()}\n`;
 }
 
@@ -66,7 +66,7 @@ function ExportGroup({ kind, onMessage }: { kind: ExportKind; onMessage: (value:
   const selected = useMemo(() => selectExportItems(items, mode, start, end), [items, mode, start, end]);
   const label = kind === "plots" ? "剧情" : "人物简介";
   const optionLabel = (item: Plot | Character) => kind === "plots"
-    ? `第 ${(item as Plot).sequence} 章 · ${(item as Plot).title}`
+    ? `第 ${(item as Plot).chapterNumber ?? (item as Plot).sequence} 章 · ${(item as Plot).title}`
     : (item as Character).name;
 
   const download = async () => {

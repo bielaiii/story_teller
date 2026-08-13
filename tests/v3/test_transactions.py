@@ -101,12 +101,12 @@ class V3TransactionTests(unittest.TestCase):
             for item in self.repository.snapshot()["plots"]
         }
         self.assertEqual(
-            "第 900 章",
-            active_by_id[created_ids[901]]["title"],
+            900,
+            active_by_id[created_ids[901]]["chapterNumber"],
         )
         self.assertEqual(
-            "第 903 章",
-            active_by_id[created_ids[903]]["title"],
+            903,
+            active_by_id[created_ids[903]]["chapterNumber"],
         )
         self.assertIn(created_ids[901], deleted.changed_entity_ids)
         self.assertNotIn(created_ids[903], deleted.changed_entity_ids)
@@ -305,6 +305,40 @@ class V3TransactionTests(unittest.TestCase):
                 "SELECT start_plot_id FROM timeline_lines WHERE entity_id=?", (line_id,)
             ).fetchone()
             self.assertIsNone(line[0])
+
+        with self.database.read() as connection:
+            self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
+    def test_hard_purge_detaches_nullable_structural_references(self):
+        purge_at = 4_000_000 + 7 * 24 * 60 * 60
+        with self.database.write() as connection:
+            connection.execute(
+                "UPDATE plots SET story_anchor_plot_id='plot:1' WHERE entity_id='plot:2'"
+            )
+            connection.execute(
+                "UPDATE timeline_lines SET start_plot_id='plot:1' "
+                "WHERE entity_id='timeline_line:主线'"
+            )
+            connection.execute(
+                "UPDATE entities SET deleted_at=?, purge_at=? WHERE id='plot:1'",
+                (4_000_000, purge_at),
+            )
+
+        result = MaintenanceService(self.database, "demo").purge_expired(
+            now=purge_at + 1
+        )
+
+        self.assertEqual(2, result["detachedReferences"])
+        with self.database.read() as connection:
+            self.assertIsNone(connection.execute(
+                "SELECT story_anchor_plot_id FROM plots WHERE entity_id='plot:2'"
+            ).fetchone()[0])
+            self.assertIsNone(connection.execute(
+                "SELECT start_plot_id FROM timeline_lines WHERE entity_id='timeline_line:主线'"
+            ).fetchone()[0])
+            self.assertFalse(connection.execute(
+                "SELECT 1 FROM entities WHERE id='plot:1'"
+            ).fetchone())
             self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
 
     def test_plot_save_archives_unknown_named_speaker_as_one_time_character(self):
@@ -656,7 +690,7 @@ class V3TransactionTests(unittest.TestCase):
         )
         plot = next(item for item in snapshot["plots"] if item["entityId"] == target_id)
         self.assertEqual("", plot["chapterId"])
-        self.assertEqual("雨夜追踪", plot["summary"])
+        self.assertEqual("", plot["summary"])
         self.assertEqual("#445566", plot["accent"])
         self.assertEqual(["待采用"], plot["tags"])
         self.assertIn("character:1", plot["people"])
