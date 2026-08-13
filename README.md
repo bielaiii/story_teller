@@ -14,7 +14,7 @@
 ./run.sh
 ```
 
-浏览器打开 `http://127.0.0.1:4180/`。4180 是统一的 Story Teller Hub 管理页：多个 Git 仓库或 Content 根目录可以同时在线，每个 Content 下的多个 `content/<project>/story.db` 会分别列出。启动脚本只监听本机地址，会构建前端；Hub 分别检查并原子迁移各 Project，一个损坏、版本过高或迁移失败的 Project 只会被标为不可用，不会拖垮同一 Content 的其他 Project。实际写作服务由 Hub 使用当前仓库自己的框架版本启动在内部临时端口，通过 `/w/<contentId>/` 访问。
+浏览器打开 `http://127.0.0.1:4180/`。4180 是独立 `story_teller_hub` 提供的统一管理页：多个 Git 仓库或 Content 根目录可以同时在线，每个 Content 下的多个 `content/<project>/story.db` 会分别列出。`story_teller` 只提供当前 Content 的 Web/MCP Worker；启动脚本通过 `STORY_TELLER_HUB_ROOT`（默认查找与 Content 仓库同级的 `story_teller_hub`）调用独立 Hub。Hub 会要求所有注册 Content 使用同一个 Story Teller commit。
 
 MCP 默认跟随对应 Web Content：`./run.sh` 退出、管理页停止 Content、进程崩溃或心跳超时后，对应 MCP worker 会自动关闭，不影响其他 Content。管理页可以启动、重启、停止或强制终止 Content，单独重启 MCP，新建/扫描/停用/检查 Project，查看 Project 状态与 Web 日志，以及在不删除小说文件的前提下从 Hub 移除 Content。停止后的 Content 可以直接改为 Hub 托管并重新启动。同一个物理 Content 根目录使用进程级所有权锁，始终只有一个可写 Web Worker；Hub 异常死亡时 Worker 会跟随退出，多个浏览器共享该单例。
 

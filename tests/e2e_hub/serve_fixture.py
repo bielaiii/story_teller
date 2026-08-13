@@ -11,9 +11,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+HUB_ROOT = Path(
+    os.environ.get("STORY_TELLER_HUB_ROOT", ROOT.parent.parent / "story_teller_hub")
+).expanduser().resolve()
+sys.path.insert(0, str(HUB_ROOT))
 sys.path.insert(0, str(ROOT))
 
-from storyteller.rag.hubctl import (  # noqa: E402
+from storyteller_hub.cli import (  # noqa: E402
     acquire_web_lease,
     ensure_token,
     heartbeat_web_lease,
@@ -66,11 +70,11 @@ with tempfile.TemporaryDirectory(prefix="story-teller-hub-e2e-") as temporary:
     token = ensure_token(state_dir)
     start_or_reuse_hub(
         host="127.0.0.1", port=HUB_PORT, state_dir=state_dir,
-        framework_root=ROOT, timeout=20,
+        hub_root=HUB_ROOT, timeout=20,
     )
     start_or_reuse_web_hub(
         host="127.0.0.1", port=WEB_PORT, hub_port=HUB_PORT,
-        state_dir=state_dir, framework_root=ROOT, timeout=20,
+        state_dir=state_dir, hub_root=HUB_ROOT, timeout=20,
     )
     leases: dict[str, str] = {}
     try:

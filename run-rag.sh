@@ -2,6 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HUB_ROOT=${STORY_TELLER_HUB_ROOT:-"$(CDPATH= cd -- "$ROOT/../.." && pwd)/story_teller_hub"}
 PORT=${STORY_WORLD_HUB_PORT:-${STORY_TELLER_RAG_PORT:-4181}}
 CONTENT_ROOT=${STORY_TELLER_CONTENT_ROOT:-"$ROOT/content"}
 DEFAULT_PROJECT=${STORY_TELLER_DEFAULT_PROJECT:-}
@@ -17,6 +18,12 @@ if [ -z "$PROJECT" ]; then
       break
     fi
   done
+fi
+
+if [ ! -x "$HUB_ROOT/run.sh" ]; then
+  printf '找不到独立 Story Teller Hub：%s\n' "$HUB_ROOT" >&2
+  printf '请安装 Hub，或通过 STORY_TELLER_HUB_ROOT 指定其目录。\n' >&2
+  exit 1
 fi
 if [ -z "$PROJECT" ]; then
   printf 'content 下没有可部署的 Project：%s\n' "$CONTENT_ROOT" >&2
@@ -44,7 +51,7 @@ case "$COMMAND" in
   *) printf '用法：%s [start|stop|status]\n' "$0" >&2; exit 2 ;;
 esac
 
-exec "$ROOT/scripts/python.sh" -m storyteller.rag.hubctl "$HUB_COMMAND" \
+exec "$HUB_ROOT/run.sh" "$HUB_COMMAND" \
   --bind 127.0.0.1 \
   --port "$PORT" \
   --repository-root "$REPOSITORY_ROOT" \
