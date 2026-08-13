@@ -33,6 +33,8 @@ HEX_FIELD = re.compile(
     r"(?m)^(?P<prefix>[ \t]*(?:color|accent)\s*:\s*)(?P<value>#[0-9a-fA-F]{6})\s*$"
 )
 GRADIENT_FIELD = re.compile(r"(?m)^(?P<prefix>[ \t]*gradient\s*:\s*)(?P<value>[^\n]+)$")
+LEGACY_PERSONA_PREFIX = re.compile(r"^人物定位\s*\d+\s*[：:]\s*")
+PERSONA_KV_TEXT = re.compile(r"^(?P<key>[^：:\n]{1,40})\s*[：:]\s*(?P<value>.+)$")
 RETENTION_SECONDS = 7 * 24 * 60 * 60
 RANK_STEP = 10**12
 
@@ -78,8 +80,15 @@ def clean_persona_items(value: Any) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip()
-        content = str(item.get("value") or "").strip()
-        if key and content:
+        content = LEGACY_PERSONA_PREFIX.sub("", str(item.get("value") or "").strip(), count=1)
+        if re.fullmatch(r"(?:要点|人物定位)\s*\d+", key):
+            key = ""
+        if not key:
+            legacy_pair = PERSONA_KV_TEXT.fullmatch(content)
+            if legacy_pair:
+                key = legacy_pair.group("key").strip()
+                content = legacy_pair.group("value").strip()
+        if content:
             result.append({"key": key, "value": content})
     return result
 

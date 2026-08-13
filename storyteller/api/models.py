@@ -15,7 +15,7 @@ class UndoRequest(MutationRequest):
 
 class CharacterPersonaItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    key: str
+    key: str = ""
     value: str
 
 

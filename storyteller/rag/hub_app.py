@@ -78,7 +78,7 @@ def create_hub_app(registry_path: Path, token: str, *, host: str = "127.0.0.1") 
     def workspaces():
         return {
             "workspaces": [
-                {**record.public_dict(), "connected": workers.connected(record.workspace_id)}
+                {**registry.public_dict(record), "connected": workers.connected(record.workspace_id)}
                 for record in registry.records()
             ]
         }
@@ -97,7 +97,7 @@ def create_hub_app(registry_path: Path, token: str, *, host: str = "127.0.0.1") 
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {
             "ok": True,
-            "workspace": record.public_dict(),
+            "workspace": registry.public_dict(record),
             "worker": {
                 "connected": workers.connected(record.workspace_id),
                 "sourceRevision": status.get("sourceRevision"),

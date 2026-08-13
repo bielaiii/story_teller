@@ -21,6 +21,16 @@ WORKSPACE_SELECTOR = Annotated[
     ),
 ]
 
+PROJECT_SELECTOR = Annotated[
+    str,
+    Field(
+        description=(
+            "content 下的项目目录名；省略时优先选择与 workspace 同名的项目，"
+            "否则单项目自动选中"
+        )
+    ),
+]
+
 
 class WorkspaceOptionMCPServer(MCPServer):
     """Expose live workspace choices in every routed tool's JSON Schema."""
@@ -36,7 +46,7 @@ class WorkspaceOptionMCPServer(MCPServer):
             return tools
 
         name_counts = Counter(record.display_name for record in records)
-        options = [
+        workspace_options = [
             {
                 "value": (
                     record.display_name
@@ -44,32 +54,75 @@ class WorkspaceOptionMCPServer(MCPServer):
                     else record.workspace_id
                 ),
                 "label": record.display_name,
-                "project": record.project,
+                "projects": self._workspace_registry.projects(record),
             }
             for record in records
         ]
-        values = [option["value"] for option in options]
-        description = (
+        workspace_values = [option["value"] for option in workspace_options]
+        project_options = [
+            {
+                "value": project,
+                "label": project,
+                "workspace": workspace_option["value"],
+            }
+            for record, workspace_option in zip(records, workspace_options)
+            for project in self._workspace_registry.projects(record)
+        ]
+        project_values = sorted({option["value"] for option in project_options})
+        workspace_description = (
             "从当前 Hub 提供的工作区选项中选择；无法根据任务判断时先调用 "
             "list_world_workspaces。只有一个工作区时可省略。"
+        )
+        project_description = (
+            "选择 workspace 的 content 子项目。可省略：优先匹配与 workspace 同名的项目，"
+            "否则单项目自动选中；多项目且无同名项时调用 list_world_projects 或选择枚举值。"
         )
         rendered = []
         for tool in tools:
             schema = deepcopy(tool.input_schema)
             workspace = schema.get("properties", {}).get("workspace")
-            if not isinstance(workspace, dict):
-                rendered.append(tool)
-                continue
-            workspace.pop("default", None)
-            workspace["title"] = "工作区"
-            workspace["description"] = description
-            workspace["enum"] = values
-            workspace["x-workspace-options"] = options
-            if len(records) > 1:
+            if isinstance(workspace, dict):
+                workspace.pop("default", None)
+                workspace["title"] = "工作区"
+                workspace["description"] = workspace_description
+                workspace["enum"] = workspace_values
+                workspace["x-workspace-options"] = workspace_options
+            if isinstance(workspace, dict) and len(records) > 1:
                 required = list(schema.get("required", []))
                 if "workspace" not in required:
                     required.append("workspace")
                 schema["required"] = required
+            project = schema.get("properties", {}).get("project")
+            if isinstance(project, dict):
+                project.pop("default", None)
+                project["title"] = "项目"
+                project["description"] = project_description
+                project["enum"] = project_values
+                project["x-project-options"] = project_options
+                conditions = list(schema.get("allOf", []))
+                for record, workspace_option in zip(records, workspace_options):
+                    projects = self._workspace_registry.projects(record)
+                    rule: dict[str, Any] = {
+                        "if": {
+                            "properties": {"workspace": {"const": workspace_option["value"]}},
+                            "required": ["workspace"],
+                        },
+                        "then": {"properties": {"project": {"enum": projects}}},
+                    }
+                    if not self._workspace_registry.default_project(record) and len(projects) > 1:
+                        rule["then"]["required"] = ["project"]
+                    conditions.append(rule)
+                schema["allOf"] = conditions
+                if len(records) == 1:
+                    only_projects = self._workspace_registry.projects(records[0])
+                    if (
+                        not self._workspace_registry.default_project(records[0])
+                        and len(only_projects) > 1
+                    ):
+                        required = list(schema.get("required", []))
+                        if "project" not in required:
+                            required.append("project")
+                        schema["required"] = required
             rendered.append(tool.model_copy(update={"input_schema": schema}))
         return rendered
 
@@ -82,8 +135,9 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
         description="通过一个本机端口只读访问多个 Git 小说仓库的世界资料。",
         instructions=(
             "需要 workspace 的工具会直接提供当前可用选项。根据用户正在讨论的小说选择；无法判断时"
-            "调用 list_world_workspaces 或询问用户。只有一个工作区时 workspace 可省略。禁止根据相似"
-            "名称猜测。精确事实优先使用结构化工具，"
+            "调用 list_world_workspaces 或询问用户。project 选择该仓库 content 下的项目，可省略："
+            "优先匹配与 workspace 同名的项目，否则单项目自动选中；仍不明确时调用 list_world_projects。"
+            "禁止根据相似名称猜测。精确事实优先使用结构化工具，"
             "模糊探索再使用 search_world 或 build_world_context。碎片默认属于确定内容。"
         ),
     )
@@ -91,11 +145,20 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     def select(workspace: str):
         return registry.resolve(workspace)
 
-    async def forward(workspace: str, tool: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def forward(
+        workspace: str,
+        project: str,
+        tool: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         record = select(workspace)
-        result = await workers.call(record, tool, arguments)
+        selected_project = registry.resolve_project(record, project)
+        forwarded = dict(arguments or {})
+        forwarded["project"] = selected_project
+        result = await workers.call(record, tool, forwarded)
         result.setdefault("workspaceId", record.workspace_id)
         result.setdefault("workspaceName", record.display_name)
+        result.setdefault("project", selected_project)
         return result
 
     @server.tool(title="列出世界工作区", structured_output=True)
@@ -104,39 +167,55 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
         records = registry.records()
         return {
             "workspaces": [
-                {**record.public_dict(), "connected": workers.connected(record.workspace_id)}
+                {**registry.public_dict(record), "connected": workers.connected(record.workspace_id)}
                 for record in records
             ],
             "requiresWorkspaceSelection": len(records) != 1,
         }
 
+    @server.tool(title="列出工作区项目", structured_output=True)
+    async def list_world_projects(workspace: WORKSPACE_SELECTOR = "") -> dict[str, Any]:
+        """列出所选 Git 仓库 content 下当前可用的 story.db 项目。"""
+        record = select(workspace)
+        projects = registry.projects(record)
+        default = registry.default_project(record)
+        return {
+            "workspaceId": record.workspace_id,
+            "workspaceName": record.display_name,
+            "projects": projects,
+            "defaultProject": default,
+            "requiresProjectSelection": not bool(default) and len(projects) > 1,
+        }
+
     @server.tool(title="说明世界数据模型", structured_output=True)
-    async def describe_world(workspace: WORKSPACE_SELECTOR = "") -> dict[str, Any]:
-        return await forward(workspace, "describe_world")
+    async def describe_world(workspace: WORKSPACE_SELECTOR = "", project: PROJECT_SELECTOR = "") -> dict[str, Any]:
+        return await forward(workspace, project, "describe_world")
 
     @server.tool(title="查看世界目录", structured_output=True)
-    async def world_catalog(workspace: WORKSPACE_SELECTOR = "") -> dict[str, Any]:
-        return await forward(workspace, "world_catalog")
+    async def world_catalog(workspace: WORKSPACE_SELECTOR = "", project: PROJECT_SELECTOR = "") -> dict[str, Any]:
+        return await forward(workspace, project, "world_catalog")
 
     @server.tool(title="解析世界实体", structured_output=True)
     async def resolve_world_entity(
         query: Annotated[str, Field(description="姓名、别名、稳定 ID 或标题")],
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
         entity_types: list[str] | None = None,
         limit: Annotated[int, Field(ge=1, le=50)] = 10,
     ) -> dict[str, Any]:
-        return await forward(workspace, "resolve_world_entity", {
+        return await forward(workspace, project, "resolve_world_entity", {
             "query": query, "entity_types": entity_types, "limit": limit,
         })
 
     @server.tool(title="结构化查询世界资料", structured_output=True)
     async def query_world(
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
         entity_types: list[str] | None = None,
         filters: dict[str, Any] | None = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
     ) -> dict[str, Any]:
-        return await forward(workspace, "query_world", {
+        return await forward(workspace, project, "query_world", {
             "entity_types": entity_types, "filters": filters, "limit": limit,
         })
 
@@ -144,11 +223,12 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     async def search_world(
         query: Annotated[str, Field(description="自然语言问题或关键词")],
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
         entity_types: list[str] | None = None,
         include_fragments: bool = False,
         limit: Annotated[int, Field(ge=1, le=30)] = 8,
     ) -> dict[str, Any]:
-        return await forward(workspace, "search_world", {
+        return await forward(workspace, project, "search_world", {
             "query": query, "entity_types": entity_types,
             "include_fragments": include_fragments, "limit": limit,
         })
@@ -157,31 +237,34 @@ def create_hub_mcp_server(registry: HubRegistry, workers: WorkerPool) -> MCPServ
     async def get_world_entity(
         entity_id: str,
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
     ) -> dict[str, Any]:
-        return await forward(workspace, "get_world_entity", {"entity_id": entity_id})
+        return await forward(workspace, project, "get_world_entity", {"entity_id": entity_id})
 
     @server.tool(title="读取关联资料", structured_output=True)
     async def get_related_world(
         entity_id: str,
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
     ) -> dict[str, Any]:
-        return await forward(workspace, "get_related_world", {"entity_id": entity_id})
+        return await forward(workspace, project, "get_related_world", {"entity_id": entity_id})
 
     @server.tool(title="组装 AI 上下文", structured_output=True)
     async def build_world_context(
         question: str,
         workspace: WORKSPACE_SELECTOR = "",
+        project: PROJECT_SELECTOR = "",
         include_fragments: bool = False,
         limit: Annotated[int, Field(ge=1, le=30)] = 10,
         max_chars: Annotated[int, Field(ge=1000, le=50000)] = 12000,
     ) -> dict[str, Any]:
-        return await forward(workspace, "build_world_context", {
+        return await forward(workspace, project, "build_world_context", {
             "question": question, "include_fragments": include_fragments,
             "limit": limit, "max_chars": max_chars,
         })
 
     @server.tool(title="查看项目 RAG 状态", structured_output=True)
-    async def rag_status(workspace: WORKSPACE_SELECTOR = "") -> dict[str, Any]:
-        return await forward(workspace, "rag_status")
+    async def rag_status(workspace: WORKSPACE_SELECTOR = "", project: PROJECT_SELECTOR = "") -> dict[str, Any]:
+        return await forward(workspace, project, "rag_status")
 
     return server

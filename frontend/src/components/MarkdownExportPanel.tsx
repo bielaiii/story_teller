@@ -31,7 +31,7 @@ export function plotMarkdown(plot: Plot): string {
 
 function personaSection(title: string, items: Array<{ key: string; value: string }> | undefined): string {
   if (!items?.length) return "";
-  return `## ${title}\n\n${items.map((item) => `- ${item.value || `${item.key}：${item.value}`}`).join("\n")}\n\n`;
+  return `## ${title}\n\n${items.map((item) => `- ${item.key ? `${item.key}：` : ""}${item.value}`).join("\n")}\n\n`;
 }
 
 export function characterMarkdown(character: Character): string {

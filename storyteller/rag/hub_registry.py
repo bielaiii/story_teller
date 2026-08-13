@@ -115,6 +115,60 @@ class HubRegistry:
             values = [record for record in values if self.is_valid(record)]
         return sorted(values, key=lambda item: (item.display_name.casefold(), item.workspace_id))
 
+    @staticmethod
+    def projects(record: WorkspaceRegistration) -> list[str]:
+        content_root = Path(record.content_root)
+        if not content_root.is_dir():
+            return []
+        return sorted(
+            path.name
+            for path in content_root.iterdir()
+            if path.is_dir()
+            and PROJECT_PATTERN.fullmatch(path.name)
+            and (path / "story.db").is_file()
+        )
+
+    def default_project(self, record: WorkspaceRegistration) -> str:
+        projects = self.projects(record)
+        workspace_matches = [
+            project for project in projects
+            if project.casefold() == record.display_name.casefold()
+        ]
+        if len(workspace_matches) == 1:
+            return workspace_matches[0]
+        if len(projects) == 1:
+            return projects[0]
+        return ""
+
+    def resolve_project(self, record: WorkspaceRegistration, selector: str = "") -> str:
+        projects = self.projects(record)
+        clean = str(selector or "").strip()
+        if clean:
+            if clean in projects:
+                return clean
+            raise ValueError(
+                f"工作区 {record.display_name} 中不存在项目 {clean}；"
+                f"当前可用：{', '.join(projects) or '无'}"
+            )
+        default = self.default_project(record)
+        if default:
+            return default
+        raise ValueError(
+            f"工作区 {record.display_name} 包含多个项目，请指定 project："
+            f"{', '.join(projects) or '无'}"
+        )
+
+    def public_dict(self, record: WorkspaceRegistration) -> dict[str, Any]:
+        projects = self.projects(record)
+        default = self.default_project(record)
+        return {
+            **record.public_dict(),
+            "registeredProject": record.project,
+            "projects": projects,
+            "defaultProject": default,
+            "requiresProjectSelection": not bool(default) and len(projects) > 1,
+        }
+
     def resolve(self, selector: str = "") -> WorkspaceRegistration:
         records = self.records()
         clean = str(selector or "").strip()
@@ -125,8 +179,11 @@ class HubRegistry:
             raise ValueError(f"请指定 workspace；当前可用：{choices or '无'}")
         exact = [
             record for record in records
-            if clean in {record.workspace_id, record.project, record.display_name}
+            if clean in {record.workspace_id, record.display_name}
         ]
+        if not exact:
+            # Preserve the original single-project selector as a compatibility alias.
+            exact = [record for record in records if clean == record.project]
         if len(exact) == 1:
             return exact[0]
         if not exact:

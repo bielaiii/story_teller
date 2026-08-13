@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -57,15 +58,20 @@ class RagHubTests(unittest.TestCase):
 
     def make_repository(self, name: str) -> Path:
         repository = self.base / name
-        project_root = repository / "content" / "demo"
-        project_root.mkdir(parents=True)
+        (repository / "content").mkdir(parents=True)
         subprocess.run(["git", "init", "-q", str(repository)], check=True)
         (repository / "story_teller").symlink_to(ROOT, target_is_directory=True)
-        legacy = project_root / "legacy.db"
-        shutil.copy2(ROOT / "tests" / "fixtures" / "schema-v1-demo.db", legacy)
-        V3Migrator(legacy, "demo").migrate_to(project_root / "story.db")
+        self.add_project(repository, "demo")
         self.repositories.append(repository)
         return repository
+
+    @staticmethod
+    def add_project(repository: Path, project: str) -> None:
+        project_root = repository / "content" / project
+        project_root.mkdir(parents=True)
+        legacy = project_root / "legacy.db"
+        shutil.copy2(ROOT / "tests" / "fixtures" / "schema-v1-demo.db", legacy)
+        V3Migrator(legacy, project).migrate_to(project_root / "story.db")
 
     @staticmethod
     def free_port() -> int:
@@ -92,13 +98,26 @@ class RagHubTests(unittest.TestCase):
         self.assertEqual(HUB_PROTOCOL_VERSION, 1)
         self.assertEqual(first.workspace_id, loaded.resolve("Novel A").workspace_id)
         self.assertEqual(first.workspace_id, loaded.resolve("demo").workspace_id)
+        self.assertEqual(["demo"], loaded.projects(first))
+        self.assertEqual("demo", loaded.resolve_project(first))
+
+        self.add_project(repository, "novel-a")
+        matching = replace(first, display_name="novel-a")
+        self.assertEqual("novel-a", loaded.default_project(matching))
+        self.assertEqual("novel-a", loaded.resolve_project(matching))
+        ambiguous = replace(first, display_name="no-match")
+        with self.assertRaisesRegex(ValueError, "请指定 project"):
+            loaded.resolve_project(ambiguous)
+        self.assertEqual("demo", loaded.resolve_project(ambiguous, "demo"))
 
         (repository / "content" / "demo" / "story.db").unlink()
+        (repository / "content" / "novel-a" / "story.db").unlink()
         self.assertEqual([first.workspace_id], loaded.prune())
         self.assertEqual([], loaded.records())
 
     def test_hub_reuses_one_port_and_routes_two_git_repositories(self):
         first_repository = self.make_repository("novel-a")
+        self.add_project(first_repository, "side-story")
         second_repository = self.make_repository("novel-b")
         port = self.free_port()
         token = ensure_token(self.state_dir)
@@ -135,6 +154,12 @@ class RagHubTests(unittest.TestCase):
         with httpx.Client(trust_env=False) as http:
             listed = http.get(f"http://127.0.0.1:{port}/api/v1/hub/workspaces").json()
             self.assertEqual(2, len(listed["workspaces"]))
+            first_listed = next(
+                item for item in listed["workspaces"] if item["displayName"] == "Novel A"
+            )
+            self.assertEqual(["demo", "side-story"], first_listed["projects"])
+            self.assertEqual("", first_listed["defaultProject"])
+            self.assertTrue(first_listed["requiresProjectSelection"])
             denied = http.post(
                 f"http://127.0.0.1:{port}/api/v1/hub/workspaces",
                 json={
@@ -152,23 +177,43 @@ class RagHubTests(unittest.TestCase):
                 tools = await client.list_tools()
                 names = {tool.name for tool in tools.tools}
                 self.assertIn("list_world_workspaces", names)
+                self.assertIn("list_world_projects", names)
                 self.assertIn("search_world", names)
                 search_tool = next(tool for tool in tools.tools if tool.name == "search_world")
                 workspace_schema = search_tool.input_schema["properties"]["workspace"]
                 self.assertEqual(["Novel A", "Novel B"], workspace_schema["enum"])
                 self.assertEqual("工作区", workspace_schema["title"])
                 self.assertIn("workspace", search_tool.input_schema["required"])
+                project_schema = search_tool.input_schema["properties"]["project"]
+                self.assertEqual(["demo", "side-story"], project_schema["enum"])
+                self.assertEqual("项目", project_schema["title"])
                 workspaces = await client.call_tool("list_world_workspaces", {})
                 self.assertEqual(2, len(workspaces.structured_content["workspaces"]))
+                projects = await client.call_tool("list_world_projects", {
+                    "workspace": first["workspace"]["displayName"],
+                })
+                self.assertEqual(["demo", "side-story"], projects.structured_content["projects"])
+                self.assertTrue(projects.structured_content["requiresProjectSelection"])
                 searched = await client.call_tool("search_world", {
                     "workspace": first["workspace"]["displayName"],
+                    "project": "side-story",
                     "query": "林秋", "limit": 3,
                 })
                 self.assertEqual("character:1", searched.structured_content["results"][0]["entityId"])
+                self.assertEqual("side-story", searched.structured_content["project"])
                 self.assertEqual(
                     first["workspace"]["workspaceId"],
                     searched.structured_content["workspaceId"],
                 )
+                missing_project = await client.call_tool("rag_status", {
+                    "workspace": first["workspace"]["displayName"],
+                })
+                self.assertTrue(missing_project.is_error)
+                defaulted = await client.call_tool("rag_status", {
+                    "workspace": second["workspace"]["displayName"],
+                })
+                self.assertFalse(defaulted.is_error)
+                self.assertEqual("demo", defaulted.structured_content["project"])
                 ambiguous = await client.call_tool("rag_status", {})
                 self.assertTrue(ambiguous.is_error)
 

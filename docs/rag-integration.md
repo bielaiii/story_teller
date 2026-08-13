@@ -86,6 +86,7 @@ http://127.0.0.1:4181/mcp/
 提供以下只读工具：
 
 - `list_world_workspaces`：列出已部署的 Git 小说仓库、工作区短名称 `displayName` 与内部稳定 `workspaceId`；
+- `list_world_projects`：列出所选仓库 `content/` 下当前可用的项目与默认选择；
 - `describe_world`：读取实体类型、字段语义与碎片策略；
 - `world_catalog`
 - `resolve_world_entity`：将姓名、别名或稳定 ID 解析为实体；
@@ -96,7 +97,7 @@ http://127.0.0.1:4181/mcp/
 - `build_world_context`
 - `rag_status`
 
-每个需要 `workspace` 的 MCP 工具都会在参数 JSON Schema 中动态列出当前可用仓库，AI 客户端可直接呈现为选项或自行从枚举中选择，不需要用户记忆或主动告知字符串。Hub 中只有一个工作区时可以省略；存在多个工作区而问题本身无法确定目标时，AI 应调用 `list_world_workspaces` 或询问用户。只有两个仓库名称相同时，选项才会退回内部 `workspaceId`。Hub 不使用“最近部署项目”之类的全局当前值，避免 AI 静默读错小说。
+每个 Hub 工具都会在参数 JSON Schema 中动态列出当前可用 `workspace` 和 `project`。`workspace` 选择 Git 仓库，`project` 选择该仓库的 `content/<project>`；新建含 `story.db` 的项目后，下一次读取工具定义即可看到新选项。`project` 默认可省略：优先选择与 workspace 同名的项目，否则单项目自动选中；多项目且无同名项时才要求明确选择。客户端无法判断时应调用 `list_world_workspaces`、`list_world_projects` 或询问用户。Hub 不使用“最近部署项目”之类的全局当前值，避免 AI 静默读错小说。
 
 推荐调用顺序：先用 `list_world_workspaces` 选择仓库，再用 `describe_world` 和 `world_catalog` 发现数据；精确问题使用 `resolve_world_entity`、`query_world`、`get_world_entity`、`get_related_world`；只有模糊探索和创作联想才使用 `search_world` 或 `build_world_context`。
 

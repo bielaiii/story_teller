@@ -20,6 +20,8 @@ STORY_POSITION_MODES = {"follow_reading", "before", "after", "fixed"}
 NARRATIVE_ROLES = {"主角", "配角"}
 CHARACTER_SCOPES = {"主线人物", "常驻人物", "待定角色", "一次性角色"}
 CHARACTER_SIDES = {"主角方", "中立", "反派方"}
+LEGACY_PERSONA_PREFIX = re.compile(r"^人物定位\s*\d+\s*[：:]\s*")
+PERSONA_KV_TEXT = re.compile(r"^(?P<key>[^：:\n]{1,40})\s*[：:]\s*(?P<value>.+)$")
 RELATIONSHIP_GRAPH_SCOPES = {"core", "focus", "hidden"}
 RELATIONSHIP_GRAPH_LINE_MODES = {"single", "double"}
 FAMILY_RELATIONSHIP_TYPES = {
@@ -265,21 +267,32 @@ def clean_persona(value: Any, label: str, maximum: int = 100) -> list[dict[str, 
     for item in value:
         if not isinstance(item, dict):
             raise DomainError(f"{label}格式不合法")
-        key = clean_text(item.get("key"), f"{label}名称", 80, required=True)
-        raw_value = str(item.get("value") or "").strip()
+        key = clean_text(item.get("key"), f"{label}名称", 80) if item.get("key") else ""
+        if re.fullmatch(r"要点\s*\d+", key):
+            key = ""
+        raw_value = LEGACY_PERSONA_PREFIX.sub("", str(item.get("value") or "").strip(), count=1)
+        if not key:
+            legacy_pair = PERSONA_KV_TEXT.fullmatch(raw_value)
+            if legacy_pair:
+                key = clean_text(legacy_pair.group("key"), f"{label}名称", 80)
+                raw_value = legacy_pair.group("value").strip()
         if not raw_value:
-            raise DomainError(f"请填写{label}“{key}”的内容")
+            raise DomainError(f"请填写{label}的内容")
         if len(raw_value) > 10_000:
             raise DomainError(f"{label}“{key}”不能超过 10000 个字符")
-        if key in keys:
+        if key and key in keys:
             raise DomainError(f"{label}名称“{key}”重复")
-        keys.add(key)
+        if key:
+            keys.add(key)
         result.append({"key": key, "value": raw_value})
     return result
 
 
 def persona_plain_text(items: list[dict[str, str]]) -> str:
-    return "\n".join(f"{item['key']}：{item['value']}" for item in items)
+    return "\n".join(
+        f"{item['key']}：{item['value']}" if item.get("key") else item["value"]
+        for item in items
+    )
 
 
 def replace_json_text(value: Any, old_text: str, new_text: str) -> Any:
