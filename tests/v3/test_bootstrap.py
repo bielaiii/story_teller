@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 from storyteller import SCHEMA_VERSION
-from storyteller.bootstrap import prepare_project
+from storyteller.bootstrap import create_empty_project, prepare_project
+from storyteller.deployment_lock import ContentDeploymentLock
 from storyteller.exports.version import EXPORT_FORMAT_VERSION
 from storyteller.storage.schema import migrate_v4_to_v5
 
@@ -78,6 +79,34 @@ class BootstrapTests(unittest.TestCase):
             EXPORT_FORMAT_VERSION,
             json.loads(content_index_path.read_text(encoding="utf-8"))["exportFormatVersion"],
         )
+
+    def test_create_empty_project_builds_a_current_writable_database_and_exports(self) -> None:
+        root = Path(self.temporary.name) / "new-project"
+        result = create_empty_project(root, title="新的故事")
+        self.assertEqual("new-project", result["project"])
+        self.assertTrue((root / "story.db").is_file())
+        self.assertTrue((root / "project.snapshot.json").is_file())
+        with sqlite3.connect(root / "story.db") as connection:
+            self.assertEqual(SCHEMA_VERSION, connection.execute("PRAGMA user_version").fetchone()[0])
+            self.assertEqual(
+                ("new-project", "新的故事", 0),
+                connection.execute("SELECT id, title, revision FROM projects").fetchone(),
+            )
+            self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+        with self.assertRaisesRegex(FileExistsError, "已经存在"):
+            create_empty_project(root, title="重复")
+
+    def test_content_deployment_lock_rejects_a_second_web_owner(self) -> None:
+        first = ContentDeploymentLock(self.project_root.parent)
+        second = ContentDeploymentLock(self.project_root.parent)
+        first.acquire()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "另一个 Web 服务"):
+                second.acquire()
+        finally:
+            first.close()
+        second.acquire()
+        second.close()
 
     def test_prepare_rejects_a_newer_database_without_replacing_it(self) -> None:
         database = self.project_root / "story.db"

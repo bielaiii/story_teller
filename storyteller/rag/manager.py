@@ -56,7 +56,12 @@ class RagManager:
     def projects(self) -> list[str]:
         if not self.settings.content_root.is_dir():
             return []
-        return sorted(path.name for path in self.settings.content_root.iterdir() if path.is_dir() and (path / "story.db").is_file())
+        allowed = set(self.settings.enabled_projects)
+        return sorted(
+            path.name for path in self.settings.content_root.iterdir()
+            if path.is_dir() and (path / "story.db").is_file()
+            and (not allowed or path.name in allowed)
+        )
 
     def _source_state(self, project: str) -> tuple[int, int]:
         root = self._root(project)

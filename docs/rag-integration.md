@@ -6,7 +6,7 @@
 - `rag.db` 是派生检索缓存，保存 AI 可检索的文档块、全文索引、关联边和 embedding。它可以随时删除，不应提交 Git。
 - `rag.config.json` 只保存 embedding provider、模型名、维度和服务地址，不保存 API key。
 
-RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无端口 stdio worker 读取自己的 `story.db`；唯一的 Story World Hub 监听 4181，对外提供统一 MCP。网页写入提交后会将目标 revision 放入后台同步队列，连续保存会在短暂防抖窗口内合并，只替换受影响文档和关联边。网页服务与 MCP worker 使用跨进程项目锁，避免同时更新同一个 `rag.db`。数据库损坏、Schema/模型变化、revision 回退或历史缺口时自动原子完整重建。
+RAG 不挂在写作网页的 4180 端口。每个 Content 根目录由一个无端口 stdio worker 读取其多个 Project 的 `story.db`；唯一的 Story World Hub 监听 4181，对外提供统一 MCP。网页写入提交后会将目标 revision 放入后台同步队列，连续保存会在短暂防抖窗口内合并，只替换受影响文档和关联边。网页服务与 MCP worker 使用跨进程项目锁，避免同时更新同一个 `rag.db`。数据库损坏、Schema/模型变化、revision 回退或历史缺口时自动原子完整重建。
 
 同步由保存事件触发，不依赖后台轮询，也不需要重启 Hub。MCP 在每次检索、取上下文和读取 RAG 实体前仍比较 `story.db` revision：正常情况下索引已由后台更新，可直接查询；若外部工具直接修改 SQLite、后台同步尚未完成或曾临时失败，请求会兜底完成同步后再返回，因此不会静默读取旧内容。若运行期间直接删除 `rag.db`，后台任务或下一次检索会自动重新生成。
 
@@ -27,8 +27,9 @@ RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无�
 1. 若 4181 空闲，后台启动 Story World Hub；
 2. 若 4181 已经是协议兼容的 Story World Hub，直接复用；
 3. 若 4181 是其他服务或不兼容版本，报错退出，不会终止占用者；
-4. 使用 Git 仓库名作为对外工作区短名称，并按真实路径生成内部稳定 `workspaceId`，注册当前 `content/<project>`；
-5. Hub 启动当前仓库框架中的 stdio worker，worker 不占用任何端口。
+4. 使用 Git 仓库名作为对外工作区短名称，并按 Content 根目录真实路径生成内部稳定 `workspaceId`；
+5. `run.sh` 在线时创建临时租约；管理页也可以创建持久的 Hub 托管状态来启动 Web。Web 正常退出、被管理页停止、崩溃或心跳超时后，跟随模式的 stdio worker 自动释放；
+6. 只有明确执行 `run-rag.sh` 开启独立模式时，Web 关闭后该 MCP worker 才继续运行。
 
 只启动/检查 Hub 并注册当前仓库时，可运行：
 
@@ -36,13 +37,13 @@ RAG 不挂在写作网页的 4180 端口。每个 Git 小说仓库由一个无�
 ./run-rag.sh
 ```
 
-这个命令完成注册后退出，不会再启动第二个前台 RAG 服务。Hub 状态保存在 `~/.story-teller/hub/`：
+这个命令完成独立 MCP 注册后退出，不会再启动第二个前台 RAG 服务。使用 `run-rag.sh stop` 关闭独立模式；若 Web 仍在线，MCP 会无缝回到跟随状态。Hub 状态保存在 `~/.story-teller/hub/`：
 
-- `registry.json`：已注册 Git 工作区；
+- `registry.json`：已注册 Content、Hub 托管 Web、独立 MCP 模式和停用的 Project；
 - `token`：仅本机部署脚本使用的注册凭据，权限为 0600；
 - `hub.pid`、`hub.log`：运行诊断信息。
 
-Hub 启动时会清理数据库、仓库或框架已不存在的注册记录。它只接受 loopback 地址，注册接口需要本机 token。健康检查和已注册工作区可分别读取：
+Hub 启动时会清理数据库、仓库或框架已不存在的注册记录。终端 Web 租约只存在于内存，Hub 重启不会把已经失联的终端误判为在线；在管理页明确启动的 Hub 托管 Web 会随 Hub 恢复。每个 Project 独立检查，失败项会保留错误和日志但不会阻止健康项。Web Worker 持有 Content 路径所有权锁并监控 Hub 父进程，避免重复部署和异常退出后的孤儿写进程。Hub 只接受 loopback 地址，管理接口需要本机 token。健康检查和已注册工作区可分别读取：
 
 - `GET http://127.0.0.1:4181/api/v1/hub/health`
 - `GET http://127.0.0.1:4181/api/v1/hub/workspaces`

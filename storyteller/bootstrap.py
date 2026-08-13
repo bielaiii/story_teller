@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,59 @@ from storyteller.exports.version import EXPORT_FORMAT_VERSION
 from storyteller.settings import PROJECT_PATTERN
 from storyteller.storage.connection import Database, schema_version
 from storyteller.storage.legacy import migrate_database_atomic
+from storyteller.storage.schema import initialize_schema
+
+
+def create_empty_project(project_root: Path, *, title: str = "") -> dict[str, Any]:
+    """Create one current-schema project without importing generated exports."""
+
+    root = Path(project_root).expanduser().resolve()
+    if not PROJECT_PATTERN.fullmatch(root.name):
+        raise ValueError("项目目录名称不合法")
+    clean_title = str(title or root.name).strip()
+    if not clean_title:
+        raise ValueError("项目标题不能为空")
+    root.mkdir(parents=True, exist_ok=True)
+    database_path = root / "story.db"
+    if database_path.exists():
+        raise FileExistsError(f"数据库已经存在：{database_path}")
+    temporary = root / f".story.db.{os.getpid()}.tmp"
+    if temporary.exists():
+        raise FileExistsError(f"临时数据库已经存在：{temporary}")
+    now = int(time.time())
+    connection = sqlite3.connect(temporary)
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        initialize_schema(connection)
+        connection.execute(
+            "INSERT INTO projects(id, title, eyebrow, revision, extra_json, created_at, updated_at) "
+            "VALUES(?, ?, 'Story Teller', 0, '{}', ?, ?)",
+            (root.name, clean_title, now, now),
+        )
+        connection.execute(
+            "INSERT INTO export_state(project_id, requested_revision, exported_revision, status, updated_at) "
+            "VALUES(?, 0, 0, 'pending', ?)",
+            (root.name, now),
+        )
+        connection.commit()
+        connection.close()
+        os.replace(temporary, database_path)
+        database = Database(root)
+        database.require_v3()
+        export = ExportCoordinator(database, root.name).export()
+    except BaseException:
+        connection.close()
+        temporary.unlink(missing_ok=True)
+        database_path.unlink(missing_ok=True)
+        raise
+    return {
+        "ok": True,
+        "project": root.name,
+        "title": clean_title,
+        "schemaVersion": SCHEMA_VERSION,
+        "database": str(database_path),
+        "export": export,
+    }
 
 
 def prepare_project(project_root: Path) -> dict[str, Any]:
@@ -93,9 +148,15 @@ def prepare_project(project_root: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="准备 Story Teller 当前 Schema 内容包")
     parser.add_argument("project_root", type=Path)
+    parser.add_argument("--create", action="store_true", help="创建新的空 Project")
+    parser.add_argument("--title", default="", help="新 Project 的显示标题")
     args = parser.parse_args()
     try:
-        result = prepare_project(args.project_root)
+        result = (
+            create_empty_project(args.project_root, title=args.title)
+            if args.create
+            else prepare_project(args.project_root)
+        )
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:

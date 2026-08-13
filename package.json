@@ -10,7 +10,8 @@
     "test:frontend": "vitest run",
     "test:e2e:v3": "playwright test --config playwright.v3.config.js",
     "test:e2e:merge": "playwright test --config playwright.merge.config.js",
-    "test:e2e:static": "playwright test --config playwright.static.config.js"
+    "test:e2e:static": "playwright test --config playwright.static.config.js",
+    "test:e2e:hub": "./scripts/build_frontend.sh && ./scripts/python.sh tests/e2e_hub/run.py"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

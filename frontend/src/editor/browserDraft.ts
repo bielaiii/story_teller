@@ -9,7 +9,8 @@ interface StoredBrowserDraft<T> {
 const PREFIX = "story-teller:browser-draft";
 
 export function browserDraftKey(project: string, kind: string, entityId: string): string {
-  return `${PREFIX}:${encodeURIComponent(project)}:${kind}:${encodeURIComponent(entityId)}`;
+  const workspace = window.location.pathname.match(/^\/w\/([^/]+)(?:\/|$)/)?.[1] || "direct";
+  return `${PREFIX}:${workspace}:${encodeURIComponent(project)}:${kind}:${encodeURIComponent(entityId)}`;
 }
 
 export function restoreBrowserDraft<T>(key: string, fallback: T): T {
