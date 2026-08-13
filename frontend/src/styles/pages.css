@@ -693,7 +693,11 @@
 .fragment-card-new.is-line .fragment-card-index .icon { width: 20px; height: 20px; }
 .fragment-card-new.is-line .fragment-card-copy { grid-template-rows: auto auto minmax(0, 1fr); }
 .fragment-card-new.is-line .fragment-card-copy > small { color: var(--accent); font-size: 9px; font-weight: 850; letter-spacing: .14em; }
-.fragment-line-floating-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 34px; background: rgba(39, 83, 91, .22); backdrop-filter: blur(6px); }
+.fragment-line-floating-backdrop {
+  padding: 34px;
+  background: transparent;
+  backdrop-filter: none;
+}
 .fragment-line-expanded {
   width: min(1120px, calc(100vw - 68px));
   max-height: min(760px, calc(100dvh - 68px));
@@ -707,7 +711,7 @@
   border-radius: 14px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, transparent), transparent 45%),
-    color-mix(in srgb, var(--surface-solid) 94%, var(--canvas));
+    var(--surface-solid);
   box-shadow: 0 28px 80px rgba(35, 68, 79, .24), inset 0 1px 0 rgba(255,255,255,.7);
 }
 .fragment-line-expanded > header {
