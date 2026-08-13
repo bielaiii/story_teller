@@ -9,6 +9,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from storyteller import API_VERSION, SCHEMA_VERSION
+from storyteller.hub_contract import (
+    WORKER_CAPABILITIES,
+    WORKER_PROTOCOL_MAJOR,
+    WORKER_PROTOCOL_MINOR,
+)
 from storyteller.api.models import (
     CharacterCreate,
     CharacterPatch,
@@ -487,7 +492,15 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health():
-        return {"ok": True, "apiVersion": API_VERSION, "schemaVersion": SCHEMA_VERSION}
+        return {
+            "ok": True,
+            "service": "story-teller-worker-web",
+            "protocolMajor": WORKER_PROTOCOL_MAJOR,
+            "protocolMinor": WORKER_PROTOCOL_MINOR,
+            "capabilities": list(WORKER_CAPABILITIES),
+            "apiVersion": API_VERSION,
+            "schemaVersion": SCHEMA_VERSION,
+        }
 
     if settings.frontend_root.is_dir():
         assets = settings.frontend_root / "assets"
