@@ -263,22 +263,36 @@ function drawArcText(
   const arcCenter = Math.PI * 1.5 + arcOffset;
   const start = arcCenter - span / 2;
   let cursor = 0;
-  for (let index = 0; index < characters.length; index += 1) {
+  const glyphs = characters.map((character, index) => {
     const characterWidth = widths[index];
     const theta = start + (cursor + characterWidth / 2) / totalWidth * span;
-    const x = center.x + radius * Math.cos(theta);
-    const y = center.y + radius * Math.sin(theta);
-    const tangent = Math.atan2(Math.cos(theta), -Math.sin(theta));
-    context.save();
-    context.translate(x, y);
-    context.rotate(tangent);
-    context.lineWidth = 4;
-    context.strokeStyle = "rgba(255, 253, 247, .94)";
-    context.strokeText(characters[index], 0, 0);
-    context.fillStyle = color;
-    context.fillText(characters[index], 0, 0);
-    context.restore();
     cursor += characterWidth;
+    return {
+      character,
+      x: center.x + radius * Math.cos(theta),
+      y: center.y + radius * Math.sin(theta),
+      tangent: Math.atan2(Math.cos(theta), -Math.sin(theta)),
+    };
+  });
+  // Draw the complete halo before any glyph fill. Drawing stroke + fill one
+  // character at a time lets the next character's white stroke cover the
+  // previous character on tight arcs, which looks like white debris in text.
+  context.lineWidth = 4;
+  context.strokeStyle = "rgba(255, 253, 247, .94)";
+  for (const glyph of glyphs) {
+    context.save();
+    context.translate(glyph.x, glyph.y);
+    context.rotate(glyph.tangent);
+    context.strokeText(glyph.character, 0, 0);
+    context.restore();
+  }
+  context.fillStyle = color;
+  for (const glyph of glyphs) {
+    context.save();
+    context.translate(glyph.x, glyph.y);
+    context.rotate(glyph.tangent);
+    context.fillText(glyph.character, 0, 0);
+    context.restore();
   }
   context.restore();
 }

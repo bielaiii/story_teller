@@ -485,7 +485,7 @@
 .entries-page-new .entry-detail-panel section { margin-top: 12px; padding-top: 12px; }
 .entries-page-new .entry-detail-panel > .entry-index-strip + section { margin-top: 0; }
 .entries-page-new .entry-detail-panel h3 { margin-bottom: 10px; font-size: 16px; }
-.organization-editor-dialog { grid-template-rows: auto auto minmax(170px, .7fr) minmax(220px, 1.3fr) auto; }
+.organization-editor-dialog { grid-template-rows: auto auto minmax(260px, 1.45fr) minmax(120px, .55fr) auto; }
 .organization-members-editor { min-height: 0; overflow: auto; padding: 14px 18px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-solid) 94%, #e6f1ff); }
 .organization-members-editor > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .organization-members-editor h3, .organization-members-editor p { margin: 0; }
