@@ -223,6 +223,21 @@ class RagTests(unittest.TestCase):
                 "list_world_projects", "describe_world", "resolve_world_entity", "query_world",
                 "search_world", "get_world_entity",
             }.issubset(tool_names))
+            self.assertIn("story-world facts", app.state.mcp_server.description)
+            self.assertIn("任何时候", app.state.mcp_server.instructions)
+            self.assertIn("用户无需明确要求查询", app.state.mcp_server.instructions)
+            self.assertTrue(all(str(tool.description or "").strip() for tool in tools))
+            self.assertTrue(all(tool.annotations.read_only_hint for tool in tools))
+            self.assertTrue(all(tool.annotations.destructive_hint is False for tool in tools))
+            self.assertTrue(all(tool.annotations.idempotent_hint for tool in tools))
+            self.assertTrue(all(tool.annotations.open_world_hint is False for tool in tools))
+            build_context = next(tool for tool in tools if tool.name == "build_world_context")
+            self.assertEqual("读取当前任务所需的小说世界事实", build_context.title)
+            self.assertIn("只要可能依赖既有小说世界事实", build_context.description)
+            build_schema = build_context.input_schema["properties"]
+            self.assertIn("回答、分析、推理或创作", build_schema["question"]["description"])
+            self.assertIn("已确定碎片", build_schema["include_fragments"]["description"])
+            self.assertIn("多项目", build_schema["project"]["description"])
             called = asyncio.run(app.state.mcp_server.call_tool(
                 "search_world", {"project": "demo", "query": "林秋", "limit": 3}
             ))
