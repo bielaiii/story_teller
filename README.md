@@ -18,7 +18,7 @@
 
 Hub 通过 `python -m storyteller.hub_worker` 的稳定 Facade 接入 Worker，只要求协议主版本与必要能力兼容。不同 Content 可以独立使用不同 Story Teller commit、协议次版本、API 和 Schema；源码 dirty 仅告警。Adapter 对外提供 `manifest`、`prepare`、`web`、`mcp` 和可选的 `create-project`，Hub 不依赖这些功能的内部模块结构。
 
-MCP 默认跟随对应 Web Content：`./run.sh` 退出、管理页停止 Content、进程崩溃或心跳超时后，对应 MCP worker 会自动关闭，不影响其他 Content。管理页可以启动、重启、停止或强制终止 Content，单独重启 MCP，新建/扫描/停用/检查 Project，查看 Project 状态与 Web 日志，以及在不删除小说文件的前提下从 Hub 移除 Content。停止后的 Content 可以直接改为 Hub 托管并重新启动。同一个物理 Content 根目录使用进程级所有权锁，始终只有一个可写 Web Worker；Hub 异常死亡时 Worker 会跟随退出，多个浏览器共享该单例。
+MCP 默认跟随对应 Web Content：`./run.sh` 启动 Web 与跟随 MCP，退出、管理页停止 Content、进程崩溃或心跳超时后，两者都会关闭，不影响其他 Content。管理页可以启动、重启、停止或强制终止 Content，单独重启 MCP，新建/扫描/停用/检查 Project，查看 Project 状态与 Web 日志，以及在不删除小说文件的前提下从 Hub 移除 Content。Web 托管和独立 MCP 是互斥模式；切换为独立 MCP 时 Web 会关闭，停止独立 MCP 后回到停止状态。同一个物理 Content 根目录使用进程级所有权锁，始终只有一个可写 Web Worker；Hub 异常死亡时 Worker 会跟随退出，多个浏览器共享该单例。
 
 需要让 MCP 脱离 Web 独立运行时：
 
@@ -26,7 +26,7 @@ MCP 默认跟随对应 Web Content：`./run.sh` 退出、管理页停止 Content
 ./run-rag.sh
 ```
 
-独立 MCP 不会因 Web Content 关闭而退出。关闭独立模式或查看 Hub 状态：
+独立模式只运行 MCP，不同时托管 Web。关闭独立模式或查看 Hub 状态：
 
 ```sh
 ./run-rag.sh stop
