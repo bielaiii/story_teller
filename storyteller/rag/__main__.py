@@ -13,7 +13,7 @@ def main() -> None:
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description="Story Teller standalone RAG server")
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=4181)
+    parser.add_argument("--port", type=int, default=4188)
     parser.add_argument("--content-root", type=Path, default=root / "content")
     parser.add_argument("--default-project", default="")
     args = parser.parse_args()

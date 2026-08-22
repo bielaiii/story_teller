@@ -18,7 +18,7 @@ def main() -> None:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Story Teller local server")
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=4180)
+    parser.add_argument("--port", type=int, default=4187)
     parser.add_argument("--content-root", type=Path, default=root / "content")
     parser.add_argument("--frontend-root", type=Path, default=root / "dist")
     parser.add_argument("--default-project", default="")

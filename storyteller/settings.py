@@ -30,7 +30,7 @@ class Settings:
     default_project: str = ""
     enabled_projects: tuple[str, ...] = ()
     host: str = "127.0.0.1"
-    port: int = 4180
+    port: int = 4187
 
     @classmethod
     def create(
@@ -41,7 +41,7 @@ class Settings:
         default_project: str = "",
         enabled_projects: tuple[str, ...] | list[str] = (),
         host: str = "127.0.0.1",
-        port: int = 4180,
+        port: int = 4187,
     ) -> "Settings":
         resolved_root = Path(root).resolve()
         resolved_content = Path(content_root or resolved_root / "content").resolve()

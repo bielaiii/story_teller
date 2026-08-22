@@ -18,7 +18,7 @@ trap cleanup EXIT INT TERM
 
 "$ROOT/scripts/python.sh" -m storyteller \
   --bind 127.0.0.1 \
-  --port 4180 \
+  --port 4187 \
   --content-root "$CONTENT_ROOT" \
   --frontend-root "$ROOT/dist" \
   --default-project "$DEFAULT_PROJECT" &

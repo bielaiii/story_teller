@@ -14,7 +14,7 @@
 ./run.sh
 ```
 
-浏览器打开 `http://127.0.0.1:4180/`。4180 是独立 `story_teller_hub` 提供的统一管理页：多个 Git 仓库或 Content 根目录可以同时在线，每个 Content 下的多个 `content/<project>/story.db` 会分别列出。`story_teller` 只提供当前 Content 的 Web/MCP Worker；启动脚本通过 `STORY_TELLER_HUB_ROOT`（默认查找与 Content 仓库同级的 `story_teller_hub`）调用 Hub 安装源，实际共享 `~/.local/share/story-teller-hub/current` 中的唯一 runtime。
+浏览器打开 `http://127.0.0.1:4187/`。4187 是独立 `story_teller_hub` 提供的统一管理页：多个 Git 仓库或 Content 根目录可以同时在线，每个 Content 下的多个 `content/<project>/story.db` 会分别列出。`story_teller` 只提供当前 Content 的 Web/MCP Worker；启动脚本通过 `STORY_TELLER_HUB_ROOT`（默认查找与 Content 仓库同级的 `story_teller_hub`）调用 Hub 安装源，实际共享 `~/.local/share/story-teller-hub/current` 中的唯一 runtime。
 
 Hub 通过 `python -m storyteller.hub_worker` 的稳定 Facade 接入 Worker，只要求协议主版本与必要能力兼容。不同 Content 可以独立使用不同 Story Teller commit、协议次版本、API 和 Schema；源码 dirty 仅告警。Adapter 对外提供 `manifest`、`prepare`、`web`、`mcp` 和可选的 `create-project`，Hub 不依赖这些功能的内部模块结构。
 
@@ -33,7 +33,7 @@ MCP 默认跟随对应 Web Content：`./run.sh` 退出、管理页停止 Content
 ./run-rag.sh status
 ```
 
-多个 Content 共享同一个 `http://127.0.0.1:4181/mcp/`，Hub 会在每个工具的 `workspace` 参数中动态提供当前运行中的 Content 选项，并在 `project` 中提供该 Content 下已启用的 Project；AI 客户端无需预先知道名称。`project` 可省略：优先选择与 workspace 同名的项目，否则单项目自动选中；多项目且无同名项时才需要明确选择。Content 的 MCP worker 本身不绑定端口。网页保存后会合并连续改动并在后台增量同步 RAG；每次检索前仍检查 `story.db` revision 作为正确性兜底。
+多个 Content 共享同一个 `http://127.0.0.1:4188/mcp/`，Hub 会在每个工具的 `workspace` 参数中动态提供当前运行中的 Content 选项，并在 `project` 中提供该 Content 下已启用的 Project；AI 客户端无需预先知道名称。`project` 可省略：优先选择与 workspace 同名的项目，否则单项目自动选中；多项目且无同名项时才需要明确选择。Content 的 MCP worker 本身不绑定端口。网页保存后会合并连续改动并在后台增量同步 RAG；每次检索前仍检查 `story.db` revision 作为正确性兜底。
 
 OpenCode 等本地 AI 推荐使用无端口的 stdio MCP。安装一次全局启动器：
 
@@ -54,7 +54,7 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 
 `STORY_TELLER_CONTENT_ROOT` 可以指向 Git 仓库内任意独立 Content 根目录；Content 的稳定 ID 根据规范化真实路径生成，因此同一仓库也可以注册多个 Content。
 
-开发前端时使用 `./dev.sh`：FastAPI 运行在 4180，Vite 开发服务运行在 5173，并把 API 请求代理到本地服务。
+开发前端时使用 `./dev.sh`：FastAPI 运行在 4187，Vite 开发服务运行在 5173，并把 API 请求代理到本地服务。
 
 ## 数据、Git 与恢复
 

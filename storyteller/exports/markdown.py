@@ -266,7 +266,7 @@ class MarkdownExporter:
             },
             "aiGateway": {
                 "stdioCommand": ["story-world-mcp"],
-                "hubMcp": "http://127.0.0.1:4181/mcp/",
+                "hubMcp": "http://127.0.0.1:4188/mcp/",
                 "workspaceSelection": "Hub 工具会动态提供 workspace 与 project 选项；project 省略时优先匹配同名 workspace，否则单项目自动选中",
                 "recommendedFlow": [
                     "list_world_workspaces", "list_world_projects", "describe_world", "world_catalog", "resolve_world_entity",
@@ -299,7 +299,7 @@ class MarkdownExporter:
             f"当前数据 revision：{project['revision']}。`story.db` 是唯一可写事实来源；本目录 Markdown 与 JSON 均为只读导出。\n\n"
             "读取顺序：先读 `world-schema.json` 理解实体语义，再读 `ai-manifest.json` 和 "
             "`project.snapshot.json`；本地 AI 可使用 stdio 命令 `story-world-mcp`，也可连接统一 Hub "
-            "`http://127.0.0.1:4181/mcp/`。使用 Hub 时先调用 `list_world_workspaces` 选择当前仓库。\n\n"
+            "`http://127.0.0.1:4188/mcp/`。使用 Hub 时先调用 `list_world_workspaces` 选择当前仓库。\n\n"
             "组织归属、双方印象和剧情出场等精确事实应优先使用 MCP 的结构化工具；需要联想或按语义找资料时再使用 RAG。\n\n"
             "碎片是已确定但尚未编入时间线的剧情，默认应参与检索和创作上下文，不要把它解释为废弃或非正史。\n"
         ).encode("utf-8")
