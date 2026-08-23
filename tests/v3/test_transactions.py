@@ -201,7 +201,7 @@ class V3TransactionTests(unittest.TestCase):
         )
         self.assertIn(created_ids[4], restored.changed_entity_ids)
 
-    def test_fragments_are_listed_by_creation_time_descending(self):
+    def test_fragments_are_listed_by_latest_update_time_descending(self):
         created_ids: list[str] = []
         revision = self.revision()
         for title in ("较早碎片", "最新碎片", "中间碎片"):
@@ -213,10 +213,11 @@ class V3TransactionTests(unittest.TestCase):
             created_ids.append(created.callback_result["entityId"])
 
         with self.database.write() as connection:
-            for identifier, created_at in zip(created_ids, (100, 300, 200)):
+            connection.execute("UPDATE entities SET updated_at=1 WHERE kind='fragment'")
+            for identifier, updated_at in zip(created_ids, (100, 300, 200)):
                 connection.execute(
-                    "UPDATE entities SET created_at=? WHERE id=?",
-                    (created_at, identifier),
+                    "UPDATE entities SET created_at=?, updated_at=? WHERE id=?",
+                    (updated_at, updated_at, identifier),
                 )
 
         visible_ids = [
@@ -225,6 +226,14 @@ class V3TransactionTests(unittest.TestCase):
             if item["entityId"] in created_ids
         ]
         self.assertEqual([created_ids[1], created_ids[2], created_ids[0]], visible_ids)
+
+        saved = self.content.update_fragment(
+            created_ids[0], revision, {"body": "较早碎片刚刚重新保存"}
+        )
+        refreshed = self.repository.snapshot()["fragments"]
+        self.assertEqual(created_ids[0], refreshed[0]["entityId"])
+        self.assertGreater(refreshed[0]["updatedAt"], 300)
+        self.assertEqual(revision + 1, saved.project_revision)
 
     def test_transaction_failure_rolls_back_every_row_and_revision(self):
         revision = self.revision()

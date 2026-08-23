@@ -16,3 +16,21 @@ describe("story reading location", () => {
     expect(window.location.hash).toBe("#/story/plot%3A39");
   });
 });
+
+describe("fragment dual-view route", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    window.history.replaceState({}, "", "/w/demo/?project=novel#/fragments/board");
+  });
+
+  it("restores the board sub-route and switches back to the card route", async () => {
+    const { useUiStore } = await import("./ui");
+
+    expect(useUiStore.getState().page).toBe("fragments");
+    expect(useUiStore.getState().fragmentView).toBe("board");
+
+    useUiStore.getState().setFragmentView("cards");
+    expect(window.location.hash).toBe("#/fragments");
+    expect(useUiStore.getState().fragmentView).toBe("cards");
+  });
+});

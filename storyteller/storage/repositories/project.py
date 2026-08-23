@@ -196,11 +196,12 @@ class ProjectRepository:
             )]
             fragments = [self._fragment(row, fragment_tags, include_body=False) for row in connection.execute(
                 """
-                SELECT f.*, e.project_id, e.stable_id, e.title, e.revision, e.extra_json
+                SELECT f.*, e.project_id, e.stable_id, e.title, e.revision, e.extra_json,
+                       e.created_at, e.updated_at
                 FROM fragments f
                 JOIN entities e ON e.id = f.entity_id
                 WHERE e.deleted_at IS NULL
-                ORDER BY e.created_at DESC, e.id DESC
+                ORDER BY e.updated_at DESC, e.created_at DESC, e.id DESC
                 """
             )]
             for fragment in fragments:
@@ -352,6 +353,8 @@ class ProjectRepository:
             "entityId": identifier,
             "id": str(row["stable_id"]),
             "title": str(row["title"]),
+            "createdAt": int(row["created_at"]),
+            "updatedAt": int(row["updated_at"]),
             "status": str(row["status"]),
             "accent": str(row["accent"]),
             "key": bool(row["is_key"]),

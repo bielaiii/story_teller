@@ -1,4 +1,5 @@
 import type { MutationDelta, ProjectSnapshot } from "./types";
+import { compareFragmentsByRecency } from "../fragmentOrdering";
 
 const bucketMap = {
   characters: "characters",
@@ -31,7 +32,7 @@ export function applyDelta(snapshot: ProjectSnapshot, delta: MutationDelta): Pro
   next.plots.sort((left, right) => left.sortKey.localeCompare(right.sortKey) || left.id.localeCompare(right.id));
   next.plots = next.plots.map((item, index) => ({ ...item, sequence: index + 1 }));
   next.entries.sort((left, right) => left.type.localeCompare(right.type, "zh-CN") || left.id.localeCompare(right.id));
-  next.fragments.sort((left, right) => left.id.localeCompare(right.id));
+  next.fragments.sort(compareFragmentsByRecency);
   next.relationships.sort((left, right) => left.id.localeCompare(right.id));
   next.chapters.sort((left, right) => left.sortKey.localeCompare(right.sortKey));
   if (delta.structures?.timeline) {

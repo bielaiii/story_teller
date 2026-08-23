@@ -44,6 +44,27 @@ opencode mcp add story-world -- story-world-mcp
 
 然后在 AI 客户端中把本地 MCP 命令配置为 `story-world-mcp`。启动器会根据客户端当前目录向上发现最近的 `content/*/story.db`，使用当前仓库自己的框架；一个工作区有多个内容项目时可通过 `list_world_projects` 选择。不能根据当前目录启动命令的客户端，只需固定配置一次 Hub 地址，并先调用 `list_world_workspaces`。
 
+## 碎片命令行
+
+碎片 CLI 是已启动 Web 服务的本地客户端，复用网页的事务、校验、软删除、撤销、Markdown 导出和 RAG 同步逻辑；它不会直接写 `story.db`，MCP 也继续保持只读。先运行仓库的 `./run.sh`，再从小说仓库目录使用：
+
+```sh
+./story_teller/story-fragment list
+./story_teller/story-fragment add "复仇主线" --line
+./story_teller/story-fragment add "第一次交锋" \
+  --parent "复仇主线" --chapter-number 1 --body-file ./first.md
+```
+
+需要在任意子目录直接使用 `story-fragment` 时，可安装一次全局启动器：
+
+```sh
+./story_teller/scripts/install-story-fragment.sh
+```
+
+`add` 只有标题必填；正文可通过 `--body`、`--body-file` 或 stdin 提供。`--parent` 接受剧情线标题、稳定 ID 或 `entityId`，重名时会拒绝猜测并要求使用 ID。剧情线中的顺序由 `chapterNumber` 和 `fragmentOrder` 决定，不根据文件路径或文件名推断。
+
+完整工作流命令包括 `list [--tree]`、`show`、`add`、`edit`、`import [FILE|-]`、`promote`、`delete`、`trash`、`restore`、`history`、`undo OPERATION_ID` 和 `export`。所有命令支持 `--project`、`--web-url` 和 `--json`；自动化删除必须显式传入 `--yes`。
+
 使用父仓内容目录：
 
 ```sh

@@ -7,6 +7,7 @@ import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMark
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FragmentBoard } from "../components/FragmentBoard";
 import { AppearancePeopleField, detectedCharacterIds, missingAppearanceNames } from "../components/AppearancePeopleField";
 import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
 import { EditorSettingsSection } from "../components/EditorSettingsSection";
@@ -15,6 +16,7 @@ import { Icon } from "../components/Icon";
 import { ReadOnlyArticle } from "../components/ReadOnlyArticle";
 import { Pagination } from "../components/Pagination";
 import { useUiStore } from "../state/ui";
+import { compareFragmentsByRecency, fragmentRecency } from "../fragmentOrdering";
 
 interface Draft {
   stableId: string;
@@ -150,7 +152,22 @@ export function groupFragments(items: Fragment[]) {
   }
   const topLevel = items.filter((item) =>
     fragmentTypeOf(item) === "line" || !fragmentParentOf(item) || !lines.has(fragmentParentOf(item) as string)
-  );
+  ).sort((left, right) => {
+    const latest = (item: Fragment) => {
+      const values = [item, ...(children.get(item.entityId) || [])]
+        .map(fragmentRecency)
+        .filter((value): value is number => value !== undefined);
+      return values.length ? Math.max(...values) : undefined;
+    };
+    const leftLatest = latest(left);
+    const rightLatest = latest(right);
+    if (leftLatest !== undefined || rightLatest !== undefined) {
+      if (leftLatest === undefined) return 1;
+      if (rightLatest === undefined) return -1;
+      if (leftLatest !== rightLatest) return rightLatest - leftLatest;
+    }
+    return compareFragmentsByRecency(left, right);
+  });
   return { topLevel, children };
 }
 
@@ -469,9 +486,11 @@ function FragmentEditor({
         <label><span>章号</span><input type="number" min="1" step="1" value={draft.chapterNumber ?? ""} onChange={(event) => change("chapterNumber", event.target.value ? Math.max(1, Math.trunc(Number(event.target.value))) : null)} /></label>
         <label className="wide"><span>章节标题</span><input value={draft.title} onChange={(event) => change("title", event.target.value)} /></label>
       </> : <label className="wide"><span>{draft.fragmentType === "line" ? "剧情线标题" : "章节标题"}</span><input value={draft.title} onChange={(event) => change("title", event.target.value)} /></label>}
-      <label className="wide"><span>标签</span><input value={draft.tags.join("，")} onChange={(event) => change("tags", event.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} /></label>
-      <label><span>关键剧情</span><input type="checkbox" checked={draft.key} onChange={(event) => change("key", event.target.checked)} /></label>
-      <label><span>高潮剧情</span><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} /></label>
+      <div className="fragment-settings-meta-row">
+        <label className="fragment-settings-tags"><span>标签</span><input value={draft.tags.join("，")} onChange={(event) => change("tags", event.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} /></label>
+        <label className="fragment-feature-toggle"><input type="checkbox" checked={draft.key} onChange={(event) => change("key", event.target.checked)} /><span>关键剧情</span></label>
+        <label className="fragment-feature-toggle"><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} /><span>高潮剧情</span></label>
+      </div>
       {supportsAppearancePeople && draft.fragmentType === "chapter" && <AppearancePeopleField
         characters={snapshot.characters}
         text={draft.body}
@@ -534,6 +553,8 @@ export default function FragmentsPage() {
   const mutation = useProjectMutation();
   const selectedFragmentId = useUiStore((state) => state.selectedFragmentId);
   const selectFragment = useUiStore((state) => state.selectFragment);
+  const fragmentView = useUiStore((state) => state.fragmentView);
+  const setFragmentView = useUiStore((state) => state.setFragmentView);
   const tags = useMemo(() => [...new Set(snapshot.fragments.flatMap((item) => item.tags))].sort(), [snapshot.fragments]);
   const [selectedTags, setSelectedTags] = useState<string[]>(tags);
   const [editor, setEditor] = useState<string | "new" | null>(null);
@@ -672,10 +693,13 @@ export default function FragmentsPage() {
   const importFromClipboard = () => {
     openClipboardPaste("请在下方按 ⌘/Ctrl+V；也可以尝试让浏览器自动读取。");
   };
-  const edit = (event: React.MouseEvent, item: Fragment) => {
-    event.stopPropagation();
+  const openEditor = (item: Fragment) => {
     setNewParentId(null);
     setEditor(item.entityId);
+  };
+  const edit = (event: React.MouseEvent, item: Fragment) => {
+    event.stopPropagation();
+    openEditor(item);
   };
   const download = async (event: React.MouseEvent, item: Fragment, chapters: Fragment[] = []) => {
     event.stopPropagation();
@@ -719,10 +743,10 @@ export default function FragmentsPage() {
     <div className="fragment-card-copy"><h2>{fragmentDisplayTitle(item)}</h2><CompleteBlockPreview source={item.bodyPreview || "还没有正文"} className="fragment-card-preview content-card-preview" /></div>
     <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
   </article>;
-  return <section className="workspace-page fragments-page-new">
-    <header className="page-header"><div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>单章直接阅读，剧情线在悬浮窗口中按章节继续推演。</p></div>{writable && <div className="fragment-page-actions">{supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}</header>
+  return <section className={`workspace-page fragments-page-new${fragmentView === "board" ? " is-board-view" : ""}`}>
+    <header className="page-header"><div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>{fragmentView === "board" ? "自由摆放全部灵感，聚焦节点查看剧情线、引用、人物和标签关系。" : "单章直接阅读，剧情线在悬浮窗口中按章节继续推演。"}</p></div><div className="fragment-page-header-actions"><div className="fragment-view-switch" role="group" aria-label="碎片显示方式"><button type="button" className={fragmentView === "cards" ? "is-active" : ""} aria-pressed={fragmentView === "cards"} onClick={() => setFragmentView("cards")}><Icon name="book" />卡片</button><button type="button" className={fragmentView === "board" ? "is-active" : ""} aria-pressed={fragmentView === "board"} onClick={() => setFragmentView("board")}><Icon name="timeline" />画布</button></div>{writable && <div className="fragment-page-actions">{supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}</div></header>
     {tags.length > 0 && <FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible />}
-    <div className="fragment-grid-new">{fragments.map((item, index) => {
+    {fragmentView === "board" ? snapshot.fragments.length > 0 && <FragmentBoard fragments={snapshot.fragments} selectedTags={selectedTags} allTags={tags} onEdit={openEditor} onImmersive={setReader} /> : <><div className="fragment-grid-new">{fragments.map((item, index) => {
       if (fragmentTypeOf(item) !== "line") {
         return chapterCard(item, String((activePage - 1) * FRAGMENTS_PER_PAGE + index + 1).padStart(2, "0"));
       }
@@ -748,8 +772,8 @@ export default function FragmentsPage() {
         </section></div>}
       </ReactFragment>;
     })}</div>
-    <Pagination page={activePage} totalPages={totalPages} onChange={changePage} />
-    {!fragments.length && <div className="empty-state"><Icon name="book" /><h2>还没有灵感碎片</h2><p>可以记录一章，也可以先搭一整条剧情线。</p></div>}
+    <Pagination page={activePage} totalPages={totalPages} onChange={changePage} /></>}
+    {!(fragmentView === "board" ? snapshot.fragments.length : fragments.length) && <div className="empty-state"><Icon name="book" /><h2>还没有灵感碎片</h2><p>可以记录一章，也可以先搭一整条剧情线。</p></div>}
     {clipboardDialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !mutation.isPending && setClipboardDialog(false)}>
       <section className="clipboard-import-dialog" role="dialog" aria-modal="true" aria-labelledby="clipboard-import-title">
         <header><div><small>Clipboard Import</small><h2 id="clipboard-import-title">粘贴灵感内容</h2><p>{clipboardHint}</p></div><button className="icon-button" disabled={mutation.isPending} onClick={() => setClipboardDialog(false)} aria-label="关闭粘贴面板"><Icon name="close" /></button></header>

@@ -38,4 +38,21 @@ describe("applyDelta", () => {
     expect(next.graph).toBe(graph);
     expect(next.project.revision).toBe(4);
   });
+
+  it("moves a saved fragment to the front by its latest update time", () => {
+    const withFragments = {
+      ...snapshot,
+      fragments: [
+        { entityId: "fragment:1", id: "1", title: "原本最新", createdAt: 300, updatedAt: 300 },
+        { entityId: "fragment:2", id: "2", title: "刚刚修改", createdAt: 100, updatedAt: 100 },
+      ],
+    } as unknown as ProjectSnapshot;
+    const next = applyDelta(withFragments, delta({
+      changed: {
+        fragments: [{ entityId: "fragment:2", id: "2", title: "刚刚修改", createdAt: 100, updatedAt: 400 }],
+      },
+    }));
+
+    expect(next.fragments.map((item) => item.entityId)).toEqual(["fragment:2", "fragment:1"]);
+  });
 });

@@ -82,6 +82,19 @@ describe("fragment story-line grouping", () => {
     ]);
   });
 
+  it("moves a story line forward when one of its chapters was saved most recently", () => {
+    const line = { ...item("fragment:line", "line"), updatedAt: 100 };
+    const child = { ...item("fragment:child", "chapter", line.entityId, 1), updatedAt: 400 };
+    const standalone = { ...item("fragment:solo", "chapter"), updatedAt: 300 };
+
+    const grouped = groupFragments([standalone, line, child]);
+
+    expect(grouped.topLevel.map((value) => value.entityId)).toEqual([
+      line.entityId,
+      standalone.entityId,
+    ]);
+  });
+
   it("treats legacy and orphaned fragments as readable standalone chapters", () => {
     const legacy = item("fragment:legacy");
     const orphan = item("fragment:orphan", "chapter", "fragment:missing");

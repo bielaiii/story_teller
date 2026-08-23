@@ -63,6 +63,7 @@
 .page-header h1 { font-size: clamp(30px, 3.1vw, 48px); margin: 4px 0 0; }
 .page-header p { color: var(--muted); margin: 0; max-width: 700px; line-height: 1.65; }
 .page-actions { display: flex; align-items: center; gap: 9px; }
+.story-import-action { width: auto; min-width: 52px; padding-inline: 10px; white-space: nowrap; writing-mode: horizontal-tb; }
 .page-actions select, .entry-filter-bar select, .editor-settings input, .editor-settings select, .profile-editor-grid input, .profile-editor-grid select, .profile-editor-grid textarea {
   border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); padding: 9px 10px;
 }
@@ -496,6 +497,11 @@
 .editor-settings label, .profile-editor-grid label { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; }
 .editor-settings label.wide, .profile-editor-grid label.wide { grid-column: span 2; }
 .editor-settings label.check { display: flex; align-items: center; padding-top: 18px; }
+.editor-settings input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; border-radius: 4px; padding: 0; accent-color: var(--primary); cursor: pointer; }
+.fragment-settings-meta-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(130px, 1fr) minmax(130px, 1fr); align-items: end; gap: 10px; }
+.editor-settings .fragment-feature-toggle { min-height: 36px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; background: var(--surface-solid); color: var(--ink); cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.editor-settings .fragment-feature-toggle:hover { border-color: color-mix(in srgb, var(--primary) 38%, var(--line)); background: var(--primary-soft); }
+.editor-settings .fragment-feature-toggle:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: 2px; }
 .appearance-people-field { grid-column: 1 / -1; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 11px; }
 .appearance-people-field > header { display: flex; align-items: center; gap: 9px; }
 .appearance-people-field > header > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--primary-soft); color: var(--primary); }
@@ -672,6 +678,8 @@
   .filter-chips button { padding: 5px 8px; font-size: 11px; }
   .editor-settings { grid-template-columns: 1fr; }
   .editor-settings label.wide { grid-column: auto; }
+  .fragment-settings-meta-row { grid-template-columns: 1fr 1fr; }
+  .fragment-settings-tags { grid-column: 1 / -1; }
   .settings-toggle { top: 12px; right: 64px; width: 38px; min-height: 38px; justify-content: center; padding: 0; }
   .settings-toggle > span { display: none; }
   .editor-settings-scrim { inset: 56px 0 0; }

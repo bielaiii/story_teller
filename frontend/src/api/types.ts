@@ -98,6 +98,8 @@ export interface Fragment {
   entityId: string;
   id: string;
   title: string;
+  createdAt?: number;
+  updatedAt?: number;
   status: string;
   accent: string;
   key?: boolean;

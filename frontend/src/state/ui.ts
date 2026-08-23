@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export type PageId = "graph" | "story" | "timeline" | "characters" | "entries" | "fragments" | "management";
+export type FragmentView = "cards" | "board";
 
 interface UiState {
   page: PageId;
@@ -10,6 +11,7 @@ interface UiState {
   storyReturnCharacterId: string | null;
   selectedEntryId: string | null;
   selectedFragmentId: string | null;
+  fragmentView: FragmentView;
   graphViewport: { x: number; y: number; scale: number };
   timelineFocusId: string | null;
   filters: Record<string, string[]>;
@@ -22,6 +24,7 @@ interface UiState {
   clearStoryReturn: () => void;
   selectEntry: (id: string | null) => void;
   selectFragment: (id: string | null) => void;
+  setFragmentView: (view: FragmentView) => void;
   setGraphViewport: (viewport: UiState["graphViewport"]) => void;
   setTimelineFocus: (id: string | null) => void;
   setFilter: (key: string, values: string[]) => void;
@@ -34,6 +37,7 @@ const hashPage = hashParts[0] as PageId;
 const initialPage: PageId = ["graph", "story", "timeline", "characters", "entries", "fragments", "management"].includes(hashPage)
   ? hashPage
   : "graph";
+const initialFragmentView: FragmentView = initialPage === "fragments" && hashParts[1] === "board" ? "board" : "cards";
 let initialPlotId: string | null = null;
 if (initialPage === "story" && hashParts[1]) {
   try {
@@ -52,13 +56,18 @@ export const useUiStore = create<UiState>((set) => ({
   storyReturnCharacterId: null,
   selectedEntryId: null,
   selectedFragmentId: null,
+  fragmentView: initialFragmentView,
   graphViewport: { x: 0, y: 0, scale: 1 },
   timelineFocusId: null,
   filters: {},
   notice: null,
   navigate: (page) => {
     window.history.pushState({}, "", `${window.location.pathname}${window.location.search}#/${page}`);
-    set((state) => ({ page, storyReturnCharacterId: page === "story" ? state.storyReturnCharacterId : null }));
+    set((state) => ({
+      page,
+      fragmentView: page === "fragments" ? "cards" : state.fragmentView,
+      storyReturnCharacterId: page === "story" ? state.storyReturnCharacterId : null,
+    }));
   },
   selectCharacter: (selectedCharacterId) => set({ selectedCharacterId }),
   selectGraphCharacter: (selectedGraphCharacterId) => set({ selectedGraphCharacterId }),
@@ -77,6 +86,11 @@ export const useUiStore = create<UiState>((set) => ({
   clearStoryReturn: () => set({ storyReturnCharacterId: null }),
   selectEntry: (selectedEntryId) => set({ selectedEntryId }),
   selectFragment: (selectedFragmentId) => set({ selectedFragmentId }),
+  setFragmentView: (fragmentView) => {
+    const suffix = fragmentView === "board" ? "/board" : "";
+    window.history.pushState({}, "", `${window.location.pathname}${window.location.search}#/fragments${suffix}`);
+    set({ page: "fragments", fragmentView });
+  },
   setGraphViewport: (graphViewport) => set({ graphViewport }),
   setTimelineFocus: (timelineFocusId) => set({ timelineFocusId }),
   setFilter: (key, values) => set((state) => ({ filters: { ...state.filters, [key]: values } })),
@@ -88,8 +102,12 @@ export const useUiStore = create<UiState>((set) => ({
 }));
 
 window.addEventListener("popstate", () => {
-  const page = window.location.hash.replace(/^#\/?/, "").split("/")[0] as PageId;
+  const parts = window.location.hash.replace(/^#\/?/, "").split("/");
+  const page = parts[0] as PageId;
   if (["graph", "story", "timeline", "characters", "entries", "fragments", "management"].includes(page)) {
-    useUiStore.setState({ page });
+    useUiStore.setState({
+      page,
+      fragmentView: page === "fragments" && parts[1] === "board" ? "board" : "cards",
+    });
   }
 });

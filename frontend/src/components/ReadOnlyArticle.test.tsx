@@ -1,8 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReadOnlyArticle } from "./ReadOnlyArticle";
 
 describe("ReadOnlyArticle outline", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(navigator, "clipboard");
+    Reflect.deleteProperty(document, "execCommand");
+  });
+
   it("hides the outline column when the article has no Markdown headings", () => {
     const { container } = render(
       <ReadOnlyArticle
@@ -49,5 +55,34 @@ describe("ReadOnlyArticle outline", () => {
 
     fireEvent.click(container.querySelector(".reader-backdrop")!);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies the full article from the reader action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(
+      <ReadOnlyArticle
+        title="复制测试"
+        eyebrow="灵感碎片"
+        body={"第一段正文。\n\n第二段正文。"}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "复制正文" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("第一段正文。\n\n第二段正文。"));
+    expect(screen.getByRole("status")).toHaveTextContent("已复制");
+    expect(screen.getByRole("button", { name: "正文已复制" })).toBeInTheDocument();
+  });
+
+  it("shows a failure message when clipboard access is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+    render(<ReadOnlyArticle title="复制失败测试" eyebrow="灵感碎片" body="正文" onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "复制正文" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("复制失败"));
   });
 });
