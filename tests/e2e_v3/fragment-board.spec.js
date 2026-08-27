@@ -40,6 +40,11 @@ test("碎片图谱使用白色无边界画布与悬浮工具栏", async ({ page 
   });
   await expect(shell).toBeVisible();
   await expect(toolbar).toBeVisible();
+  await expect(page.getByRole("heading", { name: "灵感碎片箱" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "从剪贴板导入" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "卡片", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "图", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建碎片", exact: true })).toBeVisible();
 });
 
 test("拖动画布时不会选中节点文字，阅读正文仍可选择", async ({ page }) => {
@@ -119,16 +124,16 @@ test("碎片画布切换、阅读、拖动持久化和重新整理不修改项�
   await expect(page.locator(".fragment-card-new").first()).toBeVisible();
 });
 
-test("画布标签筛选只淡化节点，不减少碎片总数", async ({ page }) => {
+test("图视图隐藏标签筛选，切回卡片后恢复", async ({ page }) => {
   const snapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   const tags = [...new Set(snapshot.fragments.flatMap((item) => item.tags))];
-  test.skip(tags.length < 2, "fixture needs at least two fragment tags");
+  test.skip(tags.length < 1, "fixture needs fragment tags");
 
   await page.goto("/?project=novel#/fragments/board");
   await expect(page.getByText(`${snapshot.fragments.length} 个碎片`, { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: tags[0], exact: true }).click();
-  await expect(page.getByText(`${snapshot.fragments.length} 个碎片`, { exact: true })).toBeVisible();
-  await expect(page.locator(".fragment-board-node.is-tag-dimmed").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: tags[0], exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "卡片", exact: true }).click();
+  await expect(page.getByRole("button", { name: tags[0], exact: true })).toBeVisible();
 });
 
 test("窄屏阅读层覆盖画布，关闭后回到原节点", async ({ page }) => {

@@ -744,9 +744,15 @@ export default function FragmentsPage() {
     <div className="metadata-tags">{item.tags.map((tag) => <span key={tag} style={{ color: item.accent, borderColor: item.accent }}>{tag}</span>)}</div>
   </article>;
   return <section className={`workspace-page fragments-page-new${fragmentView === "board" ? " is-board-view" : ""}`}>
-    <header className="page-header"><div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>{fragmentView === "board" ? "像知识图谱一样查看碎片：连接来自剧情顺序、明确引用、共同人物和标签。" : "单章直接阅读，剧情线在悬浮窗口中按章节继续推演。"}</p></div><div className="fragment-page-header-actions"><div className="fragment-view-switch" role="group" aria-label="碎片显示方式"><button type="button" className={fragmentView === "cards" ? "is-active" : ""} aria-pressed={fragmentView === "cards"} onClick={() => setFragmentView("cards")}><Icon name="book" />卡片</button><button type="button" className={fragmentView === "board" ? "is-active" : ""} aria-pressed={fragmentView === "board"} onClick={() => setFragmentView("board")}><Icon name="timeline" />图</button></div>{writable && <div className="fragment-page-actions">{supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}</div></header>
-    {tags.length > 0 && <FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible />}
-    {fragmentView === "board" ? snapshot.fragments.length > 0 && <FragmentBoard fragments={snapshot.fragments} selectedTags={selectedTags} allTags={tags} onEdit={openEditor} onImmersive={setReader} /> : <><div className="fragment-grid-new">{fragments.map((item, index) => {
+    <header className="page-header">
+      {fragmentView !== "board" && <div><small>Idea Inbox</small><h1>灵感碎片箱</h1><p>单章直接阅读，剧情线在悬浮窗口中按章节继续推演。</p></div>}
+      <div className="fragment-page-header-actions">
+        <div className="fragment-view-switch" role="group" aria-label="碎片显示方式"><button type="button" className={fragmentView === "cards" ? "is-active" : ""} aria-pressed={fragmentView === "cards"} onClick={() => setFragmentView("cards")}><Icon name="book" />卡片</button><button type="button" className={fragmentView === "board" ? "is-active" : ""} aria-pressed={fragmentView === "board"} onClick={() => setFragmentView("board")}><Icon name="timeline" />图</button></div>
+        {writable && <div className="fragment-page-actions">{fragmentView !== "board" && supportsClipboardImport && <button className="fragment-import-action" disabled={mutation.isPending} onClick={importFromClipboard}><span><Icon name="clipboard" /></span>{mutation.isPending ? "正在解析…" : "从剪贴板导入"}</button>}<button className="fragment-create-action" onClick={() => openNew()}><span><Icon name="plus" /></span>新建碎片</button></div>}
+      </div>
+    </header>
+    {fragmentView !== "board" && tags.length > 0 && <FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible />}
+    {fragmentView === "board" ? snapshot.fragments.length > 0 && <FragmentBoard fragments={snapshot.fragments} selectedTags={tags} allTags={tags} onEdit={openEditor} onImmersive={setReader} /> : <><div className="fragment-grid-new">{fragments.map((item, index) => {
       if (fragmentTypeOf(item) !== "line") {
         return chapterCard(item, String((activePage - 1) * FRAGMENTS_PER_PAGE + index + 1).padStart(2, "0"));
       }

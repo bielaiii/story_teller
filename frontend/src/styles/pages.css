@@ -587,12 +587,17 @@
 .fragment-view-switch button { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 0 11px; color: var(--muted); background: transparent; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
 .fragment-view-switch button .icon { width: 15px; height: 15px; }
 .fragment-view-switch button.is-active { color: var(--primary); background: var(--surface-solid); box-shadow: 0 2px 9px rgba(30, 51, 75, .1); }
-.fragments-page-new.is-board-view { height: calc(100dvh - 78px); min-height: 680px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
-.fragments-page-new.is-board-view > .filter-popover { margin-bottom: 10px; }
+.fragments-page-new.is-board-view { position: relative; height: calc(100dvh - 78px); min-height: 680px; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; border: 0; border-radius: 0; padding: 0; background: #fff; box-shadow: none; }
+.fragments-page-new.is-board-view > .page-header { position: absolute; z-index: 5; top: 12px; right: 12px; margin: 0; pointer-events: none; }
+.fragments-page-new.is-board-view > .page-header .fragment-page-header-actions { width: auto; justify-content: flex-end; gap: 8px; pointer-events: auto; }
+.fragments-page-new.is-board-view .fragment-page-actions { gap: 8px; }
+.fragments-page-new.is-board-view .fragment-view-switch { width: auto; background: rgba(255, 255, 255, .84); box-shadow: 0 8px 24px rgba(42, 91, 118, .08); backdrop-filter: blur(12px); }
+.fragments-page-new.is-board-view .fragment-view-switch button { flex: 0 0 auto; }
+.fragments-page-new.is-board-view > .fragment-board-shell { grid-row: 1; }
 .fragment-board-shell { position: relative; min-width: 0; min-height: 570px; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .fragment-board-shell.has-reader { grid-template-columns: minmax(0, 1fr) minmax(360px, 31vw); }
 .fragment-board-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-.fragment-board-toolbar { position: absolute; z-index: 4; inset: 12px 12px auto; min-height: 34px; justify-content: space-between; gap: 12px; padding: 0; border: 0; background: transparent; pointer-events: none; }
+.fragment-board-toolbar { position: absolute; z-index: 4; inset: 62px 12px auto; min-height: 34px; justify-content: space-between; gap: 12px; padding: 0; border: 0; background: transparent; pointer-events: none; }
 .fragment-board-toolbar > * { pointer-events: auto; }
 .fragment-board-toolbar > strong { margin-left: auto; border: 1px solid color-mix(in srgb, var(--line) 72%, transparent); border-radius: 9px; padding: 8px 10px; color: var(--muted); background: rgba(255, 255, 255, .82); box-shadow: 0 8px 24px rgba(42, 91, 118, .08); font-size: 10px; white-space: nowrap; backdrop-filter: blur(12px); }
 .fragment-board-toolbar > div:last-child { gap: 2px; border: 1px solid color-mix(in srgb, var(--line) 72%, transparent); border-radius: 10px; padding: 2px; background: rgba(255, 255, 255, .84); box-shadow: 0 8px 24px rgba(42, 91, 118, .09); backdrop-filter: blur(12px); }
@@ -1471,7 +1476,7 @@ html:has(.story-reader-page)::-webkit-scrollbar { display: none; }
   .character-editor-body { grid-template-columns: 1fr; overflow: auto; }
   .character-editor-settings { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
   .persona-editor-scroll { overflow: visible; }
-  .fragments-page-new.is-board-view { min-height: calc(100dvh - 76px); padding-inline: 10px; }
+  .fragments-page-new.is-board-view { min-height: calc(100dvh - 76px); padding: 0; }
   .fragment-page-header-actions { width: 100%; justify-content: flex-start; }
   .fragment-board-shell { min-height: 540px; }
   .fragment-board-legend { display: none; }
