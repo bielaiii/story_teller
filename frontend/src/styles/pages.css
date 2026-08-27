@@ -606,7 +606,7 @@
 .fragment-board-toolbar button:focus-visible { border-color: color-mix(in srgb, var(--primary) 36%, transparent); color: var(--primary); background: var(--primary-soft); }
 .fragment-board-toolbar button .icon { width: 15px; height: 15px; }
 .fragment-board-toolbar > div:last-child > span { min-width: 42px; color: var(--muted); text-align: center; font-size: 9px; font-variant-numeric: tabular-nums; }
-.fragment-board-legend { flex-wrap: wrap; gap: 11px; border: 1px solid color-mix(in srgb, var(--line) 68%, transparent); border-radius: 9px; padding: 8px 10px; color: var(--muted); background: rgba(255, 255, 255, .8); box-shadow: 0 8px 24px rgba(42, 91, 118, .07); font-size: 9px; backdrop-filter: blur(12px); }
+.fragment-board-toolbar > .fragment-board-legend { display: grid; grid-template-columns: repeat(2, max-content); column-gap: 13px; row-gap: 7px; border: 1px solid color-mix(in srgb, var(--line) 68%, transparent); border-radius: 9px; padding: 8px 10px; color: var(--muted); background: rgba(255, 255, 255, .8); box-shadow: 0 8px 24px rgba(42, 91, 118, .07); font-size: 9px; backdrop-filter: blur(12px); }
 .fragment-board-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .fragment-board-legend span::before { width: 16px; height: 1px; border-radius: 9px; background: rgba(63, 127, 193, .82); content: ""; }
 .fragment-board-legend .is-reference::before { background: repeating-linear-gradient(90deg, #6d5ec4 0 4px, transparent 4px 7px); }
