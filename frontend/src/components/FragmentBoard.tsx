@@ -301,11 +301,11 @@ export function FragmentBoard({
       const selectedEdge = edge.fromId === selectedId || edge.toId === selectedId;
       const core = edge.kinds.includes("structure") || edge.kinds.includes("reference");
       const color = edge.kinds.includes("structure")
-        ? "112, 181, 235"
+        ? "63, 127, 193"
         : edge.kinds.includes("reference")
-          ? "157, 132, 232"
-          : edge.kinds.includes("person") ? "103, 190, 162" : "211, 176, 91";
-      const alpha = selectedId ? (selectedEdge ? .82 : .055) : (core ? .42 : .16);
+          ? "109, 94, 196"
+          : edge.kinds.includes("person") ? "42, 157, 143" : "188, 140, 36";
+      const alpha = selectedId ? (selectedEdge ? .76 : .045) : (core ? .38 : .17);
       context.strokeStyle = `rgba(${color}, ${alpha})`;
       context.lineWidth = selectedEdge ? 1.65 : core ? 1.05 : .8;
       context.setLineDash(edge.kinds.includes("reference") ? [5, 5] : []);

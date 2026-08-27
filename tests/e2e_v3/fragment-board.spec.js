@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 
-test("碎片图谱使用深色无边界画布与悬浮工具栏", async ({ page }) => {
+test("碎片图谱使用白色无边界画布与悬浮工具栏", async ({ page }) => {
   await page.goto("/?project=novel#/fragments/board");
 
   const shell = page.locator(".fragment-board-shell");
@@ -35,7 +35,7 @@ test("碎片图谱使用深色无边界画布与悬浮工具栏", async ({ page 
     toolbarPosition: "absolute",
     toolbarBorder: "0px",
     toolbarBackground: "rgba(0, 0, 0, 0)",
-    canvasBackground: "rgb(18, 20, 25)",
+    canvasBackground: "rgb(255, 255, 255)",
     canvasStartsAtShell: true,
   });
   await expect(shell).toBeVisible();

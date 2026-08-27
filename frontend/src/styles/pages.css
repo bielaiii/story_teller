@@ -589,33 +589,33 @@
 .fragment-view-switch button.is-active { color: var(--primary); background: var(--surface-solid); box-shadow: 0 2px 9px rgba(30, 51, 75, .1); }
 .fragments-page-new.is-board-view { height: calc(100dvh - 78px); min-height: 680px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
 .fragments-page-new.is-board-view > .filter-popover { margin-bottom: 10px; }
-.fragment-board-shell { position: relative; min-width: 0; min-height: 570px; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border: 0; border-radius: 0; background: #121419; box-shadow: none; }
+.fragment-board-shell { position: relative; min-width: 0; min-height: 570px; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .fragment-board-shell.has-reader { grid-template-columns: minmax(0, 1fr) minmax(360px, 31vw); }
 .fragment-board-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .fragment-board-toolbar { position: absolute; z-index: 4; inset: 12px 12px auto; min-height: 34px; justify-content: space-between; gap: 12px; padding: 0; border: 0; background: transparent; pointer-events: none; }
 .fragment-board-toolbar > * { pointer-events: auto; }
-.fragment-board-toolbar > strong { margin-left: auto; border: 1px solid rgba(255, 255, 255, .08); border-radius: 9px; padding: 8px 10px; color: rgba(225, 233, 242, .68); background: rgba(20, 23, 29, .8); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); font-size: 10px; white-space: nowrap; backdrop-filter: blur(12px); }
-.fragment-board-toolbar > div:last-child { gap: 2px; border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: 2px; background: rgba(20, 23, 29, .82); box-shadow: 0 8px 24px rgba(0, 0, 0, .2); backdrop-filter: blur(12px); }
-.fragment-board-toolbar button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 7px; color: rgba(229, 236, 244, .8); background: transparent; font: inherit; font-weight: 800; cursor: pointer; }
+.fragment-board-toolbar > strong { margin-left: auto; border: 1px solid color-mix(in srgb, var(--line) 72%, transparent); border-radius: 9px; padding: 8px 10px; color: var(--muted); background: rgba(255, 255, 255, .82); box-shadow: 0 8px 24px rgba(42, 91, 118, .08); font-size: 10px; white-space: nowrap; backdrop-filter: blur(12px); }
+.fragment-board-toolbar > div:last-child { gap: 2px; border: 1px solid color-mix(in srgb, var(--line) 72%, transparent); border-radius: 10px; padding: 2px; background: rgba(255, 255, 255, .84); box-shadow: 0 8px 24px rgba(42, 91, 118, .09); backdrop-filter: blur(12px); }
+.fragment-board-toolbar button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 7px; color: var(--ink); background: transparent; font: inherit; font-weight: 800; cursor: pointer; }
 .fragment-board-toolbar button:hover,
-.fragment-board-toolbar button:focus-visible { border-color: rgba(129, 190, 239, .42); color: #a8d9ff; background: rgba(106, 171, 221, .13); }
+.fragment-board-toolbar button:focus-visible { border-color: color-mix(in srgb, var(--primary) 36%, transparent); color: var(--primary); background: var(--primary-soft); }
 .fragment-board-toolbar button .icon { width: 15px; height: 15px; }
-.fragment-board-toolbar > div:last-child > span { min-width: 42px; color: rgba(225, 233, 242, .58); text-align: center; font-size: 9px; font-variant-numeric: tabular-nums; }
-.fragment-board-legend { flex-wrap: wrap; gap: 11px; border: 1px solid rgba(255, 255, 255, .08); border-radius: 9px; padding: 8px 10px; color: rgba(225, 233, 242, .56); background: rgba(20, 23, 29, .76); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); font-size: 9px; backdrop-filter: blur(12px); }
+.fragment-board-toolbar > div:last-child > span { min-width: 42px; color: var(--muted); text-align: center; font-size: 9px; font-variant-numeric: tabular-nums; }
+.fragment-board-legend { flex-wrap: wrap; gap: 11px; border: 1px solid color-mix(in srgb, var(--line) 68%, transparent); border-radius: 9px; padding: 8px 10px; color: var(--muted); background: rgba(255, 255, 255, .8); box-shadow: 0 8px 24px rgba(42, 91, 118, .07); font-size: 9px; backdrop-filter: blur(12px); }
 .fragment-board-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.fragment-board-legend span::before { width: 16px; height: 1px; border-radius: 9px; background: rgba(112, 181, 235, .8); content: ""; }
-.fragment-board-legend .is-reference::before { background: repeating-linear-gradient(90deg, #9d84e8 0 4px, transparent 4px 7px); }
-.fragment-board-legend .is-person::before { background: rgba(103, 190, 162, .82); }
-.fragment-board-legend .is-tag::before { background: rgba(211, 176, 91, .82); }
-.fragment-board-canvas { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; cursor: grab; outline: 0; background-color: #121419; background-image: radial-gradient(circle at 50% 46%, #1a1e25 0, #14171c 42%, #101216 100%); }
+.fragment-board-legend span::before { width: 16px; height: 1px; border-radius: 9px; background: rgba(63, 127, 193, .82); content: ""; }
+.fragment-board-legend .is-reference::before { background: repeating-linear-gradient(90deg, #6d5ec4 0 4px, transparent 4px 7px); }
+.fragment-board-legend .is-person::before { background: rgba(42, 157, 143, .86); }
+.fragment-board-legend .is-tag::before { background: rgba(188, 140, 36, .82); }
+.fragment-board-canvas { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; cursor: grab; outline: 0; background: #fff; }
 .fragment-board-canvas,
 .fragment-board-canvas * { -webkit-user-select: none; user-select: none; }
 .fragment-board-canvas:active,
 .fragment-board-canvas.is-panning { cursor: grabbing; }
-.fragment-board-canvas:focus-visible { box-shadow: inset 0 0 0 2px rgba(112, 181, 235, .35); }
+.fragment-board-canvas:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 24%, transparent); }
 .fragment-board-links { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .fragment-board-world { position: absolute; inset: 0 auto auto 0; transform-origin: 0 0; will-change: transform; }
-.fragment-board-node { position: absolute; z-index: 2; width: 44px; height: 44px; display: grid; place-items: center; overflow: visible; border: 0; border-radius: 50%; padding: 0; color: #e8edf4; background: transparent; text-align: left; cursor: grab; touch-action: none; transition: opacity .16s ease, filter .16s ease; }
+.fragment-board-node { position: absolute; z-index: 2; width: 44px; height: 44px; display: grid; place-items: center; overflow: visible; border: 0; border-radius: 50%; padding: 0; color: var(--ink); background: transparent; text-align: left; cursor: grab; touch-action: none; transition: opacity .16s ease, filter .16s ease; }
 .fragment-board-node:hover,
 .fragment-board-node:focus-visible { z-index: 5; outline: 0; }
 .fragment-board-node:active { cursor: grabbing; }
@@ -627,16 +627,16 @@
 .fragment-board-node.is-selected .fragment-board-node-dot { transform: scale(1.45); border-color: #fff; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 24%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 62%, transparent); }
 .fragment-board-node.is-unrelated { opacity: .16; filter: saturate(.25); }
 .fragment-board-node.is-tag-dimmed:not(.is-selected) { opacity: .24; filter: saturate(.32); }
-.fragment-board-node-label { position: absolute; left: calc(50% + 12px); top: 50%; min-width: max-content; max-width: 180px; display: grid; gap: 1px; transform: translateY(-50%); opacity: .7; text-shadow: 0 1px 4px #08090c, 0 0 10px #08090c; pointer-events: none; transition: opacity .14s ease, transform .14s ease; }
-.fragment-board-node-label strong { max-width: 180px; overflow: hidden; color: rgba(235, 240, 247, .86); font-size: 10px; font-weight: 590; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.fragment-board-node-label small { color: rgba(190, 201, 214, .45); font-size: 7px; line-height: 1.2; }
+.fragment-board-node-label { position: absolute; left: calc(50% + 12px); top: 50%; min-width: max-content; max-width: 180px; display: grid; gap: 1px; transform: translateY(-50%); opacity: .72; text-shadow: 0 0 3px white, 0 0 8px white, 0 0 12px white; pointer-events: none; transition: opacity .14s ease, transform .14s ease; }
+.fragment-board-node-label strong { max-width: 180px; overflow: hidden; color: color-mix(in srgb, var(--ink) 88%, transparent); font-size: 10px; font-weight: 590; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.fragment-board-node-label small { color: color-mix(in srgb, var(--muted) 62%, transparent); font-size: 7px; line-height: 1.2; }
 .fragment-board-node:hover .fragment-board-node-label,
 .fragment-board-node:focus-visible .fragment-board-node-label,
 .fragment-board-node.is-selected .fragment-board-node-label { transform: translate(3px, -50%); opacity: 1; }
 .fragment-board-node:hover .fragment-board-node-label strong,
 .fragment-board-node:focus-visible .fragment-board-node-label strong,
-.fragment-board-node.is-selected .fragment-board-node-label strong { color: #fff; font-weight: 720; }
-.fragment-board-hint { position: absolute; z-index: 3; right: 14px; bottom: 12px; border: 1px solid rgba(255, 255, 255, .06); border-radius: 8px; padding: 6px 9px; color: rgba(216, 225, 235, .38); background: rgba(15, 17, 21, .62); font-size: 9px; pointer-events: none; backdrop-filter: blur(8px); }
+.fragment-board-node.is-selected .fragment-board-node-label strong { color: var(--ink); font-weight: 720; }
+.fragment-board-hint { position: absolute; z-index: 3; right: 14px; bottom: 12px; border: 1px solid color-mix(in srgb, var(--line) 58%, transparent); border-radius: 8px; padding: 6px 9px; color: color-mix(in srgb, var(--muted) 68%, transparent); background: rgba(255, 255, 255, .72); font-size: 9px; pointer-events: none; backdrop-filter: blur(8px); }
 .fragment-board-reader { position: relative; z-index: 6; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; overflow: hidden; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--surface-solid) 97%, var(--accent)); box-shadow: -12px 0 30px rgba(28, 45, 65, .08); }
 .fragment-board-reader > header { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 17px 14px 13px 18px; border-bottom: 1px solid var(--line); }
 .fragment-board-reader > header small { color: var(--accent); font-size: 9px; font-weight: 850; letter-spacing: .09em; }
