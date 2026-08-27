@@ -10,7 +10,7 @@ export interface FragmentBoardViewport extends FragmentBoardPoint {
 }
 
 export interface FragmentBoardLayoutState {
-  version: 6;
+  version: 7;
   nodes: Record<string, FragmentBoardPoint>;
   viewport: FragmentBoardViewport;
 }
@@ -64,6 +64,15 @@ function stableHash(value: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+export function isDistinctiveFragmentAffinity(groupSize: number, fragmentCount: number): boolean {
+  if (groupSize < 2) return false;
+  // In a small board every shared person can still be useful. Once the project
+  // grows, a person present in nearly half the fragments behaves like a common
+  // word: it describes the whole novel rather than a meaningful local cluster.
+  if (fragmentCount >= 8 && groupSize >= 6 && groupSize / fragmentCount >= .45) return false;
+  return true;
 }
 
 export function defaultFragmentBoardPositions(items: Fragment[]): Map<string, FragmentBoardPoint> {
@@ -123,6 +132,7 @@ export function defaultFragmentBoardPositions(items: Fragment[]): Map<string, Fr
   }
   for (const [key, group] of affinityGroups) {
     const related = [...group].sort(stableEntitySort);
+    if (key.startsWith("reference:") && !isDistinctiveFragmentAffinity(related.length, items.length)) continue;
     for (let index = 1; index < related.length; index += 1) {
       addSpring(
         related[index - 1].entityId,
@@ -288,9 +298,12 @@ export function fragmentBoardEdges(
     }
   };
 
+  const distinctiveCharacterIds = new Set<string>();
   for (const [characterId, characterName] of characterNames) {
     const group = fragments.filter((fragment) => (fragment.references || []).includes(characterId));
-    if (group.length > 1) connectAffinityGroup(group, "person", `人物：${characterName}`);
+    if (!isDistinctiveFragmentAffinity(group.length, fragments.length)) continue;
+    distinctiveCharacterIds.add(characterId);
+    connectAffinityGroup(group, "person", `人物：${characterName}`);
   }
   const allTags = [...new Set(fragments.flatMap((fragment) => fragment.tags))].sort();
   for (const tag of allTags) {
@@ -300,7 +313,7 @@ export function fragmentBoardEdges(
 
   const selected = selectedId ? fragmentsById.get(selectedId) : undefined;
   if (selected) {
-    const selectedPeople = new Set((selected.references || []).filter((id) => characterNames.has(id)));
+    const selectedPeople = new Set((selected.references || []).filter((id) => distinctiveCharacterIds.has(id)));
     const selectedTags = new Set(selected.tags);
     for (const candidate of fragments) {
       if (candidate.entityId === selected.entityId) continue;
@@ -343,14 +356,14 @@ function cleanPoint(value: unknown): FragmentBoardPoint | null {
 }
 
 export function fragmentBoardStorageKey(pathname: string, project: string): string {
-  return `story-teller:fragment-board:v6:${encodeURIComponent(pathname)}:${encodeURIComponent(project)}`;
+  return `story-teller:fragment-board:v7:${encodeURIComponent(pathname)}:${encodeURIComponent(project)}`;
 }
 
 export function parseFragmentBoardLayout(raw: string | null, validIds: Set<string>): FragmentBoardLayoutState | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<FragmentBoardLayoutState>;
-    if (value.version !== 6 || !value.nodes || typeof value.nodes !== "object") return null;
+    if (value.version !== 7 || !value.nodes || typeof value.nodes !== "object") return null;
     const nodes: Record<string, FragmentBoardPoint> = {};
     for (const [id, point] of Object.entries(value.nodes)) {
       const clean = validIds.has(id) ? cleanPoint(point) : null;
@@ -362,7 +375,7 @@ export function parseFragmentBoardLayout(raw: string | null, validIds: Set<strin
       y: finite(rawViewport.y, FRAGMENT_BOARD_DEFAULT_VIEWPORT.y),
       scale: Math.max(.18, Math.min(2.5, finite(rawViewport.scale, FRAGMENT_BOARD_DEFAULT_VIEWPORT.scale))),
     } : { ...FRAGMENT_BOARD_DEFAULT_VIEWPORT };
-    return { version: 6, nodes, viewport };
+    return { version: 7, nodes, viewport };
   } catch {
     return null;
   }
@@ -408,7 +421,7 @@ export function serializeFragmentBoardLayout(
   viewport: FragmentBoardViewport,
 ): string {
   return JSON.stringify({
-    version: 6,
+    version: 7,
     nodes: Object.fromEntries([...positions].sort(([left], [right]) => left.localeCompare(right))),
     viewport: {
       x: finite(viewport.x, FRAGMENT_BOARD_DEFAULT_VIEWPORT.x),

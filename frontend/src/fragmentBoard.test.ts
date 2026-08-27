@@ -4,6 +4,7 @@ import {
   defaultFragmentBoardPositions,
   fragmentBoardEdges,
   fragmentBoardStorageKey,
+  isDistinctiveFragmentAffinity,
   parseFragmentBoardLayout,
   reconcileFragmentBoardPositions,
   serializeFragmentBoardLayout,
@@ -49,7 +50,7 @@ describe("fragment board layout", () => {
     const defaults = defaultFragmentBoardPositions([one, two]);
     const firstPoint = defaults.get(one.entityId)!;
     const stored = parseFragmentBoardLayout(JSON.stringify({
-      version: 6,
+      version: 7,
       nodes: {
         [one.entityId]: firstPoint,
         "fragment:deleted": { x: 10, y: 10 },
@@ -70,7 +71,7 @@ describe("fragment board layout", () => {
     const defaultLine = defaults.get(line.entityId)!;
     const defaultChapter = defaults.get(chapter.entityId)!;
     const stored = parseFragmentBoardLayout(JSON.stringify({
-      version: 6,
+      version: 7,
       nodes: { [line.entityId]: { x: defaultLine.x + 480, y: defaultLine.y + 210 } },
       viewport: { x: 0, y: 0, scale: 1 },
     }), new Set([line.entityId, chapter.entityId]));
@@ -90,11 +91,29 @@ describe("fragment board layout", () => {
     expect(parsed?.nodes["fragment:one"]).toEqual({ x: 120, y: 240 });
     expect(parsed?.viewport.scale).toBe(2.5);
     expect(parseFragmentBoardLayout("{bad json", new Set())).toBeNull();
-    expect(parseFragmentBoardLayout(JSON.stringify({ version: 5 }), new Set())).toBeNull();
+    expect(parseFragmentBoardLayout(JSON.stringify({ version: 6 }), new Set())).toBeNull();
   });
 });
 
 describe("fragment board relationships", () => {
+  it("treats a protagonist present throughout the novel as graph noise", () => {
+    const items = Array.from({ length: 12 }, (_, index) => fragment(`chapter-${index + 1}`, {
+      references: index < 3 ? ["character:lead", "character:guest"] : ["character:lead"],
+    }));
+    const guestIds = new Set(items.slice(0, 3).map((item) => item.entityId));
+    const edges = fragmentBoardEdges(items, [
+      { entityId: "character:lead", name: "主角" },
+      { entityId: "character:guest", name: "阶段人物" },
+    ], null);
+
+    expect(isDistinctiveFragmentAffinity(12, 12)).toBe(false);
+    expect(isDistinctiveFragmentAffinity(3, 12)).toBe(true);
+    expect(edges).toHaveLength(2);
+    expect(edges.every((edge) => guestIds.has(edge.fromId) && guestIds.has(edge.toId))).toBe(true);
+    expect(edges.flatMap((edge) => edge.labels)).not.toContain("人物：主角");
+    expect(edges.flatMap((edge) => edge.labels)).toContain("人物：阶段人物");
+  });
+
   it("merges structure, explicit reference, shared people, and shared tags per pair", () => {
     const line = fragment("line", {
       fragmentType: "line",

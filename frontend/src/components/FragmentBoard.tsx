@@ -182,7 +182,7 @@ export function FragmentBoard({
 
   useEffect(() => {
     setPositions((current) => reconcileFragmentBoardPositions(defaults, {
-      version: 6,
+      version: 7,
       nodes: Object.fromEntries(current),
       viewport: FRAGMENT_BOARD_DEFAULT_VIEWPORT,
     }, fragments));
