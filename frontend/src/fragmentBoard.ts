@@ -10,7 +10,7 @@ export interface FragmentBoardViewport extends FragmentBoardPoint {
 }
 
 export interface FragmentBoardLayoutState {
-  version: 5;
+  version: 6;
   nodes: Record<string, FragmentBoardPoint>;
   viewport: FragmentBoardViewport;
 }
@@ -27,9 +27,11 @@ export interface FragmentBoardEdge {
   focusOnly: boolean;
 }
 
-export const FRAGMENT_BOARD_NODE_WIDTH = 148;
-export const FRAGMENT_BOARD_NODE_HEIGHT = 148;
-export const FRAGMENT_BOARD_DEFAULT_VIEWPORT: FragmentBoardViewport = { x: 36, y: 36, scale: .82 };
+// The DOM hit area remains comfortably clickable while the visible graph dot is
+// intentionally much smaller, like an Obsidian graph node.
+export const FRAGMENT_BOARD_NODE_WIDTH = 44;
+export const FRAGMENT_BOARD_NODE_HEIGHT = 44;
+export const FRAGMENT_BOARD_DEFAULT_VIEWPORT: FragmentBoardViewport = { x: 36, y: 36, scale: 1 };
 
 function fragmentType(item: Fragment): "chapter" | "line" {
   return item.fragmentType === "line" || item.extra?.fragmentType === "line" ? "line" : "chapter";
@@ -96,25 +98,49 @@ export function defaultFragmentBoardPositions(items: Fragment[]): Map<string, Fr
   };
   for (const line of lines) {
     const lineChildren = children.get(line.entityId) || [];
-    if (lineChildren[0]) addSpring(line.entityId, lineChildren[0].entityId, 214, .021);
+    if (lineChildren[0]) addSpring(line.entityId, lineChildren[0].entityId, 108, .024);
     for (let index = 1; index < lineChildren.length; index += 1) {
-      addSpring(lineChildren[index - 1].entityId, lineChildren[index].entityId, 204, .024);
+      addSpring(lineChildren[index - 1].entityId, lineChildren[index].entityId, 98, .027);
     }
   }
   for (const item of ordered) {
     for (const reference of item.references || []) {
-      if (indexById.has(reference)) addSpring(item.entityId, reference, 270, .009);
+      if (indexById.has(reference)) addSpring(item.entityId, reference, 154, .011);
+    }
+  }
+
+  // Fragments rarely link directly to one another. Shared people and tags are
+  // therefore used as weak springs so the default layout forms useful clusters
+  // instead of an arbitrary cloud. Connecting neighbours rather than creating a
+  // full clique keeps large projects legible and the layout cost bounded.
+  const affinityGroups = new Map<string, Fragment[]>();
+  for (const item of ordered) {
+    const keys = [
+      ...(item.references || []).filter((reference) => !indexById.has(reference)).map((reference) => `reference:${reference}`),
+      ...item.tags.map((tag) => `tag:${tag}`),
+    ];
+    for (const key of new Set(keys)) affinityGroups.set(key, [...(affinityGroups.get(key) || []), item]);
+  }
+  for (const [key, group] of affinityGroups) {
+    const related = [...group].sort(stableEntitySort);
+    for (let index = 1; index < related.length; index += 1) {
+      addSpring(
+        related[index - 1].entityId,
+        related[index].entityId,
+        key.startsWith("tag:") ? 148 : 124,
+        key.startsWith("tag:") ? .007 : .011,
+      );
     }
   }
 
   const degrees = new Array(ordered.length).fill(0);
   springs.forEach((spring) => { degrees[spring.left] += 1; degrees[spring.right] += 1; });
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const center = { x: 920, y: 700 };
+  const center = { x: 760, y: 560 };
   const points = ordered.map((item, index) => {
     const hash = stableHash(item.entityId);
     const angle = index * goldenAngle + (hash % 1000) / 1000 * .72;
-    const baseRadius = 118 + Math.sqrt(index + 1) * 108;
+    const baseRadius = 76 + Math.sqrt(index + 1) * 66;
     const radius = fragmentType(item) === "line" ? baseRadius * .52 : baseRadius;
     return {
       x: center.x + Math.cos(angle) * radius,
@@ -133,8 +159,8 @@ export function defaultFragmentBoardPositions(items: Fragment[]): Map<string, Fr
         const distance = Math.max(8, Math.hypot(deltaX, deltaY));
         const unitX = deltaX / distance;
         const unitY = deltaY / distance;
-        const collision = Math.max(0, 174 - distance) * .19;
-        const repulsion = 8500 / (distance * distance) + collision;
+        const collision = Math.max(0, 48 - distance) * .22;
+        const repulsion = 2900 / (distance * distance) + collision;
         forces[left].x -= unitX * repulsion;
         forces[left].y -= unitY * repulsion;
         forces[right].x += unitX * repulsion;
@@ -156,7 +182,7 @@ export function defaultFragmentBoardPositions(items: Fragment[]): Map<string, Fr
       forces[spring.right].y -= forceY;
     }
     points.forEach((point, index) => {
-      const gravity = degrees[index] ? .0024 : .00085;
+      const gravity = degrees[index] ? .0032 : .0012;
       forces[index].x += (center.x - point.x) * gravity;
       forces[index].y += (center.y - point.y) * gravity;
       point.vx = (point.vx + forces[index].x) * .76;
@@ -244,6 +270,34 @@ export function fragmentBoardEdges(
     }
   }
 
+  const connectAffinityGroup = (
+    group: Fragment[],
+    kind: "person" | "tag",
+    label: string,
+  ) => {
+    const ordered = [...group].sort(stableEntitySort);
+    for (let index = 1; index < ordered.length; index += 1) {
+      add(ordered[index - 1].entityId, ordered[index].entityId, kind, [label]);
+    }
+    // A second sparse strand gives large clusters the woven, connected feel of
+    // a knowledge graph without exploding into every possible pair.
+    if (ordered.length >= 5) {
+      for (let index = 2; index < ordered.length; index += 2) {
+        add(ordered[index - 2].entityId, ordered[index].entityId, kind, [label]);
+      }
+    }
+  };
+
+  for (const [characterId, characterName] of characterNames) {
+    const group = fragments.filter((fragment) => (fragment.references || []).includes(characterId));
+    if (group.length > 1) connectAffinityGroup(group, "person", `人物：${characterName}`);
+  }
+  const allTags = [...new Set(fragments.flatMap((fragment) => fragment.tags))].sort();
+  for (const tag of allTags) {
+    const group = fragments.filter((fragment) => fragment.tags.includes(tag));
+    if (group.length > 1) connectAffinityGroup(group, "tag", `标签：${tag}`);
+  }
+
   const selected = selectedId ? fragmentsById.get(selectedId) : undefined;
   if (selected) {
     const selectedPeople = new Set((selected.references || []).filter((id) => characterNames.has(id)));
@@ -289,14 +343,14 @@ function cleanPoint(value: unknown): FragmentBoardPoint | null {
 }
 
 export function fragmentBoardStorageKey(pathname: string, project: string): string {
-  return `story-teller:fragment-board:v5:${encodeURIComponent(pathname)}:${encodeURIComponent(project)}`;
+  return `story-teller:fragment-board:v6:${encodeURIComponent(pathname)}:${encodeURIComponent(project)}`;
 }
 
 export function parseFragmentBoardLayout(raw: string | null, validIds: Set<string>): FragmentBoardLayoutState | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<FragmentBoardLayoutState>;
-    if (value.version !== 5 || !value.nodes || typeof value.nodes !== "object") return null;
+    if (value.version !== 6 || !value.nodes || typeof value.nodes !== "object") return null;
     const nodes: Record<string, FragmentBoardPoint> = {};
     for (const [id, point] of Object.entries(value.nodes)) {
       const clean = validIds.has(id) ? cleanPoint(point) : null;
@@ -308,7 +362,7 @@ export function parseFragmentBoardLayout(raw: string | null, validIds: Set<strin
       y: finite(rawViewport.y, FRAGMENT_BOARD_DEFAULT_VIEWPORT.y),
       scale: Math.max(.18, Math.min(2.5, finite(rawViewport.scale, FRAGMENT_BOARD_DEFAULT_VIEWPORT.scale))),
     } : { ...FRAGMENT_BOARD_DEFAULT_VIEWPORT };
-    return { version: 5, nodes, viewport };
+    return { version: 6, nodes, viewport };
   } catch {
     return null;
   }
@@ -354,7 +408,7 @@ export function serializeFragmentBoardLayout(
   viewport: FragmentBoardViewport,
 ): string {
   return JSON.stringify({
-    version: 5,
+    version: 6,
     nodes: Object.fromEntries([...positions].sort(([left], [right]) => left.localeCompare(right))),
     viewport: {
       x: finite(viewport.x, FRAGMENT_BOARD_DEFAULT_VIEWPORT.x),

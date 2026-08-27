@@ -106,6 +106,18 @@ describe("FragmentBoard", () => {
     Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
     Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: vi.fn() });
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: vi.fn(() => ({
+        setTransform: vi.fn(),
+        clearRect: vi.fn(),
+        setLineDash: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        quadraticCurveTo: vi.fn(),
+        stroke: vi.fn(),
+      })),
+    });
   });
 
   it("renders every fragment and dims rather than removes tag-filtered nodes", () => {
@@ -115,7 +127,8 @@ describe("FragmentBoard", () => {
     expect(screen.getByRole("button", { name: "阅读回归" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "阅读午后" })).toHaveClass("is-tag-dimmed");
     expect(container.querySelectorAll(".fragment-board-node")).toHaveLength(3);
-    expect(container.querySelector(".fragment-board-edge.has-structure")).toBeInTheDocument();
+    expect(container.querySelector(".fragment-board-links")).toBeInTheDocument();
+    expect(container.querySelectorAll(".fragment-board-node-dot")).toHaveLength(3);
   });
 
   it("opens full Markdown in the side reader and reveals all focus relationships", async () => {

@@ -50,59 +50,6 @@ function orderedSiblings(items: Fragment[], item: Fragment): Fragment[] {
   );
 }
 
-function edgeClass(kinds: string[], focusOnly: boolean): string {
-  return [
-    "fragment-board-edge",
-    focusOnly ? "is-focus" : "is-core",
-    ...kinds.map((kind) => `has-${kind}`),
-  ].join(" ");
-}
-
-function edgeCurve(
-  from: FragmentBoardPoint,
-  to: FragmentBoardPoint,
-  edgeId: string,
-  structure: boolean,
-) {
-  const radius = FRAGMENT_BOARD_NODE_WIDTH / 2;
-  const fromCenter = { x: from.x + radius, y: from.y + radius };
-  const toCenter = { x: to.x + radius, y: to.y + radius };
-  const deltaX = toCenter.x - fromCenter.x;
-  const deltaY = toCenter.y - fromCenter.y;
-  const distance = Math.max(1, Math.hypot(deltaX, deltaY));
-  const unitX = deltaX / distance;
-  const unitY = deltaY / distance;
-  const start = { x: fromCenter.x + unitX * radius, y: fromCenter.y + unitY * radius };
-  const end = { x: toCenter.x - unitX * radius, y: toCenter.y - unitY * radius };
-  const direction = [...edgeId].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 2 ? 1 : -1;
-  if (structure) {
-    const bend = Math.min(40, Math.max(14, distance * .08)) * direction;
-    const control = {
-      x: (start.x + end.x) / 2 - unitY * bend,
-      y: (start.y + end.y) / 2 + unitX * bend,
-    };
-    return {
-      path: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
-      label: {
-        x: start.x * .25 + control.x * .5 + end.x * .25,
-        y: start.y * .25 + control.y * .5 + end.y * .25,
-      },
-    };
-  }
-  const bend = Math.min(66, Math.max(24, distance * .13)) * direction;
-  const control = {
-    x: (start.x + end.x) / 2 - unitY * bend,
-    y: (start.y + end.y) / 2 + unitX * bend,
-  };
-  return {
-    path: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
-    label: {
-      x: start.x * .25 + control.x * .5 + end.x * .25,
-      y: start.y * .25 + control.y * .5 + end.y * .25,
-    },
-  };
-}
-
 function readStoredLayout(storageKey: string, validIds: Set<string>) {
   try {
     return parseFragmentBoardLayout(window.localStorage?.getItem(storageKey) || null, validIds);
@@ -207,7 +154,7 @@ export function FragmentBoard({
 }) {
   const { project, snapshot } = useRuntime();
   const stageRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const linksCanvasRef = useRef<HTMLCanvasElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number; moved: boolean } | null>(null);
   const dragRef = useRef<{ id: string; pointerId: number; x: number; y: number; origin: FragmentBoardPoint; moved: boolean } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
@@ -235,7 +182,7 @@ export function FragmentBoard({
 
   useEffect(() => {
     setPositions((current) => reconcileFragmentBoardPositions(defaults, {
-      version: 5,
+      version: 6,
       nodes: Object.fromEntries(current),
       viewport: FRAGMENT_BOARD_DEFAULT_VIEWPORT,
     }, fragments));
@@ -293,11 +240,19 @@ export function FragmentBoard({
     .filter((edge) => edge.fromId === selectedId || edge.toId === selectedId)
     .flatMap((edge) => edge.labels))], [edges, selectedId]);
   const tagFilterActive = selectedTags.length < allTags.length;
+  const degreeById = useMemo(() => {
+    const result = new Map<string, number>();
+    for (const edge of edges) {
+      result.set(edge.fromId, (result.get(edge.fromId) || 0) + 1);
+      result.set(edge.toId, (result.get(edge.toId) || 0) + 1);
+    }
+    return result;
+  }, [edges]);
   const bounds = useMemo(() => fragmentBoardBounds(positions), [positions]);
   const worldWidth = Math.max(2200, bounds.maxX + 520);
   const worldHeight = Math.max(1400, bounds.maxY + 420);
   const visibleIds = useMemo(() => {
-    const margin = 360;
+    const margin = 220;
     const left = -viewport.x / viewport.scale - margin;
     const top = -viewport.y / viewport.scale - margin;
     const right = left + size.width / viewport.scale + margin * 2;
@@ -307,6 +262,60 @@ export function FragmentBoard({
       && point.y + FRAGMENT_BOARD_NODE_HEIGHT >= top && point.y <= bottom
     ).map(([id]) => id));
   }, [positions, size, viewport]);
+
+  useEffect(() => {
+    const canvas = linksCanvasRef.current;
+    if (!canvas) return;
+    const ratio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    canvas.width = Math.round(size.width * ratio);
+    canvas.height = Math.round(size.height * ratio);
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, size.width, size.height);
+    context.lineCap = "round";
+
+    for (const edge of edges) {
+      const from = positions.get(edge.fromId);
+      const to = positions.get(edge.toId);
+      if (!from || !to) continue;
+      const centerOffset = FRAGMENT_BOARD_NODE_WIDTH / 2;
+      const start = {
+        x: (from.x + centerOffset) * viewport.scale + viewport.x,
+        y: (from.y + centerOffset) * viewport.scale + viewport.y,
+      };
+      const end = {
+        x: (to.x + centerOffset) * viewport.scale + viewport.x,
+        y: (to.y + centerOffset) * viewport.scale + viewport.y,
+      };
+      if ((start.x < -80 && end.x < -80) || (start.y < -80 && end.y < -80)
+        || (start.x > size.width + 80 && end.x > size.width + 80)
+        || (start.y > size.height + 80 && end.y > size.height + 80)) continue;
+      const deltaX = end.x - start.x;
+      const deltaY = end.y - start.y;
+      const distance = Math.max(1, Math.hypot(deltaX, deltaY));
+      const direction = [...edge.id].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 2 ? 1 : -1;
+      const bend = Math.min(22, Math.max(4, distance * .045)) * direction;
+      const controlX = (start.x + end.x) / 2 - deltaY / distance * bend;
+      const controlY = (start.y + end.y) / 2 + deltaX / distance * bend;
+      const selectedEdge = edge.fromId === selectedId || edge.toId === selectedId;
+      const core = edge.kinds.includes("structure") || edge.kinds.includes("reference");
+      const color = edge.kinds.includes("structure")
+        ? "112, 181, 235"
+        : edge.kinds.includes("reference")
+          ? "157, 132, 232"
+          : edge.kinds.includes("person") ? "103, 190, 162" : "211, 176, 91";
+      const alpha = selectedId ? (selectedEdge ? .82 : .055) : (core ? .42 : .16);
+      context.strokeStyle = `rgba(${color}, ${alpha})`;
+      context.lineWidth = selectedEdge ? 1.65 : core ? 1.05 : .8;
+      context.setLineDash(edge.kinds.includes("reference") ? [5, 5] : []);
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.quadraticCurveTo(controlX, controlY, end.x, end.y);
+      context.stroke();
+    }
+    context.setLineDash([]);
+  }, [edges, positions, selectedId, size, viewport]);
 
   const commitViewport = (next: FragmentBoardViewport) => setViewport({
     x: next.x,
@@ -414,7 +423,7 @@ export function FragmentBoard({
   return <section className={`fragment-board-shell${selected ? " has-reader" : ""}`}>
     <div className="fragment-board-stage" ref={stageRef}>
       <header className="fragment-board-toolbar">
-        <div className="fragment-board-legend" aria-label="画布关系图例"><span className="is-structure">剧情线</span><span className="is-reference">明确引用</span><span className="is-focus">人物 / 标签（聚焦时）</span></div>
+        <div className="fragment-board-legend" aria-label="画布关系图例"><span className="is-structure">剧情顺序</span><span className="is-reference">明确引用</span><span className="is-person">共同人物</span><span className="is-tag">共同标签</span></div>
         <strong>{fragments.length} 个碎片</strong>
         <div>
           <button type="button" aria-label="缩小画布" title="缩小" onClick={() => zoom(.86)}>−</button>
@@ -425,7 +434,6 @@ export function FragmentBoard({
         </div>
       </header>
       <div
-        ref={canvasRef}
         className={`fragment-board-canvas${panRef.current?.moved ? " is-panning" : ""}`}
         role="application"
         aria-label="灵感画布，可拖动碎片节点或平移画布"
@@ -439,42 +447,25 @@ export function FragmentBoard({
           if (!(event.target as Element).closest(".fragment-board-node")) setSelectedId(null);
         }}
       >
+        <canvas ref={linksCanvasRef} className="fragment-board-links" aria-hidden="true" />
         <div className="fragment-board-world" style={{ width: worldWidth, height: worldHeight, transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}>
-          <svg className="fragment-board-edges" width={worldWidth} height={worldHeight} aria-hidden="true">
-            <defs>
-              <marker id="fragment-board-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" /></marker>
-            </defs>
-            {edges.map((edge) => {
-              const from = positions.get(edge.fromId);
-              const to = positions.get(edge.toId);
-              if (!from || !to) return null;
-              const curve = edgeCurve(from, to, edge.id, edge.kinds.includes("structure"));
-              const label = edge.labels.join(" · ");
-              const labelWidth = Math.min(220, Math.max(54, label.length * 11 + 16));
-              const selectedEdge = edge.fromId === selectedId || edge.toId === selectedId;
-              return <g key={edge.id} className={`${edgeClass(edge.kinds, edge.focusOnly)}${selectedEdge ? " is-selected-edge" : ""}`} data-edge-id={edge.id}>
-                <path d={curve.path} markerStart={edge.arrows.includes("reverse") ? "url(#fragment-board-arrow)" : undefined} markerEnd={edge.arrows.includes("forward") ? "url(#fragment-board-arrow)" : undefined} />
-                <g className="fragment-board-edge-label" transform={`translate(${curve.label.x}, ${curve.label.y})`}>
-                  <rect x={-labelWidth / 2} y={-10} width={labelWidth} height={20} rx={10} />
-                  <text textAnchor="middle" dominantBaseline="central">{label.length > 20 ? `${label.slice(0, 19)}…` : label}</text>
-                </g>
-              </g>;
-            })}
-          </svg>
           {fragments.filter((item) => visibleIds.has(item.entityId)).map((item) => {
             const point = positions.get(item.entityId);
             if (!point) return null;
             const isSelected = selectedId === item.entityId;
             const unrelated = Boolean(selectedId && !relatedIds.has(item.entityId));
             const tagDimmed = tagFilterActive && !item.tags.some((tag) => selectedTags.includes(tag));
+            const degree = degreeById.get(item.entityId) || 0;
+            const nodeSize = typeOf(item) === "line" ? Math.min(19, 13 + Math.sqrt(degree) * 1.2) : Math.min(15, 7 + Math.sqrt(degree) * 1.35);
             return <button
               key={item.entityId}
               data-entity-id={item.entityId}
               type="button"
               className={`fragment-board-node${typeOf(item) === "line" ? " is-line" : ""}${isSelected ? " is-selected" : ""}${unrelated ? " is-unrelated" : ""}${tagDimmed ? " is-tag-dimmed" : ""}`}
-              style={{ left: point.x, top: point.y, "--accent": item.accent } as React.CSSProperties}
+              style={{ left: point.x, top: point.y, "--accent": item.accent, "--node-size": `${nodeSize}px` } as React.CSSProperties}
               aria-label={`阅读${displayTitle(item)}`}
               aria-pressed={isSelected}
+              title={`${displayTitle(item)}${item.bodyPreview ? `\n${item.bodyPreview}` : ""}`}
               onPointerDown={(event) => beginNodeDrag(event, item)}
               onPointerMove={moveNode}
               onPointerUp={finishNode}
@@ -487,13 +478,12 @@ export function FragmentBoard({
                 setSelectedId(item.entityId);
               }}
             >
-              <span className="fragment-board-node-kind">{typeOf(item) === "line" ? "STORY LINE" : parentOf(item) ? `第 ${chapterOf(item) ?? "?"} 章` : "IDEA"}</span>
-              <strong>{displayTitle(item)}</strong>
-              <small>{item.bodyPreview || (typeOf(item) === "line" ? "打开剧情线" : "还没有正文")}</small>
-              <span className="fragment-board-node-tags">{item.tags.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}{item.tags.length > 2 && <i>+{item.tags.length - 2}</i>}</span>
+              <span className="fragment-board-node-dot" />
+              <span className="fragment-board-node-label"><strong>{displayTitle(item)}</strong><small>{typeOf(item) === "line" ? "剧情线" : parentOf(item) ? `第 ${chapterOf(item) ?? "?"} 章` : "灵感"}</small></span>
             </button>;
           })}
         </div>
+        <div className="fragment-board-hint">滚轮缩放 · 拖动画布 · 点击节点查看关系</div>
       </div>
     </div>
     {selected && <FragmentBoardReader

@@ -40,7 +40,7 @@ describe("fragment board layout", () => {
     expect(Math.hypot(
       first.get(earlier.entityId)!.x - first.get(later.entityId)!.x,
       first.get(earlier.entityId)!.y - first.get(later.entityId)!.y,
-    )).toBeGreaterThan(160);
+    )).toBeGreaterThan(42);
   });
 
   it("uses stored positions, fills a free point for a new node, and drops deleted ids", () => {
@@ -49,7 +49,7 @@ describe("fragment board layout", () => {
     const defaults = defaultFragmentBoardPositions([one, two]);
     const firstPoint = defaults.get(one.entityId)!;
     const stored = parseFragmentBoardLayout(JSON.stringify({
-      version: 5,
+      version: 6,
       nodes: {
         [one.entityId]: firstPoint,
         "fragment:deleted": { x: 10, y: 10 },
@@ -70,7 +70,7 @@ describe("fragment board layout", () => {
     const defaultLine = defaults.get(line.entityId)!;
     const defaultChapter = defaults.get(chapter.entityId)!;
     const stored = parseFragmentBoardLayout(JSON.stringify({
-      version: 5,
+      version: 6,
       nodes: { [line.entityId]: { x: defaultLine.x + 480, y: defaultLine.y + 210 } },
       viewport: { x: 0, y: 0, scale: 1 },
     }), new Set([line.entityId, chapter.entityId]));
@@ -90,7 +90,7 @@ describe("fragment board layout", () => {
     expect(parsed?.nodes["fragment:one"]).toEqual({ x: 120, y: 240 });
     expect(parsed?.viewport.scale).toBe(2.5);
     expect(parseFragmentBoardLayout("{bad json", new Set())).toBeNull();
-    expect(parseFragmentBoardLayout(JSON.stringify({ version: 4 }), new Set())).toBeNull();
+    expect(parseFragmentBoardLayout(JSON.stringify({ version: 5 }), new Set())).toBeNull();
   });
 });
 
@@ -125,12 +125,15 @@ describe("fragment board relationships", () => {
     expect(edges[0].focusOnly).toBe(false);
   });
 
-  it("keeps focus-only relations hidden until one node is selected", () => {
+  it("keeps sparse affinity relations visible and expands the selected neighbourhood", () => {
     const one = fragment("one", { tags: ["线索"], references: ["character:a"] });
     const two = fragment("two", { tags: ["线索"], references: ["character:a"] });
+    const three = fragment("three", { tags: ["线索"], references: ["character:a"] });
 
-    expect(fragmentBoardEdges([one, two], [{ entityId: "character:a", name: "阿芜" }], null)).toEqual([]);
-    expect(fragmentBoardEdges([one, two], [{ entityId: "character:a", name: "阿芜" }], one.entityId)[0]).toMatchObject({
+    expect(fragmentBoardEdges([one, two, three], [{ entityId: "character:a", name: "阿芜" }], null)).toHaveLength(2);
+    const focused = fragmentBoardEdges([one, two, three], [{ entityId: "character:a", name: "阿芜" }], one.entityId);
+    expect(focused).toHaveLength(3);
+    expect(focused.find((edge) => edge.fromId === one.entityId || edge.toId === one.entityId)).toMatchObject({
       kinds: ["person", "tag"],
       focusOnly: true,
     });

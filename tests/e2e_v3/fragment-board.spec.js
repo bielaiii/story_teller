@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 
-test("碎片画布与工具栏保持无边界悬浮效果", async ({ page }) => {
+test("碎片图谱使用深色无边界画布与悬浮工具栏", async ({ page }) => {
   await page.goto("/?project=novel#/fragments/board");
 
   const shell = page.locator(".fragment-board-shell");
@@ -35,7 +35,7 @@ test("碎片画布与工具栏保持无边界悬浮效果", async ({ page }) => 
     toolbarPosition: "absolute",
     toolbarBorder: "0px",
     toolbarBackground: "rgba(0, 0, 0, 0)",
-    canvasBackground: "rgba(0, 0, 0, 0)",
+    canvasBackground: "rgb(18, 20, 25)",
     canvasStartsAtShell: true,
   });
   await expect(shell).toBeVisible();
@@ -69,7 +69,7 @@ test("碎片画布切换、阅读、拖动持久化和重新整理不修改项�
   expect(before.fragments.length).toBeGreaterThan(0);
 
   await page.goto("/?project=novel#/fragments");
-  await page.getByRole("button", { name: "画布", exact: true }).click();
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
   await expect(page).toHaveURL(/#\/fragments\/board$/);
   await expect(page.locator(".fragment-board-shell")).toBeVisible();
   await expect(page.getByText(`${before.fragments.length} 个碎片`, { exact: true })).toBeVisible();
