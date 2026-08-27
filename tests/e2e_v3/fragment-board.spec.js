@@ -69,7 +69,7 @@ test("碎片画布切换、阅读、拖动持久化和重新整理不修改项�
   expect(before.fragments.length).toBeGreaterThan(0);
 
   await page.goto("/?project=novel#/fragments");
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.getByRole("button", { name: "图", exact: true }).click();
   await expect(page).toHaveURL(/#\/fragments\/board$/);
   await expect(page.locator(".fragment-board-shell")).toBeVisible();
   await expect(page.getByText(`${before.fragments.length} 个碎片`, { exact: true })).toBeVisible();
