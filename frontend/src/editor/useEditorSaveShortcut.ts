@@ -7,12 +7,13 @@ export function useEditorSaveShortcut(save: () => void | Promise<void>) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.altKey) return;
       if (document.querySelector('[role="alertdialog"]')) return;
+      if (event.target instanceof Element && event.target.closest(".cm-editor")) return;
       event.preventDefault();
       void saveRef.current();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 }

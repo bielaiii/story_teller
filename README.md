@@ -6,6 +6,8 @@
 
 架构决策和验收边界见[《架构升级计划》](docs/architecture-modernization.md)、[《规范化数据与删除架构》](docs/relational-data-deletion-architecture.md)和[《产品功能路线图》](docs/product-feature-roadmap.md)。
 
+Web 与 CLI 共用业务内核的分层、依赖方向和迁移规则见[《Web / CLI 共享内核架构》](docs/web-cli-shared-kernel-architecture.md)。首个五小时时间盒的承诺范围、验证结果和延期项记录在[《5 小时 Goal 执行记录》](docs/web-cli-goal-5h-execution-plan.md)。
+
 本地 AI/RAG 的索引、HTTP、MCP 和 embedding 模型切换说明见[《本地 RAG 与 AI 接入》](docs/rag-integration.md)。
 
 ## 本地运行
@@ -76,6 +78,13 @@ STORY_TELLER_DEFAULT_PROJECT=my-novel \
 `STORY_TELLER_CONTENT_ROOT` 可以指向 Git 仓库内任意独立 Content 根目录；Content 的稳定 ID 根据规范化真实路径生成，因此同一仓库也可以注册多个 Content。
 
 开发前端时使用 `./dev.sh`：FastAPI 运行在 4187，Vite 开发服务运行在 5173，并把 API 请求代理到本地服务。
+
+OpenAPI 是前端写入契约的源。修改 Pydantic contract、路由请求/响应或 `operationId` 后，更新并检查生成类型：
+
+```sh
+npm run contract:generate
+npm run contract:check
+```
 
 ## 数据、Git 与恢复
 

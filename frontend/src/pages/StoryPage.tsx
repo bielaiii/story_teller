@@ -13,6 +13,7 @@ import { FilterChips } from "../components/FilterChips";
 import { Icon } from "../components/Icon";
 import { CompleteBlockPreview } from "../components/CompleteBlockPreview";
 import { StoryReader } from "../components/StoryReader";
+import { StoryStructureEditor } from "../components/StoryStructureEditor";
 import { Pagination } from "../components/Pagination";
 import { useUiStore } from "../state/ui";
 import { compactStoryPreview } from "../storyPreview";
@@ -153,10 +154,9 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       rejectInvalidChapter();
       return;
     }
-    if (!draft.title.trim()) {
-      setMessage("请填写剧情标题");
-      return;
-    }
+    const savedTitle = !draft.title.trim() || /^第\s*\d+\s*章$/.test(draft.title.trim())
+      ? `第 ${chapterNumber} 章`
+      : draft.title.trim();
     setMessage("");
     try {
       const { chapterNumber: _chapterNumberText, ...draftFields } = draft;
@@ -179,7 +179,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
         people,
         references,
         chapterNumber,
-        title: draft.title.trim(),
+        title: savedTitle,
         shiftFollowing,
       } as unknown as Record<string, unknown>;
       payload.stories = draft.stories;
@@ -196,6 +196,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       ));
       const savedDraft = {
         ...draft,
+        title: savedTitle,
         people: Array.isArray(changedPlot?.people) ? changedPlot.people.map(String) : draft.people,
         appearanceNames: [],
         references: [
@@ -209,7 +210,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       } else {
         queryClient.setQueryData<EntityDetail<Plot>>(["entity", project, currentId], (current) => current ? {
           ...current,
-          data: { ...current.data, ...draftFields, people: savedDraft.people, title: draft.title.trim(), chapterNumber },
+          data: { ...current.data, ...draftFields, people: savedDraft.people, title: savedTitle, chapterNumber },
         } : current);
       }
       setDraft(savedDraft);
@@ -323,6 +324,7 @@ export default function StoryPage() {
   const selectedPlotId = useUiStore((state) => state.selectedPlotId);
   const selectPlot = useUiStore((state) => state.selectPlot);
   const [editorId, setEditorId] = useState<string | "new" | null>(null);
+  const [structureOpen, setStructureOpen] = useState(false);
   const [readerId, setReaderId] = useState<string | null>(selectedPlotId);
   const storyReturnCharacterId = useUiStore((state) => state.storyReturnCharacterId);
   const storyScrollRef = useRef(0);
@@ -455,7 +457,7 @@ export default function StoryPage() {
   </>;
   return (
     <section className="workspace-page story-page">
-      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1>{importMessage && <small role="status">{importMessage}</small>}</div><div className="page-actions"><select aria-label="故事筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有故事</option><option value="__mainline__">主线</option>{snapshot.timeline.lines.map((item) => <option key={item.entityId} value={item.entityId}>{item.name}</option>)}</select>{writable && <>{supportsMarkdownImport && <><input ref={importInput} type="file" accept=".md,text/markdown" multiple hidden onChange={importMarkdown} /><button className="icon-button story-import-action" aria-label="导入 Markdown" title="导入 Markdown" onClick={chooseMarkdownDirectory}>导入</button></>}{supportsTitleMaintenance && <button className="icon-button" aria-label="审核旧剧情标题" title="审核旧剧情标题" onClick={() => void openTitleRepair()}><Icon name="edit" /></button>}<button className="icon-button" aria-label="编辑故事与阅读顺序" title="编辑故事与阅读顺序" onClick={() => useUiStore.getState().navigate("timeline")}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
+      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1>{importMessage && <small role="status">{importMessage}</small>}</div><div className="page-actions"><select aria-label="故事筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有故事</option><option value="__mainline__">主线</option>{snapshot.timeline.lines.map((item) => <option key={item.entityId} value={item.entityId}>{item.name}</option>)}</select>{writable && <>{supportsMarkdownImport && <><input ref={importInput} type="file" accept=".md,text/markdown" multiple hidden onChange={importMarkdown} /><button className="icon-button story-import-action" aria-label="导入 Markdown" title="导入 Markdown" onClick={chooseMarkdownDirectory}>导入</button></>}{supportsTitleMaintenance && <button className="icon-button" aria-label="审核旧剧情标题" title="审核旧剧情标题" onClick={() => void openTitleRepair()}><Icon name="edit" /></button>}<button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureOpen(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
       <div className="filter-panel"><FilterChips label="状态" values={statuses} selected={selectedStatuses} onChange={setSelectedStatuses} /><FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible inlineExpanded /></div>
       <div className="plot-grid">{plots.map((plot) => <PlotCard
         key={plot.entityId}
@@ -466,6 +468,7 @@ export default function StoryPage() {
       <Pagination page={Math.min(page, totalPages)} totalPages={totalPages} onChange={setPage} />
       {!plots.length && <div className="empty-state"><Icon name="book" /><h2>当前筛选下没有剧情</h2><p>调整状态、标签或篇章后再看。</p></div>}
       {editorId && <PlotEditor plotId={editorId} onClose={() => setEditorId(null)} />}
+      {structureOpen && <StoryStructureEditor onClose={() => setStructureOpen(false)} />}
       <ConfirmDialog open={titleRepairOpen} title="审核旧剧情标题" message="候选标题不会自动写入；请逐项确认，无法命名的内容可关闭后移入 Fragment。" confirmLabel="确认这些标题" confirmDisabled={titleRepairItems.length === 0 || titleRepairItems.some((item) => !item.candidateTitle.trim() || /^第\s*\d+\s*章$/.test(item.candidateTitle.trim()))} onCancel={() => setTitleRepairOpen(false)} onConfirm={applyTitleRepair}>
         <div className="title-repair-list">{titleRepairItems.map((item, index) => <label key={item.entityId}><span>第 {item.chapterNumber ?? "?"} 章 · {item.currentTitle}<small>{item.candidateSource} · {item.bodyPreview.slice(0, 80)}</small></span><input value={item.candidateTitle} placeholder="无法确认则留空" onChange={(event) => setTitleRepairItems((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, candidateTitle: event.target.value } : candidate))} /></label>)}</div>
         {titleRepairItems.some((item) => !item.candidateTitle.trim()) && <button type="button" className="text-action" onClick={() => void moveUnresolvedTitles()}>将留空项目移入 Fragment</button>}

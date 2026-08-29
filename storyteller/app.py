@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from storyteller import API_VERSION, SCHEMA_VERSION
+from storyteller.application import ApplicationContext, StoryApplication
+from storyteller.application.errors import ProjectAccessError
 from storyteller.hub_contract import (
     WORKER_CAPABILITIES,
     WORKER_PROTOCOL_MAJOR,
@@ -39,9 +41,8 @@ from storyteller.api.models import (
     StoryStructureUpdate,
     TimelineUpdate,
     UndoRequest,
-    mutation_payload,
 )
-from storyteller.domain.content import ContentService
+from storyteller.contracts.responses import MutationOutcome
 from storyteller.domain.maintenance import MaintenanceService
 from storyteller.domain.errors import (
     ConflictError,
@@ -50,14 +51,10 @@ from storyteller.domain.errors import (
     NotFoundError,
 )
 from storyteller.domain.merge_conflicts import MergeConflictService, has_open_merge
-from storyteller.domain.services import EntityService
-from storyteller.domain.structure import StructureService
-from storyteller.domain.uow import UnitOfWork
 from storyteller.exports import ExportCoordinator
 from storyteller.rag.background import RagSyncScheduler
 from storyteller.rag.manager import RagManager
 from storyteller.settings import Settings
-from storyteller.storage.connection import Database
 from storyteller.storage.repositories import ProjectRepository
 from storyteller.imports.markdown import MarkdownFile, MarkdownImportService
 
@@ -84,6 +81,7 @@ FEATURES = [
 def create_app(settings: Settings) -> FastAPI:
     rag_manager = RagManager(settings)
     rag_sync = RagSyncScheduler(rag_manager)
+    application = StoryApplication.create(settings, rag_sync)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -98,14 +96,12 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.mutation_token = secrets.token_urlsafe(32)
     app.state.rag_manager = rag_manager
     app.state.rag_sync = rag_sync
+    app.state.application = application
 
-    def database_for(project: str) -> Database:
+    def database_for(project: str):
         try:
-            root = settings.project_root(project)
-            database = Database(root)
-            database.require_v3()
-            return database
-        except (ValueError, RuntimeError, OSError) as error:
+            return application.projects.open(project)
+        except ProjectAccessError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     def require_mutation_token(x_story_teller_token: str = Header(default="")) -> None:
@@ -122,28 +118,6 @@ def create_app(settings: Settings) -> FastAPI:
             database = database_for(project)
             if has_open_merge(database, project):
                 raise MergeRequiredError("数据库仍有合并冲突，请先完成合并")
-
-    def finish_mutation(database: Database, project: str, result) -> dict:
-        response = ProjectRepository(database, project).mutation_delta(result)
-        if result.operation_id is None:
-            response["export"] = {
-                "status": "ready", "revision": result.project_revision, "skipped": True,
-            }
-            response["warnings"] = []
-            return response
-        scheduled = rag_sync.schedule(project, result.project_revision)
-        try:
-            export = ExportCoordinator(database, project).export()
-            response["export"] = export
-            response["warnings"] = []
-        except (OSError, ValueError, RuntimeError) as error:
-            response["export"] = {"status": "failed"}
-            response["warnings"] = [f"数据已经保存，但文本导出待修复：{error}"]
-        response["rag"] = {
-            "status": "scheduled" if scheduled else "request-fallback",
-            "revision": result.project_revision,
-        }
-        return response
 
     @app.exception_handler(NotFoundError)
     async def not_found_handler(_request: Request, error: NotFoundError):
@@ -163,6 +137,11 @@ def create_app(settings: Settings) -> FastAPI:
     @app.exception_handler(DomainError)
     async def domain_handler(_request: Request, error: DomainError):
         return JSONResponse(status_code=422, content={"ok": False, "error": str(error), "code": "validation"})
+
+    @app.exception_handler(ProjectAccessError)
+    async def project_access_handler(_request: Request, error: ProjectAccessError):
+        # Match the pre-Application HTTPException wire shape for invalid projects.
+        return JSONResponse(status_code=400, content={"detail": str(error)})
 
     @app.get("/api/v1/meta")
     def meta(project: str = Query(default="")):
@@ -203,7 +182,7 @@ def create_app(settings: Settings) -> FastAPI:
                 "fragmentStacks": True,
                 "fragmentClipboardImport": True,
                 "markdownImport": True,
-                "fragmentPlotPlanning": False,
+                "fragmentPlotPlanning": True,
                 "storiesMaintenance": True,
                 "plotTitleMaintenance": True,
                 "appearancePeople": True,
@@ -224,7 +203,7 @@ def create_app(settings: Settings) -> FastAPI:
     def move_unresolved_plot_titles(project: str, payload: PlotTitleRepairApply):
         database = database_for(project)
         result = MaintenanceService(database, project).move_unresolved_plots_to_fragments(payload.base_revision, payload.plot_ids)
-        return finish_mutation(database, project, result)
+        return application.mutations.finish(database, project, result)
 
     @app.post("/api/v1/projects/{project}/maintenance/plot-titles/apply", dependencies=[Depends(require_write_token)])
     def apply_plot_title_candidates(project: str, payload: PlotTitleRepairConfirm):
@@ -233,7 +212,7 @@ def create_app(settings: Settings) -> FastAPI:
             payload.base_revision,
             [item.model_dump() for item in payload.items],
         )
-        return finish_mutation(database, project, result)
+        return application.mutations.finish(database, project, result)
 
     @app.get("/api/v1/projects/{project}/maintenance/stories")
     def preview_story_migration(project: str):
@@ -246,7 +225,7 @@ def create_app(settings: Settings) -> FastAPI:
             payload.base_revision,
             acknowledge_warnings=payload.acknowledge_warnings,
         )
-        return finish_mutation(database, project, result)
+        return application.mutations.finish(database, project, result)
 
     @app.get("/api/v1/projects/{project}/merge-conflicts")
     def merge_conflicts(project: str):
@@ -276,7 +255,7 @@ def create_app(settings: Settings) -> FastAPI:
     def finalize_merge(project: str, session_id: str):
         database = database_for(project)
         result = MergeConflictService(database, project).finalize(session_id)
-        return finish_mutation(database, project, result)
+        return application.mutations.finish(database, project, result)
 
     @app.get("/api/v1/projects/{project}/changes")
     def project_changes(project: str, since: int = Query(ge=0)):
@@ -289,79 +268,126 @@ def create_app(settings: Settings) -> FastAPI:
             raise HTTPException(status_code=404, detail="内容不存在")
         return detail
 
-    @app.delete("/api/v1/projects/{project}/entities/{entity_id:path}", dependencies=[Depends(require_write_token)])
+    @app.delete(
+        "/api/v1/projects/{project}/entities/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="deleteEntity",
+    )
     def delete_entity(project: str, entity_id: str, payload: MutationRequest):
-        database = database_for(project)
-        result = EntityService(database, project).delete(entity_id, payload.base_revision)
-        return finish_mutation(database, project, result)
-
-    @app.post("/api/v1/projects/{project}/entities/{entity_id:path}/restore", dependencies=[Depends(require_write_token)])
-    def restore_entity(project: str, entity_id: str, payload: MutationRequest):
-        database = database_for(project)
-        result = EntityService(database, project).restore(entity_id, payload.base_revision)
-        return finish_mutation(database, project, result)
-
-    @app.post("/api/v1/projects/{project}/characters", dependencies=[Depends(require_write_token)])
-    def create_character(project: str, payload: CharacterCreate):
-        database = database_for(project)
-        result = ContentService(database, project).create_character(payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
-
-    @app.patch("/api/v1/projects/{project}/characters/{entity_id:path}", dependencies=[Depends(require_write_token)])
-    def update_character(project: str, entity_id: str, payload: CharacterPatch):
-        database = database_for(project)
-        result = ContentService(database, project).update_character(entity_id, payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
-
-    @app.post("/api/v1/projects/{project}/plots", dependencies=[Depends(require_write_token)])
-    def create_plot(project: str, payload: PlotCreate):
-        database = database_for(project)
-        result = ContentService(database, project).create_plot(payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
-
-    @app.patch("/api/v1/projects/{project}/plots/{entity_id:path}", dependencies=[Depends(require_write_token)])
-    def update_plot(project: str, entity_id: str, payload: PlotPatch):
-        database = database_for(project)
-        result = ContentService(database, project).update_plot(entity_id, payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
-
-    @app.post("/api/v1/projects/{project}/plots/{entity_id}/to-fragment", dependencies=[Depends(require_write_token)])
-    def move_plot_to_fragment(project: str, entity_id: str, payload: MutationRequest):
-        database = database_for(project)
-        result = ContentService(database, project).move_plot_to_fragment(
-            entity_id, payload.base_revision
+        return application.entities.delete(
+            ApplicationContext(project, source="web"), entity_id, payload
         )
-        return finish_mutation(database, project, result)
 
-    @app.post("/api/v1/projects/{project}/entries", dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/projects/{project}/entities/{entity_id:path}/restore",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="restoreEntity",
+    )
+    def restore_entity(project: str, entity_id: str, payload: MutationRequest):
+        return application.entities.restore(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
+
+    @app.post(
+        "/api/v1/projects/{project}/characters",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="createCharacter",
+    )
+    def create_character(project: str, payload: CharacterCreate):
+        return application.characters.create(
+            ApplicationContext(project, source="web"), payload
+        )
+
+    @app.patch(
+        "/api/v1/projects/{project}/characters/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateCharacter",
+    )
+    def update_character(project: str, entity_id: str, payload: CharacterPatch):
+        return application.characters.update(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
+
+    @app.post(
+        "/api/v1/projects/{project}/plots",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="createPlot",
+    )
+    def create_plot(project: str, payload: PlotCreate):
+        return application.plots.create(
+            ApplicationContext(project, source="web"), payload
+        )
+
+    @app.patch(
+        "/api/v1/projects/{project}/plots/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updatePlot",
+    )
+    def update_plot(project: str, entity_id: str, payload: PlotPatch):
+        return application.plots.update(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
+
+    @app.post(
+        "/api/v1/projects/{project}/plots/{entity_id}/to-fragment",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="demotePlotToFragment",
+    )
+    def move_plot_to_fragment(project: str, entity_id: str, payload: MutationRequest):
+        return application.plots.move_to_fragment(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
+
+    @app.post(
+        "/api/v1/projects/{project}/entries",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="createEntry",
+    )
     def create_entry(project: str, payload: EntryCreate):
-        database = database_for(project)
-        result = ContentService(database, project).create_entry(payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.entries.create(
+            ApplicationContext(project, source="web"), payload
+        )
 
-    @app.patch("/api/v1/projects/{project}/entries/{entity_id:path}", dependencies=[Depends(require_write_token)])
+    @app.patch(
+        "/api/v1/projects/{project}/entries/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateEntry",
+    )
     def update_entry(project: str, entity_id: str, payload: EntryPatch):
-        database = database_for(project)
-        result = ContentService(database, project).update_entry(entity_id, payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.entries.update(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
 
-    @app.post("/api/v1/projects/{project}/fragments", dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/projects/{project}/fragments",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="createFragment",
+    )
     def create_fragment(project: str, payload: FragmentCreate):
-        database = database_for(project)
-        result = ContentService(database, project).create_fragment(payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.fragments.create(
+            ApplicationContext(project, source="web"), payload
+        )
 
     @app.post(
         "/api/v1/projects/{project}/fragments/import-clipboard",
-        dependencies=[Depends(require_write_token)],
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="importFragmentsFromClipboard",
     )
     def import_fragments_from_clipboard(project: str, payload: FragmentClipboardImport):
-        database = database_for(project)
-        result = ContentService(database, project).import_fragments_from_clipboard(
-            payload.base_revision,
-            payload.text,
+        return application.fragments.import_clipboard(
+            ApplicationContext(project, source="web"), payload
         )
-        return finish_mutation(database, project, result)
 
     @app.post(
         "/api/v1/projects/{project}/imports/markdown/preview",
@@ -383,74 +409,108 @@ def create_app(settings: Settings) -> FastAPI:
             allow_conflicts=payload.allow_conflicts,
             preview_fingerprint=payload.preview_fingerprint,
         )
-        response = finish_mutation(database, project, result)
+        response = application.mutations.finish(database, project, result)
         response["import"] = result.callback_result
         return response
 
-    @app.patch("/api/v1/projects/{project}/fragments/{entity_id:path}", dependencies=[Depends(require_write_token)])
+    @app.patch(
+        "/api/v1/projects/{project}/fragments/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateFragment",
+    )
     def update_fragment(project: str, entity_id: str, payload: FragmentPatch):
-        database = database_for(project)
-        result = ContentService(database, project).update_fragment(entity_id, payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.fragments.update(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
 
-    @app.post("/api/v1/projects/{project}/fragments/{entity_id}/to-plot", dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/projects/{project}/fragments/{entity_id}/to-plot",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="promoteFragmentToPlot",
+    )
     def move_fragment_to_plot(project: str, entity_id: str, payload: FragmentToPlotRequest):
-        database = database_for(project)
-        result = ContentService(database, project).move_fragment_to_plot(
-            entity_id, payload.base_revision, mutation_payload(payload)
+        return application.fragments.promote(
+            ApplicationContext(project, source="web"), entity_id, payload
         )
-        return finish_mutation(database, project, result)
 
-    @app.post("/api/v1/projects/{project}/relationships", dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/projects/{project}/relationships",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="createRelationship",
+    )
     def create_relationship(project: str, payload: RelationshipCreate):
-        database = database_for(project)
-        result = ContentService(database, project).create_relationship(payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.relationships.create(
+            ApplicationContext(project, source="web"), payload
+        )
 
-    @app.patch("/api/v1/projects/{project}/relationships/{entity_id:path}", dependencies=[Depends(require_write_token)])
+    @app.patch(
+        "/api/v1/projects/{project}/relationships/{entity_id:path}",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateRelationship",
+    )
     def update_relationship(project: str, entity_id: str, payload: RelationshipPatch):
-        database = database_for(project)
-        result = ContentService(database, project).update_relationship(entity_id, payload.base_revision, mutation_payload(payload))
-        return finish_mutation(database, project, result)
+        return application.relationships.update(
+            ApplicationContext(project, source="web"), entity_id, payload
+        )
 
-    @app.put("/api/v1/projects/{project}/chapters", dependencies=[Depends(require_write_token)])
+    @app.put(
+        "/api/v1/projects/{project}/chapters",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateChapters",
+    )
     def update_chapters(project: str, payload: ChaptersUpdate):
-        database = database_for(project)
-        records = [item.model_dump() for item in payload.chapters]
-        result = StructureService(database, project).update_chapters(payload.base_revision, records)
-        return finish_mutation(database, project, result)
+        return application.structures.update_chapters(
+            ApplicationContext(project, source="web"), payload
+        )
 
-    @app.put("/api/v1/projects/{project}/plots/order", dependencies=[Depends(require_write_token)])
+    @app.put(
+        "/api/v1/projects/{project}/plots/order",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="reorderPlots",
+    )
     def reorder_plots(project: str, payload: PlotOrderUpdate):
-        database = database_for(project)
-        result = StructureService(database, project).reorder_plots(payload.base_revision, payload.plot_ids)
-        return finish_mutation(database, project, result)
+        return application.structures.reorder_plots(
+            ApplicationContext(project, source="web"), payload
+        )
 
-    @app.put("/api/v1/projects/{project}/story-structure", dependencies=[Depends(require_write_token)])
+    @app.put(
+        "/api/v1/projects/{project}/story-structure",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateStoryStructure",
+    )
     def update_story_structure(project: str, payload: StoryStructureUpdate):
-        database = database_for(project)
-        result = StructureService(database, project).update_story_structure(
-            payload.base_revision,
-            [item.model_dump() for item in payload.chapters],
-            [item.model_dump() for item in payload.plots],
+        return application.structures.update_story_structure(
+            ApplicationContext(project, source="web"), payload
         )
-        return finish_mutation(database, project, result)
 
-    @app.put("/api/v1/projects/{project}/timeline", dependencies=[Depends(require_write_token)])
+    @app.put(
+        "/api/v1/projects/{project}/timeline",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateTimeline",
+    )
     def update_timeline(project: str, payload: TimelineUpdate):
-        database = database_for(project)
-        result = StructureService(database, project).update_timeline(
-            payload.base_revision, mutation_payload(payload)
+        return application.structures.update_timeline(
+            ApplicationContext(project, source="web"), payload
         )
-        return finish_mutation(database, project, result)
 
-    @app.put("/api/v1/projects/{project}/graph", dependencies=[Depends(require_write_token)])
+    @app.put(
+        "/api/v1/projects/{project}/graph",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="updateGraph",
+    )
     def update_graph(project: str, payload: GraphUpdate):
-        database = database_for(project)
-        result = StructureService(database, project).update_graph(
-            payload.base_revision, mutation_payload(payload)
+        return application.structures.update_graph(
+            ApplicationContext(project, source="web"), payload
         )
-        return finish_mutation(database, project, result)
 
     @app.get("/api/v1/projects/{project}/trash")
     def trash(project: str, limit: int = Query(default=100, ge=1, le=300)):
@@ -469,11 +529,16 @@ def create_app(settings: Settings) -> FastAPI:
         repository = ProjectRepository(database_for(project), project)
         return {"items": repository.operations(limit)}
 
-    @app.post("/api/v1/projects/{project}/operations/undo", dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/projects/{project}/operations/undo",
+        dependencies=[Depends(require_mutation_token)],
+        response_model=MutationOutcome,
+        operation_id="undoOperation",
+    )
     def undo(project: str, payload: UndoRequest):
-        database = database_for(project)
-        result = UnitOfWork(database, project).undo(payload.operation_id, payload.base_revision)
-        return finish_mutation(database, project, result)
+        return application.history.undo(
+            ApplicationContext(project, source="web"), payload
+        )
 
     @app.post("/api/v1/projects/{project}/exports", dependencies=[Depends(require_write_token)])
     def export_project(project: str):

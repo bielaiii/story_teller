@@ -533,7 +533,7 @@ test("剧情线可逐章规划不连续的正式剧情位置并按规划转正",
 
   const convertedSnapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   expect(convertedSnapshot.plots.some((item) =>
-    item.title === "第 931 章" && item.summary === "远港来信"
+    item.title === "远港来信" && item.summary === "" && item.chapterNumber === 931
   )).toBe(true);
   expect(convertedSnapshot.fragments.some((item) => item.entityId === first.entityId)).toBe(false);
   const convertedLine = convertedSnapshot.fragments.find((item) => item.entityId === line.entityId);
@@ -782,8 +782,8 @@ test("人物档案使用结构化核心人设、补充人设和档案 KV", async
   await expect(editor.locator(".editor-footer")).toContainText("已保存");
   const snapshot = await (await page.request.get("/api/v1/projects/novel/snapshot")).json();
   const character = snapshot.characters.find((item) => item.corePersona?.some((trait) => trait.value.includes("夺回选择自己命运")));
-  expect(character.corePersona[0]).toEqual({ key: "要点 1", value: "核心欲望：夺回选择自己命运的权力" });
-  expect(character.supplementPersona[0]).toEqual({ key: "要点 1", value: "生活习惯：思考时会按颜色整理便签" });
+  expect(character.corePersona[0]).toEqual({ key: "核心欲望", value: "夺回选择自己命运的权力" });
+  expect(character.supplementPersona[0]).toEqual({ key: "生活习惯", value: "思考时会按颜色整理便签" });
   expect(character.facts["当前身份"]).toBe("投资人");
 });
 

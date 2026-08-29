@@ -391,8 +391,15 @@ export function MarkdownEditor({
         closeOnBlur: false,
         interactionDelay: 0,
       }),
+      EditorView.domEventHandlers({
+        keydown: (event) => {
+          if (event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.altKey) return false;
+          event.preventDefault();
+          saveRef.current();
+          return true;
+        },
+      }),
       keymap.of([
-        { key: "Mod-s", preventDefault: true, run: () => { saveRef.current(); return true; } },
         { key: "Mod-b", preventDefault: true, run: (view) => { toggleWrap(view, "**", "**", "加粗文字"); return true; } },
         { key: "Mod-i", preventDefault: true, run: (view) => { toggleWrap(view, "*", "*", "斜体文字"); return true; } },
         { key: "Mod-e", preventDefault: true, run: (view) => { toggleWrap(view, "`", "`", "代码"); return true; } },
