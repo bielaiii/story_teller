@@ -175,6 +175,7 @@ export function FragmentBoard({
   const [positions, setPositions] = useState<Map<string, FragmentBoardPoint>>(() => {
     return reconcileFragmentBoardPositions(defaults, initialLayout, fragments);
   });
+  const [frontId, setFrontId] = useState<string | null>(initialLayout?.frontId || null);
   const [viewport, setViewport] = useState<FragmentBoardViewport>(() =>
     initialLayout?.viewport
     || { ...FRAGMENT_BOARD_DEFAULT_VIEWPORT }
@@ -195,13 +196,13 @@ export function FragmentBoard({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        window.localStorage?.setItem(storageKey, serializeFragmentBoardLayout(positions, viewport));
+        window.localStorage?.setItem(storageKey, serializeFragmentBoardLayout(positions, viewport, frontId));
       } catch {
         // The board remains usable in memory when local storage is disabled or full.
       }
     }, 160);
     return () => window.clearTimeout(timer);
-  }, [positions, storageKey, viewport]);
+  }, [frontId, positions, storageKey, viewport]);
 
   useEffect(() => {
     const target = stageRef.current;
@@ -355,6 +356,7 @@ export function FragmentBoard({
   const resetLayout = () => {
     try { window.localStorage?.removeItem(storageKey); } catch { /* keep the in-memory reset */ }
     setPositions(new Map(defaults));
+    setFrontId(null);
     window.requestAnimationFrame(() => fitPositions(defaults));
     setSelectedId(null);
     setConfirmReset(false);
@@ -398,6 +400,7 @@ export function FragmentBoard({
     event.stopPropagation();
     const origin = positions.get(item.entityId);
     if (!origin) return;
+    setFrontId(item.entityId);
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { id: item.entityId, pointerId: event.pointerId, x: event.clientX, y: event.clientY, origin, moved: false };
   };
@@ -462,7 +465,7 @@ export function FragmentBoard({
               data-entity-id={item.entityId}
               type="button"
               className={`fragment-board-node${typeOf(item) === "line" ? " is-line" : ""}${isSelected ? " is-selected" : ""}${unrelated ? " is-unrelated" : ""}${tagDimmed ? " is-tag-dimmed" : ""}`}
-              style={{ left: point.x, top: point.y, "--accent": item.accent, "--node-size": `${nodeSize}px` } as React.CSSProperties}
+              style={{ left: point.x, top: point.y, zIndex: frontId === item.entityId ? 7 : 2, "--accent": item.accent, "--node-size": `${nodeSize}px` } as React.CSSProperties}
               aria-label={`阅读${displayTitle(item)}`}
               aria-pressed={isSelected}
               title={`${displayTitle(item)}${item.bodyPreview ? `\n${item.bodyPreview}` : ""}`}
@@ -475,6 +478,7 @@ export function FragmentBoard({
                   suppressClickRef.current = null;
                   return;
                 }
+                setFrontId(item.entityId);
                 setSelectedId(item.entityId);
               }}
             >

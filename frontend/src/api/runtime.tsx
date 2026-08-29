@@ -65,15 +65,17 @@ export function useRuntime() {
   return value;
 }
 
+export interface ProjectMutationInput {
+  path: string;
+  method: "POST" | "PATCH" | "PUT" | "DELETE";
+  payload: Record<string, unknown>;
+}
+
 export function useProjectMutation() {
   const { api, project, snapshot } = useRuntime();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ path, method, payload }: {
-      path: string;
-      method: "POST" | "PATCH" | "PUT" | "DELETE";
-      payload: Record<string, unknown>;
-    }) => {
+    mutationFn: async ({ path, method, payload }: ProjectMutationInput) => {
       if (method !== "DELETE") useUiStore.getState().showNotice("正在保存…", "progress");
       const submitted = queryClient.getQueryData<ProjectSnapshot>(["snapshot", project]) || snapshot;
       const targetId = mutationTargetId(path);

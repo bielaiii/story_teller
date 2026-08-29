@@ -1,7 +1,12 @@
 import { Fragment as ReactFragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Fragment } from "../api/types";
-import { useProjectMutation, useRuntime } from "../api/runtime";
+import { useRuntime } from "../api/runtime";
+import {
+  useFragmentMutations,
+  type FragmentCreateCommand,
+  type FragmentUpdateCommand,
+} from "../api/fragments";
 import type { PickedReference } from "../editor/MarkdownEditor";
 import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
@@ -202,7 +207,7 @@ function FragmentEditor({
   onClose: () => void;
 }) {
   const { api, project, snapshot, meta } = useRuntime();
-  const mutation = useProjectMutation();
+  const mutation = useFragmentMutations();
   const [currentId, setCurrentId] = useState<string | "new">(entityId);
   const [newDraftNonce, setNewDraftNonce] = useState(0);
   const [workspaceLineId, setWorkspaceLineId] = useState<string | null>(() =>
@@ -226,6 +231,9 @@ function FragmentEditor({
   );
   const supportsAppearancePeople = Boolean(
     meta?.routes.appearancePeople || meta?.features.includes("appearance-people-v1")
+  );
+  const supportsPlotPlanning = Boolean(
+    meta?.routes.fragmentPlotPlanning || meta?.features.includes("fragment-plot-planning-v1")
   );
   const workspaceLine = snapshot.fragments.find((item) => item.entityId === workspaceLineId);
   const activeWorkspaceChapter = snapshot.fragments.find((item) => item.entityId === currentId);
@@ -328,7 +336,7 @@ function FragmentEditor({
         payload.shiftFollowing = true;
       }
       if (currentId !== "new") delete payload.stableId;
-      delete payload.plotChapterPlan;
+      if (!supportsPlotPlanning || draft.fragmentType !== "line") delete payload.plotChapterPlan;
       if (!supportsStacks) {
         delete payload.fragmentType;
         delete payload.parentFragmentId;
@@ -337,7 +345,9 @@ function FragmentEditor({
         delete payload.plotChapterPlan;
         delete payload.shiftFollowing;
       }
-      const result = await mutation.mutateAsync({ path: currentId === "new" ? "/fragments" : `/fragments/${encodeURIComponent(currentId)}`, method: currentId === "new" ? "POST" : "PATCH", payload });
+      const result = currentId === "new"
+        ? await mutation.create(payload as FragmentCreateCommand)
+        : await mutation.update(currentId, payload as FragmentUpdateCommand);
       clearBrowserDraft(draftKey);
       const createdPeople = (result.changed.characters || [])
         .filter((character) => draft.appearanceNames.includes(String(character.name || "")))
@@ -374,7 +384,7 @@ function FragmentEditor({
   const remove = async () => {
     if (currentId === "new") return;
     try {
-      await mutation.mutateAsync({ path: `/entities/${encodeURIComponent(currentId)}`, method: "DELETE", payload: {} });
+      await mutation.remove(currentId);
       clearBrowserDraft(draftKey);
       setConfirmDelete(false);
       if (workspaceLineId && currentId !== workspaceLineId) {
@@ -392,10 +402,15 @@ function FragmentEditor({
       setMessage("请先保存当前修改，再放入剧情");
       return;
     }
-    const next = Math.max(0, ...snapshot.plots.map((plot) => plot.chapterNumber ?? 0)) + 1;
-    setConvertChapterNumber(String(next));
     const target = snapshot.fragments.find((item) => item.entityId === targetId);
     const parent = target?.parentFragmentId ? snapshot.fragments.find((item) => item.entityId === target?.parentFragmentId) : undefined;
+    const next = Math.max(0, ...snapshot.plots.map((plot) => plot.chapterNumber ?? 0)) + 1;
+    const plannedChapterNumber = target
+      ? (currentId === parent?.entityId && draft.fragmentType === "line"
+        ? draft.plotChapterPlan[target.entityId]
+        : parent ? fragmentPlotChapterPlanOf(parent)[target.entityId] : undefined)
+      : undefined;
+    setConvertChapterNumber(String(plannedChapterNumber ?? next));
     const inheritedStory = parent
       ? snapshot.timeline.lines.find((line) => line.name === parent.title || line.name.replace(/[篇线]$/, "") === parent.title.replace(/[篇线]$/, ""))?.entityId
       : undefined;
@@ -408,10 +423,9 @@ function FragmentEditor({
     const keepLineWorkspaceOpen = targetId !== currentId && currentId === workspaceLineId;
     try {
       if (keepLineWorkspaceOpen && dirty && !await save()) return;
-      const result = await mutation.mutateAsync({
-        path: `/fragments/${encodeURIComponent(targetId)}/to-plot`,
-        method: "POST",
-        payload: { chapterNumber: Number(convertChapterNumber), stories: convertStories },
+      const result = await mutation.promote(targetId, {
+        chapterNumber: Number(convertChapterNumber),
+        stories: convertStories,
       });
       const created = result.changed.plots?.find((item) =>
         !snapshot.plots.some((existing) => existing.entityId === item.entityId)
@@ -425,6 +439,13 @@ function FragmentEditor({
       );
       if (keepLineWorkspaceOpen) {
         clearBrowserDraft(draftKey);
+        setDraft((current) => {
+          const plotChapterPlan = { ...current.plotChapterPlan };
+          delete plotChapterPlan[targetId];
+          const nextDraft = { ...current, plotChapterPlan };
+          setBaseline(JSON.stringify(nextDraft));
+          return nextDraft;
+        });
         setMessage(created?.title ? `已转正为${created.title}` : "章节已转正");
       } else {
         onClose();
@@ -501,11 +522,33 @@ function FragmentEditor({
       />}
     </EditorSettingsSection>
     {draft.fragmentType === "line"
-        ? <div className="fragment-line-settings-panel is-legacy">
-          <span className="fragment-line-settings-mark"><Icon name="timeline" /></span>
-          <div><strong>剧情线设置</strong><p>当前服务版本只能保存剧情线的基础设置。</p></div>
-          <button className="primary-action" type="button" disabled={!dirty || mutation.isPending} onClick={() => void save()}>{mutation.isPending ? "正在保存…" : "保存设置"}</button>
-        </div>
+        ? <section className="fragment-line-settings-panel">
+          <header>
+            <span className="fragment-line-settings-mark"><Icon name="timeline" /></span>
+            <div><strong>正式剧情规划</strong><p>为每个碎片章节预先安排独立的正式章号，转正时会自动带入。</p></div>
+            <button className="primary-action" type="button" disabled={!dirty || mutation.isPending} onClick={() => void save()}>{mutation.isPending ? "正在保存…" : "保存设置"}</button>
+          </header>
+          {supportsPlotPlanning && workspaceLineId ? workspaceChapters.length ? <div className="fragment-plot-plan">
+            <div className="fragment-plot-plan-head" aria-hidden="true"><span>碎片章号</span><span>章节</span><span>正式剧情位置</span><span>转正</span></div>
+            {workspaceChapters.map((chapter, index) => {
+              const chapterTitle = fragmentDisplayTitle(chapter);
+              const planned = draft.plotChapterPlan[chapter.entityId];
+              return <div className="fragment-plot-plan-row" key={chapter.entityId}>
+                <span className="fragment-plot-plan-source"><b>{fragmentChapterNumberOf(chapter) ?? index + 1}</b><small>碎片</small></span>
+                <span className="fragment-plot-plan-title"><strong>{chapterTitle}</strong><small>{chapter.bodyPreview || "还没有正文"}</small></span>
+                <label className="fragment-plot-plan-target"><span>第</span><input aria-label={`${chapterTitle}的正式剧情章号`} type="number" min="1" max="99999" step="1" value={planned ?? ""} onChange={(event) => setDraft((current) => {
+                  const plotChapterPlan = { ...current.plotChapterPlan };
+                  const value = Number(event.target.value);
+                  if (event.target.value && Number.isInteger(value) && value >= 1 && value <= 99999) plotChapterPlan[chapter.entityId] = value;
+                  else delete plotChapterPlan[chapter.entityId];
+                  return { ...current, plotChapterPlan };
+                })} /><span>章</span><small>{planned ? `将转为第 ${planned} 章` : "尚未规划"}</small></label>
+                <span className="fragment-plot-plan-action"><button className="icon-button" type="button" aria-label={`把${chapterTitle}放入剧情`} title="按规划放入正式剧情" disabled={!planned || dirty} onClick={() => requestConvert(chapter.entityId)}><Icon name="replace" /></button></span>
+              </div>;
+            })}
+          </div> : <div className="fragment-plot-plan-empty"><Icon name="timeline" /><p>先添加章节，再为它们规划正式剧情位置。</p></div> : <div className="fragment-plot-plan-empty"><Icon name="timeline" /><p>当前服务版本只能保存剧情线的基础设置。</p></div>}
+          <footer><span>章号可以不连续</span><span>保存规划后才能转正</span><span>已转正章节会自动移出规划</span></footer>
+        </section>
         : <MarkdownEditor label="章节正文" value={draft.body} onChange={(value) => change("body", value)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} />}
     </>;
   return <div className="dialog-backdrop editor-backdrop">
@@ -550,7 +593,7 @@ function FragmentEditor({
 
 export default function FragmentsPage() {
   const { snapshot, writable, api, project, meta } = useRuntime();
-  const mutation = useProjectMutation();
+  const mutation = useFragmentMutations();
   const selectedFragmentId = useUiStore((state) => state.selectedFragmentId);
   const selectFragment = useUiStore((state) => state.selectFragment);
   const fragmentView = useUiStore((state) => state.fragmentView);
@@ -647,11 +690,7 @@ export default function FragmentsPage() {
       return false;
     }
     try {
-      const result = await mutation.mutateAsync({
-        path: "/fragments/import-clipboard",
-        method: "POST",
-        payload: { text },
-      });
+      const result = await mutation.importClipboard({ text });
       const created = (result.changed.fragments || []) as unknown as Fragment[];
       const line = created.find((item) => fragmentTypeOf(item) === "line");
       const chapterCount = line

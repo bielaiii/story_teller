@@ -13,6 +13,7 @@ export interface FragmentBoardLayoutState {
   version: 7;
   nodes: Record<string, FragmentBoardPoint>;
   viewport: FragmentBoardViewport;
+  frontId?: string;
 }
 
 export type FragmentBoardRelationKind = "structure" | "reference" | "person" | "tag";
@@ -375,7 +376,10 @@ export function parseFragmentBoardLayout(raw: string | null, validIds: Set<strin
       y: finite(rawViewport.y, FRAGMENT_BOARD_DEFAULT_VIEWPORT.y),
       scale: Math.max(.18, Math.min(2.5, finite(rawViewport.scale, FRAGMENT_BOARD_DEFAULT_VIEWPORT.scale))),
     } : { ...FRAGMENT_BOARD_DEFAULT_VIEWPORT };
-    return { version: 7, nodes, viewport };
+    const frontId = typeof value.frontId === "string" && validIds.has(value.frontId)
+      ? value.frontId
+      : undefined;
+    return { version: 7, nodes, viewport, frontId };
   } catch {
     return null;
   }
@@ -419,6 +423,7 @@ export function reconcileFragmentBoardPositions(
 export function serializeFragmentBoardLayout(
   positions: Map<string, FragmentBoardPoint>,
   viewport: FragmentBoardViewport,
+  frontId?: string | null,
 ): string {
   return JSON.stringify({
     version: 7,
@@ -428,6 +433,7 @@ export function serializeFragmentBoardLayout(
       y: finite(viewport.y, FRAGMENT_BOARD_DEFAULT_VIEWPORT.y),
       scale: Math.max(.18, Math.min(2.5, finite(viewport.scale, FRAGMENT_BOARD_DEFAULT_VIEWPORT.scale))),
     },
+    ...(frontId && positions.has(frontId) ? { frontId } : {}),
   } satisfies FragmentBoardLayoutState);
 }
 

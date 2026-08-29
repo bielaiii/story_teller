@@ -93,6 +93,23 @@ describe("fragment board layout", () => {
     expect(parseFragmentBoardLayout("{bad json", new Set())).toBeNull();
     expect(parseFragmentBoardLayout(JSON.stringify({ version: 6 }), new Set())).toBeNull();
   });
+
+  it("persists the last manipulated node above overlapping stored nodes", () => {
+    const positions = new Map([
+      ["fragment:front", { x: 120, y: 240 }],
+      ["fragment:back", { x: 130, y: 250 }],
+    ]);
+    const serialized = serializeFragmentBoardLayout(
+      positions,
+      { x: 0, y: 0, scale: 1 },
+      "fragment:front",
+    );
+
+    expect(parseFragmentBoardLayout(
+      serialized,
+      new Set(positions.keys()),
+    )?.frontId).toBe("fragment:front");
+  });
 });
 
 describe("fragment board relationships", () => {

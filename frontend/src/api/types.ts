@@ -45,6 +45,7 @@ export interface Plot {
   entityId: string;
   id: string;
   title: string;
+  chapterId?: string;
   chapterNumber?: number | null;
   sortKey: string;
   storySortKey?: string;

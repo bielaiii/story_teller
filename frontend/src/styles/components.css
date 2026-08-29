@@ -118,8 +118,8 @@
 .recovery-center-dialog > header small, .recovery-panel > header small { color: var(--primary); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
 .recovery-center-dialog h2, .recovery-center-dialog h3 { margin: 4px 0; }
 .recovery-center-dialog > header p { margin: 0; color: var(--muted); }
-.recovery-center-grid { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; overflow: auto; padding: 14px; }
-.recovery-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-solid); }
+.recovery-center-grid { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 12px; overflow: auto; padding: 14px; }
+.recovery-panel { min-height: 280px; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-solid); }
 .recovery-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-blue); }
 .recovery-panel > header > strong { color: var(--blue); font-size: 24px; }
 .recovery-panel .trash-list-new, .recovery-panel .operation-list-new { max-height: none; min-height: 0; }

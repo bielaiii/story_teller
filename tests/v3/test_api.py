@@ -80,6 +80,26 @@ class V3ApiTests(unittest.TestCase):
         )
         self.assertEqual(409, stale.status_code)
 
+    def test_fragment_response_model_keeps_the_existing_delta_wire_aliases(self):
+        snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
+        fragment = snapshot["fragments"][0]
+        response = self.client.patch(
+            f"/api/v1/projects/demo/fragments/{fragment['entityId']}",
+            headers=self.headers,
+            json={
+                "baseRevision": snapshot["project"]["revision"],
+                "entityRevision": fragment["revision"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code, response.text)
+        delta = response.json()
+        self.assertEqual(snapshot["project"]["revision"] + 1, delta["projectRevision"])
+        self.assertIsInstance(delta["operation"]["id"], int)
+        self.assertTrue(delta["operation"]["canUndo"])
+        self.assertIn(delta["rag"]["status"], {"scheduled", "request-fallback"})
+        self.assertNotIn("project_revision", delta)
+
     def test_character_and_plot_edits_use_independent_entity_revisions(self):
         snapshot = self.client.get("/api/v1/projects/demo/snapshot").json()
         character = snapshot["characters"][0]

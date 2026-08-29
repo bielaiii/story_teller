@@ -184,18 +184,33 @@ function PersonaSection({
   onChange: (items: EditablePair[]) => void;
   tone: "core" | "supplement";
 }) {
-  const update = (rowId: string, key: "key" | "value", value: string) => onChange(items.map((item) => item.rowId === rowId ? { ...item, [key]: value } : item));
-  const add = (mode: "kv" | "value") => onChange([...items, newPersonaItem(mode)]);
+  const emptyCoreItem = useRef(newPersonaItem("value"));
+  const visibleItems = items.length ? items : tone === "core" ? [emptyCoreItem.current] : [];
+  const update = (rowId: string, key: "key" | "value", value: string) => {
+    const existing = items.find((item) => item.rowId === rowId);
+    onChange(existing
+      ? items.map((item) => item.rowId === rowId ? { ...item, [key]: value } : item)
+      : [{ ...emptyCoreItem.current, [key]: value }]);
+  };
+  const add = (mode: "kv" | "value") => onChange(items.length
+    ? [...items, newPersonaItem(mode)]
+    : [newPersonaItem(mode)]);
   return <section className={`persona-editor-section persona-bullet-section is-${tone}`} aria-label={title}>
     <header><div className="persona-section-title"><div><h3>{title}</h3><span>{items.length} 项</span></div><p>{description}</p></div><div className="persona-add-actions"><button className="persona-add-action" type="button" onClick={() => add("kv")}><Icon name="plus" /><span>键值对</span></button><button className="persona-add-action" type="button" onClick={() => add("value")}><Icon name="plus" /><span>纯文本</span></button></div></header>
-    {items.length ? <div className="persona-bullet-editor">{items.map((item) => <article className={item.kind === "kv" ? "persona-persona-row is-kv" : "persona-persona-row is-value"} key={item.rowId}>
+    {visibleItems.length ? <div className="persona-bullet-editor">{visibleItems.map((item, index) => <article className={item.kind === "kv" ? "persona-persona-row is-kv" : "persona-persona-row is-value"} key={item.rowId}>
       <span className="persona-bullet-mark" aria-hidden="true" />
       {item.kind === "kv" ? <>
-        <input aria-label={`${title}名称`} value={item.key} placeholder="例如：核心欲望" onChange={(event) => update(item.rowId, "key", event.target.value)} />
-        <AutoSizeTextarea aria-label={`${title}内容`} value={item.value} placeholder="输入内容…" onChange={(value) => update(item.rowId, "value", value)} />
-      </> : <AutoSizeTextarea aria-label={`${title}纯文本内容`} value={item.value} placeholder="输入完整的人设描述…" onChange={(value) => update(item.rowId, "value", value)} />}
+        <input aria-label={`${title}名称第 ${index + 1} 项`} value={item.key} placeholder="例如：核心欲望" onChange={(event) => update(item.rowId, "key", event.target.value)} />
+        <AutoSizeTextarea aria-label={`${title}第 ${index + 1} 项`} value={item.value} placeholder="输入内容…" onChange={(value) => {
+          if (item.key && value.startsWith(`${item.key}：`)) {
+            onChange(items.map((candidate) => candidate.rowId === item.rowId
+              ? { ...candidate, kind: "value", key: "", value }
+              : candidate));
+          } else update(item.rowId, "value", value);
+        }} />
+      </> : <AutoSizeTextarea aria-label={`${title}第 ${index + 1} 项`} value={item.value} placeholder="输入完整的人设描述…" onChange={(value) => update(item.rowId, "value", value)} />}
       <button className="icon-button is-danger" type="button" aria-label={`移除${title}`} title="移除这一项" onClick={() => onChange(items.filter((candidate) => candidate.rowId !== item.rowId))}><Icon name="trash" /></button>
-    </article>)}</div> : <div className="persona-empty-actions"><button className="persona-empty-add" type="button" onClick={() => add("kv")}><Icon name="plus" /><span>添加键值对</span></button><button className="persona-empty-add" type="button" onClick={() => add("value")}><Icon name="plus" /><span>添加纯文本</span></button></div>}
+    </article>)}</div> : <div className="persona-empty-actions"><button className="persona-empty-add" type="button" onClick={() => add("kv")}><Icon name="plus" /><span>添加键值对</span></button><button className="persona-empty-add" type="button" aria-label={`添加第一项${title}`} onClick={() => add("value")}><Icon name="plus" /><span>添加纯文本</span></button></div>}
   </section>;
 }
 
