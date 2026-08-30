@@ -1,6 +1,6 @@
 # Story Teller Web / CLI 共享内核架构
 
-状态：共享 Mutation Pipeline、主要内容/结构用例与首个生成式 Web Client 已落地
+状态：共享 Mutation Pipeline、主要内容/结构用例、首个生成式 Web Client，以及人物/剧情/设定/搜索/合并/时间线/RAG 统一 CLI 已落地
 最后更新：2026-08-29
 
 ## 1. 目标
@@ -168,7 +168,9 @@ CLI 始终通过本地 HTTP API 写入，不直接打开 SQLite。这样 CLI 天
 - Markdown/JSON 导出；
 - RAG 后台同步。
 
-长期公开入口统一为 `story-teller <domain> <command>`，`story-fragment` 保留兼容转发。普通输出面向用户，`--json` 的 stdout 始终只有一个 JSON 文档；诊断写 stderr，现有退出码保持兼容。
+公开入口统一为 `story-teller <domain> <command>`，当前已经提供 `character`、`plot`、`entry`、`search`、`merge`、`timeline` 和 `rag` 命令组；`story-fragment` 保留兼容入口，后续迁入统一 CLI。普通输出面向用户，`--json` 的 stdout 始终只有一个 JSON 文档；诊断写 stderr，现有退出码保持兼容。
+
+`merge` 是普通 mutation 门禁的唯一例外：开放合并会话会锁住其他写入，但字段选择和最终确认必须继续通过专用、带本地 token 的 API 工作。`timeline` 不在 CLI 内复制结构业务规则，而是读取当前快照、构造完整更新命令，并交给与 Web 相同的 `StructureUseCases.update_timeline` 原子提交；因此删除线的节点转移、故事顺序与章号交换、导出、RAG 和撤销语义只有一份。
 
 CLI 自动启动属于后续独立切片：由 Hub 提供不改变 managed/attached/MCP 状态的 Client Lease。CLI 执行期间续租，结束后停止心跳，Content Worker 空闲 60 秒退出。
 
@@ -179,7 +181,8 @@ CLI 自动启动属于后续独立切片：由 Hub 提供不改变 managed/attac
 - 合并门禁移到 `MutationExecutor`。
 - `app.py::finish_mutation` 被 `MutationExecutor.execute` 替代。
 - 碎片 create/update/import/promote 调用 `FragmentUseCases`；人物、剧情、设定、关系和结构写入调用各自 Use Case；delete/restore 调用 `EntityUseCases`；undo 调用 `HistoryUseCases`。
-- `fragment_cli.ApiClient` 暂时保持 HTTP 协议不变；统一 CLI 切片再迁移。
+- `storyteller.cli` 已复用 `fragment_cli.ApiClient` 的工作区发现、HTTP、token、revision、合并门禁、错误码与 JSON 输出约定；人物档案/关系、正式剧情、设定/组织成员、全局搜索、逐字段 Git 合并、时间线、领域恢复、Markdown 批量下载和 RAG 重建已迁入统一入口。
+- `fragment_cli.ApiClient` 和 `story-fragment` 的公开协议保持不变，碎片命令组后续再迁入统一入口。
 - 大型 `ContentService` 第一阶段不拆，等 Application API 稳定后再按人物、剧情、设定、碎片和关系拆分。
 
 ## 7. 新功能开发规则

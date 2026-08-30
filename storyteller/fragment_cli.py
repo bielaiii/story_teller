@@ -58,7 +58,11 @@ def projects_in(content_root: Path) -> tuple[str, ...]:
 
 
 def discover_workspace(start: Path | None = None) -> Workspace:
-    configured = str(os.environ.get("STORY_FRAGMENT_CONTENT_ROOT") or "").strip()
+    configured = str(
+        os.environ.get("STORY_TELLER_CONTENT_ROOT")
+        or os.environ.get("STORY_FRAGMENT_CONTENT_ROOT")
+        or ""
+    ).strip()
     if configured:
         content_root = Path(configured).expanduser().resolve()
         projects = projects_in(content_root)
@@ -68,7 +72,11 @@ def discover_workspace(start: Path | None = None) -> Workspace:
                 code="workspace_not_found",
                 exit_code=2,
             )
-        configured_root = str(os.environ.get("STORY_FRAGMENT_WORKSPACE_ROOT") or "").strip()
+        configured_root = str(
+            os.environ.get("STORY_TELLER_WORKSPACE_ROOT")
+            or os.environ.get("STORY_FRAGMENT_WORKSPACE_ROOT")
+            or ""
+        ).strip()
         return Workspace(
             Path(configured_root).expanduser().resolve() if configured_root else content_root.parent,
             content_root,
@@ -200,7 +208,11 @@ class ApiClient:
                 exit_code=3,
             )
         if meta.get("mergeRequired") or not meta.get("contentWritable"):
-            raise CliError("数据库仍有合并冲突，请先在网页中完成合并", code="merge_required", exit_code=6)
+            raise CliError(
+                "数据库仍有合并冲突，请先运行 story-teller merge status 或在网页中完成合并",
+                code="merge_required",
+                exit_code=6,
+            )
         if not self.token:
             raise CliError("服务没有提供本地写入授权，请重新启动服务", code="not_writable", exit_code=3)
         return meta, self.snapshot()
@@ -269,7 +281,29 @@ def resolve_parent(snapshot: dict[str, Any], selector: str) -> dict[str, Any]:
 
 
 def resolve_person(snapshot: dict[str, Any], selector: str) -> dict[str, Any]:
-    return resolve_item(snapshot.get("characters", []), selector, noun="人物", title_keys=("name",))
+    value = str(selector or "").strip()
+    candidates = list(snapshot.get("characters", []))
+    matches = [
+        item for item in candidates
+        if _matches(item, value, ("name",))
+        or value in [str(alias).strip() for alias in item.get("aliases", [])]
+    ]
+    if not matches:
+        folded = value.casefold()
+        matches = [
+            item for item in candidates
+            if folded == str(item.get("name") or "").strip().casefold()
+            or folded in [str(alias).strip().casefold() for alias in item.get("aliases", [])]
+        ]
+    if not matches:
+        raise SelectionError(f"找不到人物：{value}")
+    if len(matches) > 1:
+        choices = "、".join(str(item.get("entityId") or item.get("id")) for item in matches[:8])
+        raise SelectionError(
+            f"人物选择器“{value}”不唯一，请改用 ID：{choices}",
+            code="ambiguous_selector",
+        )
+    return matches[0]
 
 
 def resolve_reference(snapshot: dict[str, Any], selector: str) -> dict[str, Any]:

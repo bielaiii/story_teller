@@ -46,6 +46,57 @@ opencode mcp add story-world -- story-world-mcp
 
 然后在 AI 客户端中把本地 MCP 命令配置为 `story-world-mcp`。启动器会根据客户端当前目录向上发现最近的 `content/*/story.db`，使用当前仓库自己的框架；一个工作区有多个内容项目时可通过 `list_world_projects` 选择。不能根据当前目录启动命令的客户端，只需固定配置一次 Hub 地址，并先调用 `list_world_workspaces`。
 
+## 统一命令行
+
+统一 CLI 已覆盖人物、正式剧情、设定/组织、全局搜索、Git 数据冲突处理、时间线和手动 RAG 重建。它与网页通过同一个本地 API 和 Application 用例写入，不直接打开 `story.db`。
+
+从小说仓库内直接运行：
+
+```sh
+./story_teller/story-teller character list
+./story_teller/story-teller character show 沈清妙
+./story_teller/story-teller character add "林冬" \
+  --role 配角 --scope 常驻人物 --group 调查组 \
+  --alias 阿冬 --fact 职业=调查员 \
+  --core-persona 核心欲望=查清真相
+./story_teller/story-teller character edit 林冬 \
+  --impact 80 --graph-visible --destiny-outline-file ./destiny.md
+./story_teller/story-teller plot list
+./story_teller/story-teller entry list --type 组织
+./story_teller/story-teller search "码头证据"
+./story_teller/story-teller timeline node list --line 主线
+./story_teller/story-teller rag rebuild
+```
+
+人物关系使用嵌套命令；人物选择器均接受 `entityId`、稳定 ID、唯一姓名或唯一别名：
+
+```sh
+./story_teller/story-teller character relationship add 林冬 沈清妙 \
+  --label 互相试探 --type 盟友 \
+  --from-impression "可靠，但有所隐瞒" \
+  --to-impression "过于正直" --line-mode double
+./story_teller/story-teller character relationship list --character 林冬
+```
+
+恢复工作流：
+
+```sh
+./story_teller/story-teller character delete 林冬
+./story_teller/story-teller character trash
+./story_teller/story-teller character restore character:12
+./story_teller/story-teller character history
+./story_teller/story-teller character undo 42
+```
+
+安装全局启动器后，可以在小说仓库的任意子目录直接使用 `story-teller`：
+
+```sh
+./story_teller/scripts/install-story-teller.sh
+story-teller character list --json
+```
+
+人物的完整字段、关系、恢复和导出说明见[《人物 CLI》](docs/character-cli.md)；正式剧情、设定/组织成员和 RAG 说明见[《剧情、设定与 RAG CLI》](docs/content-cli.md)；全局搜索、逐字段 Git 合并和时间线说明见[《搜索、合并与时间线 CLI》](docs/workflow-cli.md)。
+
 ## 碎片命令行
 
 碎片 CLI 是已启动 Web 服务的本地客户端，复用网页的事务、校验、软删除、撤销、Markdown 导出和 RAG 同步逻辑；它不会直接写 `story.db`，MCP 也继续保持只读。先运行仓库的 `./run.sh`，再从小说仓库目录使用：

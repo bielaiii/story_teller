@@ -1,6 +1,6 @@
 # Web / CLI 共享内核：5 小时 Goal 执行记录
 
-状态：核心 Goal、Stretch Goal 与后续 Application 垂直切片均已完成
+状态：核心 Goal、Stretch Goal、后续 Application 垂直切片与统一多领域 CLI Goal 均已完成
 开始日期：2026-08-28
 时间约束：5 小时人工 timebox，不是已确认的 Codex 产品硬限制
 
@@ -69,6 +69,8 @@
 - 拆分大型 `ContentService`；
 - 删除全部手写 TypeScript API DTO。
 
+其中“统一 `story-teller` 多领域 CLI”后来作为独立 Goal 实施完成：先落地人物/关系、剧情、设定/组织成员和 RAG，随后补齐全局搜索、逐字段 Git 合并与时间线。此完成状态不回算为原五小时时间盒的产出；`story-fragment` 兼容转发器和 Hub Client Lease 仍保持延期。
+
 ## 数据保护基线
 
 Goal 开始时已有用户改动，必须原样保留：
@@ -93,6 +95,7 @@ content/fuchouji/content-index 2.json
 - Application 测试直接调用七个用例，并从临时 `story.db` 和生成导出 readback；另有导出失败后“数据库已提交 + warning”的回归测试。
 - 新增确定性 OpenAPI TypeScript 生成器、漂移检查和生成契约；碎片 React 页面通过 `fragmentMutationClient` 复用这些类型。
 - 开启并完成剧情线逐章转正规划，恢复篇章/阅读顺序事务编辑器，并修复保存快捷键、人物档案无障碍契约、恢复中心布局和画布重叠点击回归。
+- 后续独立 CLI Goal 新增统一 `story-teller` 启动器，以及人物/关系、剧情、设定/组织、搜索、Git 合并、时间线和 RAG 命令域；时间线移动与 Web 一样同步故事位置和章号，合并命令在普通写入门禁锁定时仍可逐字段完成最终确认。
 
 ### 验证结果
 
@@ -101,7 +104,7 @@ npm run schema:check
   PASS · 世界领域注册表与 SQLite Schema 一致
 
 npm run test:unit
-  PASS · 125 tests
+  PASS · 142 tests
 
 npm run test:frontend
   PASS · 32 files / 120 tests
@@ -114,6 +117,9 @@ npm run contract:check
 
 npm run test:e2e:v3
   PASS · 29 tests
+
+npm run test:e2e:merge
+  PASS · 1 test
 ```
 
 完整 E2E 最初暴露的 8 项回归已经逐项修复；随后又用完整顺序发现并修复画布重叠节点的点击层级问题。最终 29/29 通过，不再保留已失效的失败清单。
@@ -135,7 +141,7 @@ content/fuchouji/content-index 2.json
 ### 未完成项与下一 Goal 起点
 
 - maintenance、Markdown import 和 merge finalize 等管理型写流程仍通过集中后的 `MutationExecutor.finish()` 兼容路径；它们可在下一次 Application 切片中迁移。
-- 统一多领域 CLI 与 `story-fragment` 转发器应作为一个独立可验收切片实现。
+- `story-fragment` 兼容转发器仍应作为独立可验收切片实现；统一多领域 CLI 已完成，不再是未完成项。
 - Hub Client Lease 涉及独立 `story_teller_hub` 仓库和进程所有权/空闲退出测试，继续单列 Goal。
 - `ContentService` 拆分和全量 TypeScript DTO 替换继续按“明确延期”处理；当前只迁移了碎片 Web Client，手写展示模型仍保留。
 
