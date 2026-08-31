@@ -170,6 +170,11 @@ export function timelineMinimapRatio(pointerY: number, top: number, height: numb
   return Math.max(0, Math.min(1, (pointerY - top) / height));
 }
 
+export function timelineWheelNavigationEnabled(platform: string, userAgent = ""): boolean {
+  if (/Android|iPhone|iPad|Mobile/i.test(userAgent)) return false;
+  return /Windows|Win32|Win64|Linux/i.test(platform);
+}
+
 const TIMELINE_TOP = 158;
 const TIMELINE_STEP = 116;
 const TIMELINE_RANK_UNIT = 10 ** 12;
@@ -403,7 +408,13 @@ function generatedLineId(): string {
 export default function TimelinePage() {
   const { api, project, snapshot, writable } = useRuntime();
   const mutation = useProjectMutation();
+  const navigatorWithClientHints = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const wheelNavigationEnabled = timelineWheelNavigationEnabled(
+    navigatorWithClientHints.userAgentData?.platform || navigator.platform || "",
+    navigator.userAgent,
+  );
   const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const plotCardRef = useRef<HTMLElement>(null);
   const editorTimelineScrollRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLDivElement>(null);
   const editorSortBaseRef = useRef(TIMELINE_RANK_UNIT);
@@ -415,6 +426,9 @@ export default function TimelinePage() {
   const edgeDirectionRef = useRef(0);
   const edgeStartedAtRef = useRef(0);
   const suppressClickRef = useRef("");
+  const timelineWheelAccumulatorRef = useRef(0);
+  const timelineWheelDirectionRef = useRef(0);
+  const timelineWheelResetRef = useRef(0);
   const focus = useUiStore((state) => state.timelineFocusId);
   const setFocus = useUiStore((state) => state.setTimelineFocus);
   const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
@@ -564,7 +578,65 @@ export default function TimelinePage() {
   }, [editing, editorGeometry, selectedEditLine, selectedEditPlot]);
   useEffect(() => () => {
     if (autoScrollFrameRef.current) cancelAnimationFrame(autoScrollFrameRef.current);
+    if (timelineWheelResetRef.current) window.clearTimeout(timelineWheelResetRef.current);
   }, []);
+
+  const scrollToTimelinePlot = (plotId: string) => {
+    const canvas = canvasWrapRef.current;
+    const targetY = geometry.plotY.get(plotId);
+    if (!canvas || targetY == null) return;
+    const canvasTop = canvas.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({
+      top: Math.max(0, canvasTop + targetY - window.innerHeight * .46),
+      behavior: "smooth",
+    });
+  };
+  const handleTimelineWheel = (event: WheelEvent) => {
+    if (!selectedPlot || editing || (event.target as HTMLElement).closest(".timeline-plot-card")) return;
+    const direction = Math.sign(event.deltaY);
+    if (!direction) return;
+    event.preventDefault();
+    if (timelineWheelDirectionRef.current !== direction) {
+      timelineWheelAccumulatorRef.current = 0;
+      timelineWheelDirectionRef.current = direction;
+    }
+    const normalizedDelta = event.deltaY * (event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? window.innerHeight : 1);
+    timelineWheelAccumulatorRef.current += normalizedDelta;
+    if (timelineWheelResetRef.current) window.clearTimeout(timelineWheelResetRef.current);
+    timelineWheelResetRef.current = window.setTimeout(() => {
+      timelineWheelAccumulatorRef.current = 0;
+      timelineWheelDirectionRef.current = 0;
+      timelineWheelResetRef.current = 0;
+    }, 160);
+    if (Math.abs(timelineWheelAccumulatorRef.current) < 48) return;
+    timelineWheelAccumulatorRef.current = 0;
+    const currentIndex = visiblePlots.findIndex((item) => item.entityId === selectedPlot);
+    const nextPlot = visiblePlots[currentIndex + direction];
+    if (currentIndex < 0 || !nextPlot) return;
+    setSelectedPlot(nextPlot.entityId);
+    scrollToTimelinePlot(nextPlot.entityId);
+  };
+  const handlePlotCardWheel = (event: WheelEvent) => {
+    const preview = plotCardRef.current?.querySelector<HTMLElement>(".timeline-plot-preview");
+    if (!preview || !event.deltaY) return;
+    event.preventDefault();
+    event.stopPropagation();
+    preview.scrollTop += event.deltaY * (event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? preview.clientHeight : 1);
+  };
+  useEffect(() => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas || !selectedPlot || editing || !wheelNavigationEnabled) return;
+    canvas.addEventListener("wheel", handleTimelineWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleTimelineWheel);
+  }, [editing, geometry, selectedPlot, visiblePlots, wheelNavigationEnabled]);
+  useEffect(() => {
+    const card = plotCardRef.current;
+    if (!card || !selectedPlot) return;
+    const preview = card.querySelector<HTMLElement>(".timeline-plot-preview");
+    if (preview) preview.scrollTop = 0;
+    card.addEventListener("wheel", handlePlotCardWheel, { passive: false });
+    return () => card.removeEventListener("wheel", handlePlotCardWheel);
+  }, [selectedPlot]);
 
   const beginEdit = () => {
     const nextLines = snapshot.timeline.lines.map((line) => ({
@@ -978,9 +1050,9 @@ export default function TimelinePage() {
           const lineId = focus || (nodes.some((node) => node.lineId === snapshot.timeline.mainLineId) ? snapshot.timeline.mainLineId : nodes[0]?.lineId);
           const track = geometry.tracks.find((candidate) => candidate.id === lineId) || geometry.tracks[0];
           const y = geometry.plotY.get(item.entityId) || TIMELINE_TOP;
-          return <button key={item.entityId} className="timeline-node-new" aria-label={`查看剧情：${item.title}`} title={`${item.title} · 故事 ${globalStoryOrder.get(item.entityId)} · 阅读 ${item.sequence}`} style={{ top: y, left: track?.x || 350, "--node-color": track?.color || item.accent } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setSelectedPlot(item.entityId); }}><span /></button>;
+          return <button key={item.entityId} className={`timeline-node-new${selectedPlot === item.entityId ? " is-active" : ""}`} aria-label={`查看剧情：${item.title}`} aria-pressed={selectedPlot === item.entityId} title={`${item.title} · 故事 ${globalStoryOrder.get(item.entityId)} · 阅读 ${item.sequence}`} style={{ top: y, left: track?.x || 350, "--node-color": track?.color || item.accent } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setSelectedPlot(item.entityId); }}><span /></button>;
         })}
-        {plot && <aside className="timeline-plot-card" style={{ top: 30 }} onClick={(event) => event.stopPropagation()}><button className="icon-button" aria-label="关闭剧情卡片" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small><h2>{plot.title}</h2><RenderedMarkdown source={plotPreview} className="timeline-plot-preview" /><button className="primary-action" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}>进入完整文章</button></aside>}
+        {plot && <aside ref={plotCardRef} className="timeline-plot-card" style={{ top: 30 }} onClick={(event) => event.stopPropagation()}><button className="icon-button" aria-label="关闭剧情卡片" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small><h2>{plot.title}</h2><RenderedMarkdown source={plotPreview} className="timeline-plot-preview" /><button className="primary-action" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}>进入完整文章</button></aside>}
       </div>
     </div>
     {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>节点间可连续调距；拖过其他节点时会推动沿途节点，并同步更新剧情篇次。</p></div><button className="icon-button" aria-label="关闭" onClick={() => { finishTimelineDrag(false); setEditing(false); }}><Icon name="close" /></button></header>

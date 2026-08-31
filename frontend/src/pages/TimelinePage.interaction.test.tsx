@@ -93,6 +93,8 @@ describe("TimelinePage drag interaction", () => {
     mocks.mutateAsync.mockReset();
     mocks.mutateAsync.mockResolvedValue({ warnings: [] });
     useUiStore.getState().setTimelineFocus(null);
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Win32" });
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: "Timeline test browser" });
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
       configurable: true,
       value: () => null,
@@ -107,6 +109,65 @@ describe("TimelinePage drag interaction", () => {
         if (typeof options.top === "number") this.scrollTop = options.top;
       },
     });
+    Object.defineProperty(window, "scrollTo", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  it("keeps the timeline legend in place while a plot preview card is open", () => {
+    renderTimeline();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看剧情：第 12 章" }));
+
+    expect(document.querySelector(".timeline-plot-card")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "时间线图示" })).not.toHaveClass("has-plot-card");
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭剧情卡片" }));
+    expect(document.querySelector(".timeline-plot-card")).not.toBeInTheDocument();
+  });
+
+  it("steps through plots with the wheel after selecting a timeline node", () => {
+    renderTimeline();
+    const canvas = document.querySelector(".timeline-canvas-new") as HTMLElement;
+
+    fireEvent.click(screen.getByRole("button", { name: "查看剧情：第 12 章" }));
+    const preview = document.querySelector(".timeline-plot-preview") as HTMLElement;
+    preview.scrollTop = 72;
+    fireEvent.wheel(canvas, { deltaY: 120 });
+
+    expect(screen.getByRole("heading", { name: "第 37 章" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看剧情：第 37 章" })).toHaveAttribute("aria-pressed", "true");
+    expect(preview.scrollTop).toBe(0);
+    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+
+    fireEvent.wheel(canvas, { deltaY: -120 });
+    expect(screen.getByRole("heading", { name: "第 12 章" })).toBeInTheDocument();
+  });
+
+  it("keeps ordinary canvas scrolling on macOS", () => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    renderTimeline();
+    const canvas = document.querySelector(".timeline-canvas-new") as HTMLElement;
+
+    fireEvent.click(screen.getByRole("button", { name: "查看剧情：第 12 章" }));
+    fireEvent.wheel(canvas, { deltaY: 120 });
+
+    expect(screen.getByRole("heading", { name: "第 12 章" })).toBeInTheDocument();
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("scrolls preview content instead of changing plots while the pointer is over the card", () => {
+    renderTimeline();
+    fireEvent.click(screen.getByRole("button", { name: "查看剧情：第 12 章" }));
+    const card = document.querySelector(".timeline-plot-card") as HTMLElement;
+    const preview = card.querySelector(".timeline-plot-preview") as HTMLElement;
+
+    fireEvent.wheel(card, { deltaY: 84 });
+
+    expect(preview.scrollTop).toBe(84);
+    expect(screen.getByRole("heading", { name: "第 12 章" })).toBeInTheDocument();
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it("restores with Escape, then saves a continuous position without changing order or chapter numbers", async () => {

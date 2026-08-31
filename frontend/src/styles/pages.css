@@ -335,11 +335,11 @@
 .timeline-origin { position: absolute; z-index: 1; width: 8px; height: 8px; border-radius: 50%; background: #ffe8b5; border: 2px solid var(--line-color); transform: translate(-50%, -50%); pointer-events: none; }
 .timeline-node-new { position: absolute; z-index: 2; width: 22px; height: 22px; transform: translate(-50%, -50%); display: grid; place-items: center; border: 0; padding: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 .timeline-node-new > span { width: 12px; height: 12px; border-radius: 50%; background: var(--node-color); border: 3px solid #ffe8b5; box-shadow: 0 0 0 2px var(--node-color); transition: transform .16s ease, box-shadow .16s ease; }
-.timeline-node-new:hover > span, .timeline-node-new:focus-visible > span { transform: scale(1.22); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color), transparent 22%); }
+.timeline-node-new:hover > span, .timeline-node-new:focus-visible > span, .timeline-node-new.is-active > span { transform: scale(1.22); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color), transparent 22%); }
 .timeline-plot-card { position: sticky; float: right; margin: 18px; width: 330px; z-index: 4; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-solid); box-shadow: var(--shadow); padding: 18px; }
 .timeline-plot-card > .icon-button { float: right; }
 .timeline-plot-card p { color: var(--muted); line-height: 1.7; }
-.timeline-plot-preview { max-height: min(42vh, 320px); overflow: auto; color: var(--muted); line-height: 1.72; overflow-wrap: anywhere; }
+.timeline-plot-preview { max-height: min(42vh, 320px); overflow: auto; overscroll-behavior: contain; color: var(--muted); line-height: 1.72; overflow-wrap: anywhere; }
 .timeline-plot-preview > :first-child { margin-top: 0; }
 .timeline-plot-preview > :last-child { margin-bottom: 0; }
 .timeline-plot-preview h1, .timeline-plot-preview h2, .timeline-plot-preview h3 { font-size: 15px; color: var(--ink); }
@@ -1308,7 +1308,7 @@
 .timeline-line-rail.has-editor { right: 18px; }
 .timeline-line-rail button { border-radius: 3px; }
 .timeline-canvas-new { min-height: 100vh; border: 0; border-radius: 0; background: var(--surface-solid); }
-.timeline-plot-card { position: fixed; top: 142px !important; right: 18px; margin: 0; border-radius: 6px; background: var(--surface-solid); }
+.timeline-plot-card { position: fixed; z-index: 43; top: 132px !important; right: 18px; margin: 0; border-radius: 6px; background: var(--surface-solid); }
 
 .content-card-preview { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .complete-block-preview { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
@@ -1484,6 +1484,7 @@ html:has(.story-reader-page)::-webkit-scrollbar { display: none; }
 }
 
 @media (max-width: 620px) {
+  .timeline-plot-card { right: 12px; left: 12px; width: auto; }
   .plot-card { grid-template-columns: 44px minmax(0, 1fr) 18px; }
   .plot-card-index { font-size: 25px; }
   .story-page .filter-panel { gap: 2px; }

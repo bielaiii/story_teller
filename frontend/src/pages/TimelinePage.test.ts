@@ -10,6 +10,7 @@ import {
   timelineMinimapRatio,
   timelinePositionsFromSortKeys,
   timelineSortKeyFromPosition,
+  timelineWheelNavigationEnabled,
   visibleTimelineTrackIds,
 } from "./TimelinePage";
 
@@ -18,6 +19,15 @@ function line(entityId: string, side: TimelineLine["side"], startPlotId: string 
 }
 
 describe("buildTimelineGeometry", () => {
+  it("enables wheel chapter navigation only on desktop Windows and Linux", () => {
+    expect(timelineWheelNavigationEnabled("Windows")).toBe(true);
+    expect(timelineWheelNavigationEnabled("Win32")).toBe(true);
+    expect(timelineWheelNavigationEnabled("Linux x86_64")).toBe(true);
+    expect(timelineWheelNavigationEnabled("MacIntel")).toBe(false);
+    expect(timelineWheelNavigationEnabled("iPhone")).toBe(false);
+    expect(timelineWheelNavigationEnabled("Linux armv8l", "Mozilla/5.0 Android Mobile")).toBe(false);
+  });
+
   it("does not expose a label control for an unnamed line", () => {
     expect(hasTimelineLineLabel({ name: "" })).toBe(false);
     expect(hasTimelineLineLabel({ name: "   " })).toBe(false);
