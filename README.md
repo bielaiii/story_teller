@@ -48,7 +48,7 @@ opencode mcp add story-world -- story-world-mcp
 
 ## 统一命令行
 
-统一 CLI 已覆盖人物、正式剧情、设定/组织、全局搜索、Git 数据冲突处理、时间线和手动 RAG 重建。它与网页通过同一个本地 API 和 Application 用例写入，不直接打开 `story.db`。
+统一 CLI 已覆盖人物、正式剧情、设定/组织、Markdown 批量导入、全局搜索、Git 数据冲突处理、时间线和手动 RAG 重建。它与网页通过同一个本地 API 和 Application 用例写入，不直接打开 `story.db`。无需预先启动网页：CLI 会向唯一 Hub 申请临时 Client Lease，复用同一 Content Worker；CLI 不改变 Web 托管或 MCP 开关，最后一个客户端退出 60 秒后 Worker 自动回收。
 
 从小说仓库内直接运行：
 
@@ -66,6 +66,10 @@ opencode mcp add story-world -- story-world-mcp
 ./story_teller/story-teller search "码头证据"
 ./story_teller/story-teller timeline node list --line 主线
 ./story_teller/story-teller rag rebuild
+./story_teller/story-teller import markdown ./story-import/plots \
+  --root ./story-import --recursive --check
+./story_teller/story-teller import markdown ./story-import \
+  --root ./story-import --recursive --yes
 ```
 
 人物关系使用嵌套命令；人物选择器均接受 `entityId`、稳定 ID、唯一姓名或唯一别名：
@@ -95,7 +99,7 @@ opencode mcp add story-world -- story-world-mcp
 story-teller character list --json
 ```
 
-人物的完整字段、关系、恢复和导出说明见[《人物 CLI》](docs/character-cli.md)；正式剧情、设定/组织成员和 RAG 说明见[《剧情、设定与 RAG CLI》](docs/content-cli.md)；全局搜索、逐字段 Git 合并和时间线说明见[《搜索、合并与时间线 CLI》](docs/workflow-cli.md)。
+人物的完整字段、关系、恢复和导出说明见[《人物 CLI》](docs/character-cli.md)；正式剧情、设定/组织成员和 RAG 说明见[《剧情、设定与 RAG CLI》](docs/content-cli.md)；Markdown bundle、预览和冲突规则见[《Markdown 批量导入目录规范》](docs/markdown-import-file-structure.md)；全局搜索、逐字段 Git 合并和时间线说明见[《搜索、合并与时间线 CLI》](docs/workflow-cli.md)。
 
 ## 碎片命令行
 

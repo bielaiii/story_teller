@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -63,6 +64,38 @@ def select_default_project(
     return projects[0] if len(projects) == 1 else ""
 
 
+def discover_hub(workspace_root: Path, framework_root: Path) -> Path:
+    configured = str(os.environ.get("STORY_TELLER_HUB_ROOT") or "").strip()
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    for base in (workspace_root, *workspace_root.parents, framework_root, *framework_root.parents):
+        candidates.append(base / "story_teller_hub")
+    candidates.append(Path.home() / ".local" / "share" / "story-teller-hub" / "current")
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if (resolved / "run.sh").is_file():
+            return resolved
+    raise RuntimeError(
+        "没有找到 Story Teller Hub；请安装 Hub，或通过 STORY_TELLER_HUB_ROOT 指定其目录"
+    )
+
+
+def repository_root_for(content_root: Path, workspace_root: Path) -> Path:
+    completed = subprocess.run(
+        ["git", "-C", str(content_root), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    value = completed.stdout.strip() if completed.returncode == 0 else ""
+    return Path(value).resolve() if value else workspace_root.resolve()
+
+
 def main() -> int:
     try:
         launcher = Path(__file__).resolve()
@@ -79,8 +112,39 @@ def main() -> int:
         environment = dict(os.environ)
         environment["STORY_TELLER_WORKSPACE_ROOT"] = str(workspace_root)
         environment["STORY_TELLER_CONTENT_ROOT"] = str(content_root)
+        python_path = str(environment.get("PYTHONPATH") or "").strip()
+        environment["PYTHONPATH"] = (
+            str(framework_root) if not python_path
+            else os.pathsep.join((str(framework_root), python_path))
+        )
         if default_project:
             environment.setdefault("STORY_TELLER_DEFAULT_PROJECT", default_project)
+        direct_worker = bool(
+            environment.get("STORY_TELLER_HUB_CLIENT_ATTACHED") == "1"
+            or environment.get("STORY_TELLER_WEB_URL")
+            or environment.get("STORY_FRAGMENT_WEB_URL")
+            or any(
+                value == "--web-url" or value.startswith("--web-url=")
+                for value in sys.argv[1:]
+            )
+        )
+        if not direct_worker:
+            hub_root = discover_hub(workspace_root, framework_root)
+            repository_root = repository_root_for(content_root, workspace_root)
+            registration_project = default_project or projects[0]
+            command = [
+                str(hub_root / "run.sh"),
+                "client-exec",
+                "--port", str(environment.get("STORY_WORLD_HUB_PORT") or "4188"),
+                "--repository-root", str(repository_root),
+                "--content-root", str(content_root),
+                "--framework-root", str(framework_root),
+                "--client-cwd", str(start),
+                "--project", registration_project,
+                "--display-name", repository_root.name,
+                "--",
+                *command,
+            ]
         if os.environ.get("STORY_TELLER_DRY_RUN") == "1":
             print(json.dumps({
                 "workspaceRoot": str(workspace_root),
@@ -91,7 +155,6 @@ def main() -> int:
                 "command": command,
             }, ensure_ascii=False, sort_keys=True))
             return 0
-        os.chdir(framework_root)
         os.execve(command[0], command, environment)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"story-teller: {error}", file=sys.stderr)

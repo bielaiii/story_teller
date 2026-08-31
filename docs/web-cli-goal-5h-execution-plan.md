@@ -65,11 +65,11 @@
 
 - 统一 `story-teller` 多领域 CLI；
 - `story-fragment` 兼容转发器；
-- Hub `client-lease-v1` 与 60 秒空闲退出；
+- Hub `client-lease-v1` 与 60 秒空闲退出；（已在 2026-08-31 的独立 Goal 完成）
 - 拆分大型 `ContentService`；
 - 删除全部手写 TypeScript API DTO。
 
-其中“统一 `story-teller` 多领域 CLI”后来作为独立 Goal 实施完成：先落地人物/关系、剧情、设定/组织成员和 RAG，随后补齐全局搜索、逐字段 Git 合并与时间线。此完成状态不回算为原五小时时间盒的产出；`story-fragment` 兼容转发器和 Hub Client Lease 仍保持延期。
+其中“统一 `story-teller` 多领域 CLI”后来作为独立 Goal 实施完成：先落地人物/关系、剧情、设定/组织成员和 RAG，随后补齐全局搜索、逐字段 Git 合并与时间线。2026-08-31 又完成 Markdown 导入、Hub 公共 CLI、`client-lease-v1` 和 60 秒空闲回收；这些完成状态都不回算为原五小时时间盒的产出。`story-fragment` 兼容转发器仍保持延期。
 
 ## 数据保护基线
 
@@ -142,7 +142,7 @@ content/fuchouji/content-index 2.json
 
 - maintenance、Markdown import 和 merge finalize 等管理型写流程仍通过集中后的 `MutationExecutor.finish()` 兼容路径；它们可在下一次 Application 切片中迁移。
 - `story-fragment` 兼容转发器仍应作为独立可验收切片实现；统一多领域 CLI 已完成，不再是未完成项。
-- Hub Client Lease 涉及独立 `story_teller_hub` 仓库和进程所有权/空闲退出测试，继续单列 Goal。
+- Hub Client Lease 已在独立 `story_teller_hub` 仓库完成：Web 和 CLI 共享一个 Hub Runtime，多个 CLI 租约复用一个 Worker，不改变 Web/MCP 所有权，并在最后租约释放后进入 60 秒空闲窗口。
 - `ContentService` 拆分和全量 TypeScript DTO 替换继续按“明确延期”处理；当前只迁移了碎片 Web Client，手写展示模型仍保留。
 
 本次 5 小时估算结论维持为：可靠完成 **2 个代码能力 + 2 份文档**。没有用 stretch 数量替代核心迁移质量，也没有把目标外的失败包装成完成。

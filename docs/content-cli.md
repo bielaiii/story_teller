@@ -1,6 +1,6 @@
 # 剧情、设定与 RAG CLI
 
-本文说明 `story-teller plot`、`story-teller entry` 和 `story-teller rag`。它们要求对应 Content 的 Web Worker 已启动，所有写入通过本地 HTTP API 进入共享 Application 层，因此与网页具有相同的校验、事务、revision 冲突、Git 合并门禁、七日恢复、确定性导出和 RAG 同步语义。
+本文说明 `story-teller plot`、`story-teller entry` 和 `story-teller rag`。CLI 会通过唯一 Hub 自动启动或复用对应 Content Worker；所有写入通过本地 HTTP API 进入共享 Application 层，因此与网页具有相同的校验、事务、revision 冲突、Git 合并门禁、七日恢复、确定性导出和 RAG 同步语义。
 
 安装和全局参数见[《人物 CLI》](character-cli.md)。所有命令都支持放在任意位置的 `--project`、`--web-url` 和 `--json`。
 

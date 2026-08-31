@@ -83,6 +83,8 @@ class MarkdownImportTests(unittest.TestCase):
             MarkdownFile("plots/b.md", "---\nchapterNumber: 902\n---\nb"),
             MarkdownFile("plots/c.md", "---\nchapterNumber: 902\n---\nc"),
         ]
+        duplicate_preview = service.preview(revision, duplicates)
+        self.assertIn("chapterNumber", duplicate_preview["conflicts"][0]["conflicts"])
         with self.assertRaisesRegex(DomainError, "重复 chapterNumber"):
             service.apply(revision, duplicates, allow_conflicts=True)
 

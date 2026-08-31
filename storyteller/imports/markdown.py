@@ -212,13 +212,15 @@ class MarkdownImportService:
             conflicts: list[dict[str, Any]] = []
             items: list[dict[str, Any]] = []
             batch_fingerprints: set[str] = set()
+            batch_titles: set[str] = set()
+            batch_numbers: set[int] = set()
             for item in parsed:
                 conflict: list[str] = []
                 duplicate = item.fingerprint in existing_fingerprints or item.fingerprint in batch_fingerprints
-                if item.title in existing_titles and not duplicate:
+                if (item.title in existing_titles or item.title in batch_titles) and not duplicate:
                     conflict.append("title")
                 chapter = item.metadata.get("chapterNumber")
-                if item.kind == "plot" and chapter in existing_numbers and not duplicate:
+                if item.kind == "plot" and (chapter in existing_numbers or chapter in batch_numbers) and not duplicate:
                     conflict.append("chapterNumber")
                 reference_conflicts = self._ambiguous_entry_terms(connection, item.body, str(item.metadata.get("summary", "")))
                 if reference_conflicts:
@@ -234,6 +236,9 @@ class MarkdownImportService:
                 if conflict:
                     conflicts.append(record)
                 batch_fingerprints.add(item.fingerprint)
+                batch_titles.add(item.title)
+                if item.kind == "plot" and chapter is not None:
+                    batch_numbers.add(int(chapter))
         return {"baseRevision": int(base_revision), "items": items, "conflicts": conflicts,
                 "requiresResolution": bool(conflicts), "fileCount": len(items),
                 "fingerprint": self._bundle_fingerprint(base_revision, parsed)}
@@ -265,7 +270,10 @@ class MarkdownImportService:
             batch_numbers: set[int] = set()
             batch_fingerprints: set[str] = set()
             created: list[dict[str, Any]] = []
-            line_ids: dict[str, str] = {}
+            # Fragment story containers and timeline lines are different entity
+            # kinds even when they share a title; never mix their identifiers.
+            fragment_line_ids: dict[str, str] = {}
+            timeline_line_ids: dict[str, str] = {}
             for item in parsed:
                 chapter = item.metadata.get("chapterNumber")
                 if item.fingerprint in existing_fingerprints or item.fingerprint in batch_fingerprints:
@@ -288,7 +296,7 @@ class MarkdownImportService:
                     connection.execute("INSERT INTO plots(entity_id, chapter_id, chapter_number, sort_key, story_sort_key, story_order_mode, summary, body_markdown, status, accent, is_key, is_climax) VALUES(?, NULL, ?, ?, ?, 'follow_reading', ?, ?, ?, ?, ?, ?)", (identifier, chapter, rank, rank, str(item.metadata.get("summary", "")), item.body, status, self._least_used_color(connection, "plots"), int(item.metadata.get("key", False)), int(item.metadata.get("climax", False))))
                     ContentService._replace_values(connection, "plot_tags", "plot_id", identifier, "tag", clean_values(item.metadata.get("tags", []), "标签"))
                     for story in item.metadata.get("stories", ["主线"]):
-                        line_id = self._ensure_story(connection, story, line_ids, now, content)
+                        line_id = self._ensure_story(connection, story, timeline_line_ids, now, content)
                         story_rank = f"{rank}:{line_id}"
                         connection.execute("INSERT OR REPLACE INTO plot_timeline_lines(plot_id, line_id, story_sort_key) VALUES(?, ?, ?)", (identifier, line_id, story_rank))
                     created.append({"entityId": identifier, "kind": "plot", "path": item.path})
@@ -298,14 +306,14 @@ class MarkdownImportService:
                     is_story = PurePosixPath(item.path).name == "_story.md"
                     parent_id = None
                     if not is_story and item.story:
-                        parent_id = line_ids.get(item.story) or self._find_story_fragment(connection, item.story)
+                        parent_id = fragment_line_ids.get(item.story) or self._find_story_fragment(connection, item.story)
                         if not parent_id:
                             parent_id = self._insert_fragment(connection, item.story, "", "line", None, 0, {}, now, content)
-                            line_ids[item.story] = parent_id
+                            fragment_line_ids[item.story] = parent_id
                     fragment_type = "line" if is_story else "chapter"
                     identifier = self._insert_fragment(connection, item.title, item.body, fragment_type, parent_id, int(item.metadata.get("order", 0)), item.metadata, item.source_time or now, content)
                     if is_story:
-                        line_ids[item.title] = identifier
+                        fragment_line_ids[item.title] = identifier
                     created.append({"entityId": identifier, "kind": "fragment", "path": item.path})
                     existing_titles.add(item.title)
                     batch_fingerprints.add(item.fingerprint)

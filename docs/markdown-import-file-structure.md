@@ -10,6 +10,24 @@ story-import/
 
 所有 Markdown 文件都使用 UTF-8。文件名去掉 `.md` 后就是内容标题；YAML 中不填写 `title`。
 
+## 命令行导入
+
+统一 CLI 与网页调用同一套 preview/apply 服务。`--root` 决定上传给导入器的相对路径，因此其中必须存在 `plots/` 或 `fragments/`：
+
+```sh
+story-teller import markdown ./story-import/plots \
+  --root ./story-import --recursive --check
+
+story-teller import markdown ./story-import/plots ./story-import/fragments \
+  --root ./story-import --recursive --yes
+```
+
+执行顺序固定为：读取文件 → 服务端预览 → 冲突分级 → 用户确认 → 重新读取文件 → 使用预览的 revision 与 fingerprint 原子应用。`--check` 只预览，不写数据库；非交互环境应用导入必须使用 `--yes`。
+
+同名标题默认停止。确认需要保留同名内容时显式增加 `--allow-title-conflicts`；正式剧情章号冲突和歧义设定引用是硬冲突，即使提供该参数也不会绕过。`--json` 的 stdout 始终是一个稳定 JSON 文档，包含 `preview`、最终 revision、导入计数、operation、warnings。
+
+目录默认只读取当前层，`--recursive` 才扫描子目录；导入分章节 Fragment 时应始终使用 `--recursive`。CLI 会自动申请 Hub Client Lease，因此无需预先运行 Web；最后一个 CLI 退出后共享 Content Worker 在 60 秒空闲窗口后回收。
+
 ## 连续导入一组 Plot
 
 ```text

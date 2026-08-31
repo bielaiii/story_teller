@@ -1,7 +1,7 @@
 # Story Teller Web / CLI 共享内核架构
 
-状态：共享 Mutation Pipeline、主要内容/结构用例、首个生成式 Web Client，以及人物/剧情/设定/搜索/合并/时间线/RAG 统一 CLI 已落地
-最后更新：2026-08-29
+状态：共享 Mutation Pipeline、主要内容/结构用例、生成式 Web Client、统一内容 CLI、Markdown 导入与 Hub Client Lease 已落地
+最后更新：2026-08-31
 
 ## 1. 目标
 
@@ -121,7 +121,7 @@ class StoryApplication:
     queries: ProjectQueries
 ```
 
-当前已建立上述 Facade，并完成碎片、人物、剧情、设定、关系、结构、实体生命周期和历史用例。maintenance、Markdown import 与 merge finalize 仍使用集中执行器的兼容入口，后续按管理型垂直切片迁移。
+当前已建立上述 Facade，并完成碎片、人物、剧情、设定、关系、结构、实体生命周期和历史用例。maintenance、Markdown import 与 merge finalize 仍使用集中执行器的兼容入口；Markdown 的 Web/CLI 已共享同一 preview/apply 服务和 mutation finish pipeline。
 
 ## 3. FastAPI 适配器
 
@@ -172,7 +172,9 @@ CLI 始终通过本地 HTTP API 写入，不直接打开 SQLite。这样 CLI 天
 
 `merge` 是普通 mutation 门禁的唯一例外：开放合并会话会锁住其他写入，但字段选择和最终确认必须继续通过专用、带本地 token 的 API 工作。`timeline` 不在 CLI 内复制结构业务规则，而是读取当前快照、构造完整更新命令，并交给与 Web 相同的 `StructureUseCases.update_timeline` 原子提交；因此删除线的节点转移、故事顺序与章号交换、导出、RAG 和撤销语义只有一份。
 
-CLI 自动启动属于后续独立切片：由 Hub 提供不改变 managed/attached/MCP 状态的 Client Lease。CLI 执行期间续租，结束后停止心跳，Content Worker 空闲 60 秒退出。
+CLI 自动启动已经通过独立 Hub 切片落地：`story-teller` 启动器向唯一 Hub Runtime 注册 Content，并申请 `client-lease-v1`。CLI 执行期间每 5 秒续租，结束后释放；最后一个客户端退出后 Content Worker 保留 60 秒空闲窗口再回收。Client Lease 不修改 `managed_web`、Web attach lease 或 `independent_mcp`，也不会为了 CLI 静默启动 MCP。显式 `--web-url` 仍可用于测试或直接连接已有 Worker。
+
+Hub 自身遵循同一个端口适配器模型：管理 Web、`story-hub` CLI 和 MCP 都只调用一个 Hub Application/Runtime/Registry。公共 CLI 不创建第二个 Runtime；`story-hub workspace ...`、`project ...` 和 `mcp ...` 与管理页调用相同的 `/api/v1/hub` 管理接口。
 
 ## 6. 现有代码迁移映射
 

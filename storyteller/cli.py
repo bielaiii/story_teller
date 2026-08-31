@@ -773,6 +773,7 @@ def add_relationship_fields(parser: argparse.ArgumentParser, *, editing: bool) -
 
 def build_parser() -> argparse.ArgumentParser:
     from storyteller.content_cli import register_content_domains
+    from storyteller.import_cli import register_import_domain
     from storyteller.workflow_cli import register_workflow_domains
 
     parser = StoryArgumentParser(prog="story-teller", description="通过已启动的 Story Teller 服务管理小说内容")
@@ -860,6 +861,7 @@ def build_parser() -> argparse.ArgumentParser:
     relationship_delete.set_defaults(handler=relationship_delete_command)
     register_content_domains(domains)
     register_workflow_domains(domains)
+    register_import_domain(domains)
     return parser
 
 
@@ -878,7 +880,10 @@ def run(argv: Sequence[str] | None = None) -> int:
     except CliError as error:
         json_output = bool(getattr(args, "json_output", False) or "--json" in raw_arguments)
         if json_output:
-            print(json.dumps({"ok": False, "error": str(error), "code": error.code}, ensure_ascii=False, sort_keys=True))
+            payload = {"ok": False, "error": str(error), "code": error.code}
+            if error.details:
+                payload["details"] = error.details
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"story-teller: {error}", file=sys.stderr)
         return error.exit_code

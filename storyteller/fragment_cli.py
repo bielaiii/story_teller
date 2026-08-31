@@ -19,10 +19,18 @@ ENTITY_ID = re.compile(r"^[a-z_]+:\d+$")
 
 
 class CliError(RuntimeError):
-    def __init__(self, message: str, *, code: str = "error", exit_code: int = 6):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "error",
+        exit_code: int = 6,
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.exit_code = exit_code
+        self.details = details or {}
 
 
 class ServiceError(CliError):
@@ -893,7 +901,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
     except CliError as error:
         if args.json_output:
-            print(json.dumps({"ok": False, "error": str(error), "code": error.code}, ensure_ascii=False, sort_keys=True))
+            payload = {"ok": False, "error": str(error), "code": error.code}
+            if error.details:
+                payload["details"] = error.details
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"story-fragment: {error}", file=sys.stderr)
         return error.exit_code
