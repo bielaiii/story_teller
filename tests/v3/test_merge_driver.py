@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from storyteller.app import create_app
 from storyteller.bootstrap import prepare_project
 from storyteller.domain.merge_conflicts import MergeConflictService, has_open_merge
-from storyteller.merge_driver import build_merge
+from storyteller.merge_driver import build_merge, persist_conflicts, RowConflict
 from storyteller.settings import Settings
 from storyteller.storage.connection import Database
 from storyteller.storage.legacy import V3Migrator
@@ -21,6 +22,46 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MergeDriverTests(unittest.TestCase):
+    def test_finalize_reordered_rows_frees_unique_ranks(self) -> None:
+        database = Database(self.ours_root)
+        conflicts = []
+        with database.read() as connection:
+            for table, column, keys in (
+                ("plots", "sort_key", ("entity_id",)),
+                ("plot_timeline_lines", "story_sort_key", ("plot_id", "line_id")),
+            ):
+                if table == "plot_timeline_lines":
+                    rows = list(connection.execute(
+                        "SELECT * FROM plot_timeline_lines WHERE line_id IN "
+                        "(SELECT line_id FROM plot_timeline_lines GROUP BY line_id HAVING COUNT(*)>=2) "
+                        "ORDER BY line_id, story_sort_key LIMIT 2"
+                    ))
+                else:
+                    rows = list(connection.execute("SELECT * FROM plots ORDER BY sort_key LIMIT 2"))
+                self.assertEqual(2, len(rows))
+                for index, row in enumerate(rows):
+                    before = dict(row)
+                    after = {**before, column: rows[1-index][column]}
+                    raw = json.dumps(before)
+                    conflicts.append(RowConflict(
+                        table, json.dumps({key: row[key] for key in keys}),
+                        raw, raw, json.dumps(after), raw, ["__row__"],
+                    ))
+        session = persist_conflicts(database, "demo", "story.db", ("b", "o", "t"), (1, 2, 3), conflicts)
+        service = MergeConflictService(database, "demo")
+        for item in service.current()["items"]:
+            service.save(item["id"], {"__row__": {"choice": "theirs"}})
+        service.finalize(session)
+        self.assertFalse(service.current()["required"])
+        with database.read() as connection:
+            for conflict in conflicts:
+                keys = json.loads(conflict.primary_key)
+                where = " AND ".join(f'"{key}"=?' for key in keys)
+                row = connection.execute(f'SELECT * FROM "{conflict.table}" WHERE {where}', tuple(keys.values())).fetchone()
+                column = "sort_key" if conflict.table == "plots" else "story_sort_key"
+                self.assertEqual(json.loads(conflict.theirs)[column], row[column])
+            self.assertEqual([], list(connection.execute("PRAGMA foreign_key_check")))
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

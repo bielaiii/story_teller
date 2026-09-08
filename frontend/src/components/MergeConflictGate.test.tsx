@@ -56,9 +56,11 @@ describe("MergeConflictGate", () => {
   const mergeConflicts = vi.fn();
   const resolveMergeConflict = vi.fn();
   const finalizeMerge = vi.fn();
+  const previewMerge = vi.fn();
 
   beforeEach(() => {
     mergeConflicts.mockReset().mockResolvedValue(openState);
+    previewMerge.mockReset().mockResolvedValue({ token: "preview-1", copies: [{ entityId: "plot:1", newEntityId: "plot:new", title: "第一幕（远程版本）", kind: "plot" }], chapters: [{ entityId: "plot:new", title: "第一幕（远程版本）", before: null, after: 2 }] });
     resolveMergeConflict.mockReset().mockResolvedValue(resolvedState);
     finalizeMerge.mockReset().mockResolvedValue({
       ok: true,
@@ -73,7 +75,7 @@ describe("MergeConflictGate", () => {
     });
     vi.mocked(useRuntime).mockReturnValue({
       project: "demo",
-      api: { mergeConflicts, resolveMergeConflict, finalizeMerge } as never,
+      api: { mergeConflicts, resolveMergeConflict, finalizeMerge, previewMerge } as never,
       meta: {
         apiVersion: 1,
         schemaVersion: 4,
@@ -132,6 +134,32 @@ describe("MergeConflictGate", () => {
     fireEvent.click(finish);
 
     await waitFor(() => expect(finalizeMerge).toHaveBeenCalledWith("session-1"));
+  });
+
+  it("keeps two versions only when the server supports it and requires a preview", async () => {
+    const bothOpen = { ...openState, items: [{ ...openState.items[0], keepBothAllowed: true, keepBothKind: "plot" }] };
+    const bothSaved: MergeConflictState = { ...bothOpen, session: { ...bothOpen.session!, resolvedFields: 1 }, items: [{ ...bothOpen.items[0], status: "resolved", fields: [{ ...bothOpen.items[0].fields[0], resolution: { choice: "both" } }] }] };
+    mergeConflicts.mockResolvedValue(bothOpen);
+    resolveMergeConflict.mockResolvedValue(bothSaved);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MergeConflictGate /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: /两个都保留/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存这项选择" }));
+    await waitFor(() => expect(resolveMergeConflict).toHaveBeenCalledWith("conflict-1", { summary: { choice: "both" } }));
+    const finish = screen.getByRole("button", { name: "完成合并，进入工作台" });
+    expect(finish).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "预览合并结果" }));
+    expect(await screen.findByRole("table")).toHaveTextContent("合并后章号");
+    expect(finish).toBeEnabled();
+    fireEvent.click(finish);
+    await waitFor(() => expect(finalizeMerge).toHaveBeenCalledWith("session-1", "preview-1"));
+  });
+
+  it("does not expose keep-both against an older server", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MergeConflictGate /></QueryClientProvider>);
+    await screen.findByRole("alertdialog");
+    expect(screen.queryByRole("button", { name: /两个都保留/ })).not.toBeInTheDocument();
   });
 
   it("allows an overlapping text field to be manually combined", async () => {

@@ -25,7 +25,7 @@ def edit_summary(path: Path, summary: str) -> None:
             "UPDATE entities SET revision=revision+1, updated_at=updated_at+1 WHERE id='plot:1'"
         )
         connection.execute(
-            "UPDATE projects SET revision=revision+1, updated_at=updated_at+1 WHERE id='novel'"
+            "UPDATE projects SET revision=revision+1, updated_at=updated_at+1 "
         )
 
 
@@ -51,6 +51,15 @@ with tempfile.TemporaryDirectory(prefix="story-teller-merge-e2e-") as temporary:
         project_root / "story.db",
         "content/novel/story.db",
     )
+    both_root = content_root / "both"
+    both_root.mkdir()
+    both_base, both_ours, both_theirs = (root / name for name in ("both-base.db", "both-ours.db", "both-theirs.db"))
+    V3Migrator(legacy, "both").migrate_to(both_base)
+    shutil.copy2(both_base, both_ours)
+    shutil.copy2(both_base, both_theirs)
+    edit_summary(both_ours, "双保留本地摘要")
+    edit_summary(both_theirs, "双保留远程摘要")
+    build_merge(both_base, both_ours, both_theirs, both_root / "story.db", "content/both/story.db")
     settings = Settings.create(
         ROOT,
         content_root=content_root,

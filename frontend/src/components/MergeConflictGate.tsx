@@ -7,6 +7,7 @@ import type {
   MergeConflictField,
   MergeConflictItem,
   MergeConflictState,
+  MergePreview,
   MergeFieldResolution,
   ProjectSnapshot,
 } from "../api/types";
@@ -89,6 +90,19 @@ export function MergeConflictGate() {
   );
   const [draft, setDraft] = useState<ResolutionDraft>({});
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<MergePreview | null>(null);
+  const hasBoth = Boolean(state?.items.some((item) => item.fields.some((field) => field.resolution?.choice === "both")));
+  const draftChanged = JSON.stringify(draft) !== JSON.stringify(initialDraft(selected));
+  const choose = (next: ResolutionDraft) => { setDraft(next); setPreview(null); };
+  const chooseField = (name: string, value: MergeFieldResolution) => {
+    const next = Object.values(draft).some((v) => v.choice === "both") ? {} : draft;
+    choose({ ...next, [name]: value });
+  };
+  const previewMutation = useMutation({
+    mutationFn: () => api.previewMerge(state!.session!.id),
+    onSuccess: (result) => { setPreview(result); setError(""); },
+    onError: (caught) => { setPreview(null); setError(caught instanceof Error ? caught.message : "无法预览合并结果"); },
+  });
 
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id);
@@ -107,7 +121,10 @@ export function MergeConflictGate() {
       return api.resolveMergeConflict(selected.id, draft);
     },
     onSuccess: (next) => {
+      setPreview(null);
       queryClient.setQueryData(["merge-conflicts", project], next);
+      const refreshed = next.items.find((item) => item.id === selected?.id);
+      if (refreshed) setDraft(initialDraft(refreshed));
       const nextItem = next.items.find((item) => item.status === "open")
         || next.items.find((item) => item.id === selected?.id)
         || next.items[0];
@@ -122,7 +139,7 @@ export function MergeConflictGate() {
   const finalizeMutation = useMutation({
     mutationFn: async () => {
       if (!state?.session) throw new Error("没有可完成的合并会话");
-      return api.finalizeMerge(state.session.id);
+      return hasBoth ? api.finalizeMerge(state.session.id, preview?.token) : api.finalizeMerge(state.session.id);
     },
     onSuccess: async (delta) => {
       queryClient.setQueryData<ProjectSnapshot>(
@@ -144,13 +161,14 @@ export function MergeConflictGate() {
       const message = caught instanceof ApiError || caught instanceof Error
         ? caught.message
         : "完成合并失败";
+      setPreview(null);
       setError(message);
     },
   });
 
   if (!required) return null;
 
-  if (query.isPending || !state) {
+  if (query.isPending) {
     return (
       <div className="merge-gate-backdrop">
         <section className="merge-gate-loading" role="alertdialog" aria-modal="true">
@@ -162,7 +180,7 @@ export function MergeConflictGate() {
     );
   }
 
-  if (query.error || !state.session) {
+  if (query.error || !state?.session) {
     return (
       <div className="merge-gate-backdrop">
         <section className="merge-gate-loading" role="alertdialog" aria-modal="true">
@@ -233,6 +251,16 @@ export function MergeConflictGate() {
                   <div><small>正在确认</small><h3>{selected.title}</h3></div>
                   {selected.status === "resolved" && <span className="merge-resolved-label"><Icon name="check" />已选择</span>}
                 </header>
+                {selected.keepBothAllowed && <div className="merge-manual merge-both">
+                  <button type="button" aria-pressed={Object.values(draft).some((v) => v.choice === "both")}
+                    disabled={saveMutation.isPending || finalizeMutation.isPending || previewMutation.isPending}
+                    onClick={() => choose(Object.fromEntries(selected.fields.map((field) => [field.name, { choice: "both" }]))) }>
+                    <span className="merge-radio" aria-hidden="true"><span /></span>
+                    <span><strong>两个都保留</strong><small>{selected.keepBothKind === "plot"
+                      ? "当前版本在前，远程版本紧随其后；章号冲突自动顺延，完成前可预览。"
+                      : "保留为两个独立碎片，分别保留正文、标签和引用。"} 此内容的关联冲突会一起处理。</small></span>
+                  </button>
+                </div>}
                 <div className="merge-fields">
                   {selected.fields.map((field) => {
                     const resolution = draft[field.name];
@@ -252,10 +280,7 @@ export function MergeConflictGate() {
                             selected={resolution?.choice === "ours"}
                             value={field.ours}
                             kind={field.kind}
-                            onChoose={() => setDraft((current) => ({
-                              ...current,
-                              [field.name]: { choice: "ours" },
-                            }))}
+                            onChoose={() => chooseField(field.name, { choice: "ours" })}
                           />
                           <ChoiceCard
                             label="采用远程更新"
@@ -263,10 +288,7 @@ export function MergeConflictGate() {
                             selected={resolution?.choice === "theirs"}
                             value={field.theirs}
                             kind={field.kind}
-                            onChoose={() => setDraft((current) => ({
-                              ...current,
-                              [field.name]: { choice: "theirs" },
-                            }))}
+                            onChoose={() => chooseField(field.name, { choice: "theirs" })}
                           />
                         </div>
                         {field.manualAllowed && (
@@ -274,27 +296,16 @@ export function MergeConflictGate() {
                             <button
                               type="button"
                               aria-pressed={resolution?.choice === "manual"}
-                              onClick={() => setDraft((current) => ({
-                                ...current,
-                                [field.name]: {
-                                  choice: "manual",
-                                  value: current[field.name]?.choice === "manual"
-                                    ? current[field.name].value
-                                    : valueText(field.ours) === "空内容" ? "" : String(field.ours ?? ""),
-                                },
-                              }))}
+                              onClick={() => chooseField(field.name, { choice: "manual", value: String(field.ours ?? "") })}
                             >
                               <span className="merge-radio" aria-hidden="true"><span /></span>
-                              <span><strong>自己合并</strong><small>需要同时保留两边内容时使用</small></span>
+                              <span><strong>自己合并</strong><small>将两边文字整理成一份内容</small></span>
                             </button>
                             {resolution?.choice === "manual" && (
                               <textarea
                                 aria-label={`手动合并${field.label}`}
                                 value={resolution.value || ""}
-                                onChange={(event) => setDraft((current) => ({
-                                  ...current,
-                                  [field.name]: { choice: "manual", value: event.target.value },
-                                }))}
+                                onChange={(event) => chooseField(field.name, { choice: "manual", value: event.target.value })}
                               />
                             )}
                           </div>
@@ -303,12 +314,22 @@ export function MergeConflictGate() {
                     );
                   })}
                 </div>
+                {preview && <section className="merge-result-preview" aria-label="合并结果预览">
+                  <h3>合并结果预览</h3>
+                  <p>以下内容将分别保留，正文不会拼接。现有引用继续指向当前版本。</p>
+                  <ul>{preview.copies.map((item) => <li key={item.newEntityId}>新增{item.kind === "plot" ? "剧情" : "碎片"}：{item.title}</li>)}</ul>
+                  {preview.chapters.length > 0 && <table><thead><tr><th>剧情</th><th>原章号</th><th>合并后章号</th></tr></thead><tbody>
+                    {preview.chapters.map((item) => <tr key={item.entityId}><td>{item.title}</td><td>{item.before ?? "新增"}</td><td>{item.after ?? "—"}</td></tr>)}
+                  </tbody></table>}
+                </section>}
               </>
             )}
           </main>
         </div>
 
         <footer className="merge-gate-footer">
+          {hasBoth && <button type="button" className="text-action" disabled={!allResolved || draftChanged || saveMutation.isPending || previewMutation.isPending || finalizeMutation.isPending}
+            onClick={() => previewMutation.mutate()}>{previewMutation.isPending ? "正在检查…" : "预览合并结果"}</button>}
           <div>
             {error
               ? <p className="merge-error" role="alert">{error}</p>
@@ -318,15 +339,15 @@ export function MergeConflictGate() {
             className="text-action merge-save-action"
             type="button"
             disabled={!selected || saveMutation.isPending || finalizeMutation.isPending}
-            onClick={() => void saveMutation.mutateAsync()}
+            onClick={() => saveMutation.mutate()}
           >
             {saveMutation.isPending ? "正在保存…" : selected?.status === "resolved" ? "更新这项选择" : "保存这项选择"}
           </button>
           <button
             className="primary-action"
             type="button"
-            disabled={!allResolved || saveMutation.isPending || finalizeMutation.isPending}
-            onClick={() => void finalizeMutation.mutateAsync()}
+            disabled={!allResolved || draftChanged || (hasBoth && !preview) || saveMutation.isPending || previewMutation.isPending || finalizeMutation.isPending}
+            onClick={() => finalizeMutation.mutate()}
           >
             {finalizeMutation.isPending ? "正在验证并合入…" : "完成合并，进入工作台"}
           </button>

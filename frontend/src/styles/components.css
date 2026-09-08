@@ -696,3 +696,15 @@
   font-size: 18px;
   line-height: 1.35;
 }
+
+.merge-both { border: 0; background: transparent; margin: 0 0 14px; }
+.merge-both > button { padding: 8px 0; min-height: 44px; }
+.merge-both > button[aria-pressed="true"] .merge-radio { border-color: var(--blue); }
+.merge-both > button[aria-pressed="true"] .merge-radio > span { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+.merge-both > button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.merge-both > button:hover { color: var(--blue); }
+.merge-both > button:disabled { opacity: .55; cursor: default; }
+.merge-result-preview { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.merge-result-preview p, .merge-result-preview li { font-size: 12px; line-height: 1.7; }
+.merge-result-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.merge-result-preview th, .merge-result-preview td { padding: 8px; text-align: left; border-bottom: 1px solid var(--line); }

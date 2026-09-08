@@ -209,7 +209,7 @@ def merge_resolve_all_command(client: ApiClient, args: argparse.Namespace) -> di
     if not state.get("required"):
         raise SelectionError("当前没有待处理的数据库合并冲突")
     item = _resolve_conflict(state, args.selector)
-    choice = "ours" if args.ours else "theirs"
+    choice = "both" if getattr(args, "both", False) else "ours" if args.ours else "theirs"
     resolutions = {str(field["name"]): {"choice": choice} for field in item.get("fields", [])}
     next_state = client.request(
         "PUT", client.project_path(f"merge-conflicts/{quote(str(item['id']), safe='')}"),
@@ -217,7 +217,16 @@ def merge_resolve_all_command(client: ApiClient, args: argparse.Namespace) -> di
     )
     saved = _resolve_conflict(next_state, str(item["id"]))
     result = {"ok": True, "project": client.project, "session": next_state.get("session"), "item": _merge_public_item(saved)}
-    emit(result, json_output=args.json_output, human=f"已将“{item['title']}”的全部字段选择为{'本地' if args.ours else '远程'}版本。")
+    emit(result, json_output=args.json_output, human=f"已保存“{item['title']}”的选择：{'两个都保留' if choice == 'both' else '本地' if args.ours else '远程'}。")
+    return result
+
+
+def merge_preview_command(client: ApiClient, args: argparse.Namespace) -> dict[str, Any]:
+    state = _merge_state(client)
+    if not state.get("session"):
+        raise SelectionError("当前没有待处理的数据库合并冲突")
+    result = client.request("GET", client.project_path(f"merge-conflicts/{quote(str(state['session']['id']), safe='')}/preview"))
+    emit(result, json_output=args.json_output, human="合并预览：\n" + json.dumps(result, ensure_ascii=False, indent=2))
     return result
 
 
@@ -235,6 +244,7 @@ def merge_finalize_command(client: ApiClient, args: argparse.Namespace) -> dict[
         raise CliError("完成合并会写入最终选择，请添加 --yes 确认", code="confirmation_required", exit_code=2)
     response = client.request(
         "POST", client.project_path(f"merge-conflicts/{quote(str(session['id']), safe='')}/finalize"), mutation=True,
+        payload={"previewToken": args.preview_token} if getattr(args, "preview_token", None) else None,
     )
     result = {
         "ok": True, "project": client.project, "sessionId": session["id"],
@@ -574,9 +584,13 @@ def register_workflow_domains(domains: argparse._SubParsersAction) -> None:
     all_choices = resolve_all.add_mutually_exclusive_group(required=True)
     all_choices.add_argument("--ours", action="store_true")
     all_choices.add_argument("--theirs", action="store_true")
+    all_choices.add_argument("--both", action="store_true", help="保留剧情或碎片的两个完整版本")
     resolve_all.set_defaults(handler=merge_resolve_all_command)
+    preview = merge_commands.add_parser("preview", help="检查合并结果和章号变化，取得预览凭证")
+    preview.set_defaults(handler=merge_preview_command)
     finalize = merge_commands.add_parser("finalize", help="完整性检查通过后完成合并")
     finalize.add_argument("--yes", action="store_true")
+    finalize.add_argument("--preview-token", help="merge preview 返回的 token；双保留时必填")
     finalize.set_defaults(handler=merge_finalize_command)
 
     timeline = domains.add_parser("timeline", help="管理剧情线、主线、节点归属与故事顺序")

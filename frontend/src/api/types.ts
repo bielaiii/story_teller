@@ -280,7 +280,7 @@ export interface RagRebuildResult {
   status: RagStatus;
 }
 
-export type MergeResolutionChoice = "ours" | "theirs" | "manual";
+export type MergeResolutionChoice = "ours" | "theirs" | "manual" | "both";
 
 export interface MergeFieldResolution {
   choice: MergeResolutionChoice;
@@ -305,6 +305,14 @@ export interface MergeConflictItem {
   entityId: string | null;
   status: "open" | "resolved";
   fields: MergeConflictField[];
+  keepBothAllowed?: boolean;
+  keepBothKind?: string;
+}
+
+export interface MergePreview {
+  token: string;
+  copies: Array<{ entityId: string; newEntityId: string; title: string; kind: string }>;
+  chapters: Array<{ entityId: string; title: string; before: number | null; after: number | null }>;
 }
 
 export interface MergeConflictState {

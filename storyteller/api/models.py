@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -71,10 +71,15 @@ class StoryMigrationApply(MutationRequest):
 
 class MergeFieldResolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    choice: str
+    choice: Literal["ours", "theirs", "manual", "both"]
     value: Any | None = None
 
 
 class MergeConflictResolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     resolutions: dict[str, MergeFieldResolution]
+
+
+class MergeFinalizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    preview_token: str | None = Field(default=None, alias="previewToken")

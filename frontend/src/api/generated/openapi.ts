@@ -215,8 +215,11 @@ export interface components {
       "resolutions": Record<string, components["schemas"]["MergeFieldResolution"]>;
     };
     "MergeFieldResolution": {
-      "choice": string;
+      "choice": "ours" | "theirs" | "manual" | "both";
       "value"?: unknown | null;
+    };
+    "MergeFinalizeRequest": {
+      "previewToken"?: string | null;
     };
     "MutationOutcome": {
       "changed"?: Record<string, Array<Record<string, unknown>>>;
@@ -563,7 +566,7 @@ export interface operations {
     headerParameters: {
       "x-story-teller-token"?: string;
     };
-    requestBody: unknown;
+    requestBody: components["schemas"]["MergeFinalizeRequest"] | null;
     response: unknown;
   };
   "health_api_v1_health_get": {
@@ -660,6 +663,18 @@ export interface operations {
       "x-story-teller-token"?: string;
     };
     requestBody: components["schemas"]["MarkdownImportRequest"];
+    response: unknown;
+  };
+  "preview_merge_api_v1_projects__project__merge_conflicts__session_id__preview_get": {
+    method: "GET";
+    path: "/api/v1/projects/{project}/merge-conflicts/{session_id}/preview";
+    pathParameters: {
+      "project": string;
+      "session_id": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: Record<string, never>;
+    requestBody: unknown;
     response: unknown;
   };
   "preview_plot_titles_api_v1_projects__project__maintenance_plot_titles_get": {

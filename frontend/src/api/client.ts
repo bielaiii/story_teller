@@ -1,6 +1,7 @@
 import type {
   EntityDetail,
   MergeConflictState,
+  MergePreview,
   MergeFieldResolution,
   MetaResponse,
   MutationDelta,
@@ -143,10 +144,23 @@ export class StoryApi {
     );
   }
 
-  finalizeMerge(sessionId: string): Promise<MutationDelta> {
+  async previewMerge(sessionId: string): Promise<MergePreview> {
+    try {
+      const response = await fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/merge-conflicts/${encodeURIComponent(sessionId)}/preview`), { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      return await parseResponse<MergePreview>(response);
+    } catch (error) {
+      if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
+        throw new ApiError("无法连接本地服务，合并选择已保存，请恢复服务后重新预览", 0, "api_unavailable");
+      }
+      throw error;
+    }
+  }
+
+  finalizeMerge(sessionId: string, previewToken?: string): Promise<MutationDelta> {
     return this.authorizedRequest<MutationDelta>(
       `/merge-conflicts/${encodeURIComponent(sessionId)}/finalize`,
       "POST",
+      previewToken ? { previewToken } : undefined,
     );
   }
 

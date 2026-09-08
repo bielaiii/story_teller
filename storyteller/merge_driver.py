@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from storyteller.domain.merge_entities import VERSIONS, attach_versions, remap_independent_fragments, owned
 from storyteller import SCHEMA_VERSION
 from storyteller.domain.uow import (
     UnitOfWork,
@@ -385,6 +386,7 @@ def apply_targets(
             (item for item in pending if item[2] is not None),
             key=lambda item: depths.get(item[0], 0),
         )
+        UnitOfWork.free_merge_ranks(connection, pending)
         for table, primary_key, target in [*deletions, *upserts]:
             info = tables.get(table)
             if info is None:
@@ -408,6 +410,7 @@ def persist_conflicts(
     hashes: tuple[str, str, str],
     revisions: tuple[int, int, int],
     conflicts: list[RowConflict],
+    versions: dict | None = None,
 ) -> str | None:
     if not conflicts:
         return None
@@ -438,7 +441,7 @@ def persist_conflicts(
                 id, session_id, table_name, primary_key_json, entity_id, title,
                 base_json, ours_json, theirs_json, merged_json,
                 conflict_columns_json, resolution_json, status, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', 'open', ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
             """,
             [
                 (
@@ -453,6 +456,7 @@ def persist_conflicts(
                     conflict.theirs,
                     conflict.merged,
                     canonical_json(conflict.columns),
+                    canonical_json({VERSIONS: versions[conflict.entity_id]}) if versions and conflict.entity_id in versions and any(owned(conflict.table, decoded_row(raw) or {}, conflict.entity_id) for raw in (conflict.ours, conflict.theirs)) else "{}",
                     timestamp,
                 )
                 for conflict in conflicts
@@ -506,6 +510,8 @@ def build_merge(
                 connection.close()
 
         base_snapshot, ours_snapshot, theirs_snapshot = snapshots
+        theirs_snapshot = remap_independent_fragments(base_snapshot, ours_snapshot, theirs_snapshot, hashes[2])
+        snapshots = (base_snapshot, ours_snapshot, theirs_snapshot)
         targets: dict[tuple[str, str], str | None] = {}
         conflicts: list[RowConflict] = []
         for table, primary_key in sorted(
@@ -558,6 +564,7 @@ def build_merge(
             hashes,
             revisions,
             conflicts,
+            attach_versions(conflicts, snapshots),
         )
         with sqlite3.connect(candidate) as check:
             check.execute("PRAGMA foreign_keys=ON")

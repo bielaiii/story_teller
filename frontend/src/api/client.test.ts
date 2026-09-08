@@ -157,3 +157,13 @@ describe("StoryApi project negotiation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("merge preview availability", () => {
+  it("keeps saved choices intact and reports a recoverable error when the service is offline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(new StoryApi("demo").previewMerge("session-1")).rejects.toMatchObject({
+      message: "无法连接本地服务，合并选择已保存，请恢复服务后重新预览",
+      code: "api_unavailable",
+    });
+  });
+});

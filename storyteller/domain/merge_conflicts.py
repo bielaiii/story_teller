@@ -6,7 +6,8 @@ import sqlite3
 import time
 from typing import Any
 
-from storyteller.domain.errors import DomainError, NotFoundError
+from storyteller.domain.errors import ConflictError, DomainError, NotFoundError
+from storyteller.domain.merge_entities import VERSIONS, supported, retain_both, arrange_copies, token_for, new_id
 from storyteller.domain.uow import MutationResult, UnitOfWork, canonical_json
 from storyteller.storage.connection import Database
 
@@ -200,6 +201,8 @@ class MergeConflictService:
                         "entityId": row["entity_id"],
                         "status": str(row["status"]),
                         "fields": fields,
+                        "keepBothAllowed": supported(resolutions.get(VERSIONS)),
+                        "keepBothKind": str(row["entity_id"] or "").split(":")[0],
                     }
                 )
             return {
@@ -238,6 +241,20 @@ class MergeConflictService:
             ours = _json_row(row["ours_json"])
             theirs = _json_row(row["theirs_json"])
             saved = json.loads(str(row["resolution_json"] or "{}"))
+            if any(value.get("choice") == "both" for value in resolutions.values()):
+                if not supported(saved.get(VERSIONS)):
+                    raise DomainError("当前合并记录没有完整的两侧内容，无法保留为两份")
+                if set(resolutions) != set(columns) or any(v.get("choice") != "both" for v in resolutions.values()):
+                    raise DomainError("两个都保留必须用于整项内容，不能混合字段选择")
+                self._save_group(connection, row, "both", timestamp)
+                resolutions = {}
+            elif any(v.get("choice") == "both" for k, v in saved.items() if k != VERSIONS):
+                self._save_group(connection, row, "ours", timestamp)
+                saved = json.loads(connection.execute("SELECT resolution_json FROM merge_conflicts WHERE id=?", (conflict_id,)).fetchone()[0])
+            if not resolutions:
+                return_after_group = True
+            else:
+                return_after_group = False
             for column, resolution in resolutions.items():
                 if column not in columns:
                     raise DomainError(f"合并字段不存在：{column}")
@@ -254,6 +271,8 @@ class MergeConflictService:
                     saved[column] = {"choice": "manual", "value": resolution["value"]}
                 else:
                     saved[column] = {"choice": choice}
+            if return_after_group:
+                saved = json.loads(connection.execute("SELECT resolution_json FROM merge_conflicts WHERE id=?", (conflict_id,)).fetchone()[0])
             complete = all(column in saved for column in columns)
             connection.execute(
                 """
@@ -269,6 +288,101 @@ class MergeConflictService:
                 ),
             )
         return self.current()
+
+    @staticmethod
+    def _save_group(connection, row, choice, timestamp):
+        for related in connection.execute(
+            "SELECT * FROM merge_conflicts WHERE session_id=? AND entity_id=?",
+            (row["session_id"], row["entity_id"]),
+        ).fetchall():
+            saved = json.loads(related["resolution_json"] or "{}")
+            if not supported(saved.get(VERSIONS)):
+                continue
+            for field in json.loads(related["conflict_columns_json"]):
+                saved[field] = {"choice": choice}
+            connection.execute(
+                "UPDATE merge_conflicts SET resolution_json=?,status='resolved',resolved_at=? WHERE id=?",
+                (canonical_json(saved), timestamp, related["id"]),
+            )
+
+    def _plan(self, connection, conflicts):
+        tables = UnitOfWork._tables(connection)
+        before = UnitOfWork._snapshot(connection, tables)
+        after = dict(before)
+        groups = {}
+        for row in conflicts:
+            resolutions = json.loads(row["resolution_json"] or "{}")
+            columns = json.loads(row["conflict_columns_json"])
+            if any(resolutions.get(c, {}).get("choice") == "both" for c in columns):
+                if not all(resolutions.get(c, {}).get("choice") == "both" for c in columns):
+                    raise DomainError("两个都保留的关联选择不完整")
+                groups[row["entity_id"]] = resolutions.get(VERSIONS)
+                continue
+            target = self._resolved_target(row)
+            key = (row["table_name"], row["primary_key_json"])
+            if target is None:
+                after.pop(key, None)
+            else:
+                after[key] = target
+        mapping = {identifier: new_id(identifier, conflicts[0]["session_id"]) for identifier in groups}
+        copies = [retain_both(after, identifier, versions, conflicts[0]["session_id"], mapping)
+                  for identifier, versions in sorted(groups.items())]
+        arrange_copies(after, copies)
+        targets = [(table, key, after.get((table, key)))
+                   for table, key in sorted(set(before) | set(after))
+                   if before.get((table, key)) != after.get((table, key))]
+        chapters = []
+        for (table, key), raw in after.items():
+            if table != "plots":
+                continue
+            new = json.loads(raw)
+            old = json.loads(before.get((table, key), "{}"))
+            if new.get("chapter_number") != old.get("chapter_number") or new.get("sort_key") != old.get("sort_key"):
+                entity = json.loads(after[("entities", canonical_json({"id": new["entity_id"]}))])
+                chapters.append({"entityId": new["entity_id"], "title": entity["title"],
+                                 "before": old.get("chapter_number"), "after": new.get("chapter_number"),
+                                 "sortKey": new["sort_key"]})
+        chapters.sort(key=lambda item: item["sortKey"])
+        return targets, copies, chapters
+
+    @staticmethod
+    def _apply_targets(connection, targets):
+        connection.execute("PRAGMA defer_foreign_keys=ON")
+        tables = UnitOfWork._tables(connection)
+        depths = UnitOfWork._dependency_depths(tables)
+        UnitOfWork.free_merge_ranks(connection, targets)
+        deletions = sorted((item for item in targets if item[2] is None), key=lambda item: depths.get(item[0], 0), reverse=True)
+        upserts = sorted((item for item in targets if item[2] is not None), key=lambda item: depths.get(item[0], 0))
+        for table, key, target in [*deletions, *upserts]:
+            if table not in tables:
+                raise DomainError(f"当前版本不再支持数据表 {table}")
+            UnitOfWork._apply_row(connection, tables[table], key, target)
+
+    def preview(self, session_id: str) -> dict[str, Any]:
+        with self.database.read() as connection:
+            if not self._session(connection, session_id):
+                raise NotFoundError("待处理的合并会话不存在")
+            conflicts = list(connection.execute("SELECT * FROM merge_conflicts WHERE session_id=? ORDER BY table_name,primary_key_json", (session_id,)))
+            if not conflicts or any(r["status"] != "resolved" for r in conflicts):
+                raise DomainError("请先保存所有冲突的选择，再预览合并结果")
+            revision = connection.execute("SELECT revision FROM projects WHERE id=?", (self.project_id,)).fetchone()[0]
+            targets, copies, chapters = self._plan(connection, conflicts)
+            # Validate the exact plan in memory, including immediate UNIQUE constraints.
+            trial = sqlite3.connect(":memory:")
+            trial.row_factory = sqlite3.Row
+            try:
+                connection.backup(trial)
+                trial.execute("PRAGMA foreign_keys=ON")
+                trial.execute("BEGIN")
+                self._apply_targets(trial, targets)
+                if list(trial.execute("PRAGMA foreign_key_check")):
+                    raise DomainError("这些选择会产生缺失的内容引用，请调整关联选择")
+                trial.commit()
+            except sqlite3.IntegrityError as error:
+                raise DomainError("这些选择组合后会破坏内容关系，请调整关联选择") from error
+            finally:
+                trial.close()
+            return {"token": token_for(revision, conflicts), "copies": copies, "chapters": chapters}
 
     @staticmethod
     def _resolved_target(row: sqlite3.Row) -> str | None:
@@ -295,7 +409,7 @@ class MergeConflictService:
                 target[column] = theirs.get(column)
         return canonical_json(target)
 
-    def finalize(self, session_id: str) -> MutationResult:
+    def finalize(self, session_id: str, preview_token: str | None = None) -> MutationResult:
         probe = self.database.connect(readonly=True)
         try:
             self.database.require_v3(probe)
@@ -312,39 +426,26 @@ class MergeConflictService:
                 raise DomainError("合并会话没有冲突项")
             if any(str(row["status"]) != "resolved" for row in conflicts):
                 raise DomainError("请先为每一项冲突选择保留内容")
-            targets = [
-                (str(row["table_name"]), str(row["primary_key_json"]), self._resolved_target(row))
-                for row in conflicts
-            ]
+            targets, copies, _chapters = self._plan(probe, conflicts)
             project = probe.execute(
                 "SELECT revision FROM projects WHERE id=?", (self.project_id,)
             ).fetchone()
             if not project:
                 raise NotFoundError("项目不存在")
             base_revision = int(project[0])
+            if (copies or preview_token is not None) and preview_token != token_for(base_revision, conflicts):
+                raise ConflictError("合并预览已过期或尚未确认，请重新预览")
         finally:
             probe.close()
 
         timestamp = int(time.time())
 
         def apply(connection: sqlite3.Connection) -> None:
-            connection.execute("PRAGMA defer_foreign_keys=ON")
-            tables = UnitOfWork._tables(connection)
-            depths = UnitOfWork._dependency_depths(tables)
-            deletions = sorted(
-                (item for item in targets if item[2] is None),
-                key=lambda item: depths.get(item[0], 0),
-                reverse=True,
-            )
-            upserts = sorted(
-                (item for item in targets if item[2] is not None),
-                key=lambda item: depths.get(item[0], 0),
-            )
-            for table, primary_key, target in [*deletions, *upserts]:
-                info = tables.get(table)
-                if not info:
-                    raise DomainError(f"当前版本不再支持数据表 {table}")
-                UnitOfWork._apply_row(connection, info, primary_key, target)
+            # Choices can change independently of the project revision.
+            latest = list(connection.execute("SELECT * FROM merge_conflicts WHERE session_id=? ORDER BY table_name,primary_key_json", (session_id,)))
+            if token_for(base_revision, latest) != token_for(base_revision, conflicts):
+                raise ConflictError("合并选择已变化，请重新预览")
+            self._apply_targets(connection, targets)
 
         def mark_resolved(connection: sqlite3.Connection, _operation_id: int) -> None:
             connection.execute(

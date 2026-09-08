@@ -27,6 +27,7 @@ from storyteller.api.models import (
     FragmentPatch,
     GraphUpdate,
     MergeConflictResolutionRequest,
+    MergeFinalizeRequest,
     MutationRequest,
     MarkdownImportRequest,
     PlotTitleRepairApply,
@@ -74,6 +75,7 @@ FEATURES = [
     "directional-relationship-lines-v1",
     "automatic-content-colors-v1",
     "git-database-merge-v1",
+    "git-database-merge-both-v1",
     "rag-rebuild-v1",
     "rag-background-sync-v1",
 ]
@@ -248,13 +250,17 @@ def create_app(settings: Settings) -> FastAPI:
         }
         return MergeConflictService(database, project).save(conflict_id, resolutions)
 
+    @app.get("/api/v1/projects/{project}/merge-conflicts/{session_id}/preview")
+    def preview_merge(project: str, session_id: str):
+        return MergeConflictService(database_for(project), project).preview(session_id)
+
     @app.post(
         "/api/v1/projects/{project}/merge-conflicts/{session_id}/finalize",
         dependencies=[Depends(require_mutation_token)],
     )
-    def finalize_merge(project: str, session_id: str):
+    def finalize_merge(project: str, session_id: str, payload: MergeFinalizeRequest | None = None):
         database = database_for(project)
-        result = MergeConflictService(database, project).finalize(session_id)
+        result = MergeConflictService(database, project).finalize(session_id, payload.preview_token if payload else None)
         return application.mutations.finish(database, project, result)
 
     @app.get("/api/v1/projects/{project}/changes")

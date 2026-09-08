@@ -366,6 +366,22 @@ class UnitOfWork:
         return cache
 
     @staticmethod
+    def free_merge_ranks(connection: sqlite3.Connection, targets: list) -> None:
+        import uuid
+        token = uuid.uuid4().hex
+        for index, (table, primary_key, _) in enumerate(targets):
+            column = ("sort_key" if table in {"plots", "chapters", "timeline_lines"}
+                      else "story_sort_key" if table == "plot_timeline_lines" else None)
+            if column is None:
+                continue
+            key = json.loads(primary_key)
+            where = " AND ".join(f'"{name}"=?' for name in key)
+            connection.execute(
+                f'UPDATE "{table}" SET "{column}"=? WHERE {where}',
+                (f"~merge-{token}-{index}", *key.values()),
+            )
+
+    @staticmethod
     def _apply_row(connection: sqlite3.Connection, info: TableInfo, primary_key_json: str, target_json: str | None) -> None:
         primary_key = json.loads(primary_key_json)
         where = " AND ".join(f'"{column}"=?' for column in info.primary_keys)

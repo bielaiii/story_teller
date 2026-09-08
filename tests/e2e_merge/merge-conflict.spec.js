@@ -53,3 +53,28 @@ test("数据库冲突阻止写入，并通过清晰选择完成合并", async ({
   });
   expect(writable.status()).toBe(200);
 });
+
+
+test("双保留先预览章号再提交，并在重新读取后保留两个版本", async ({ page }) => {
+  await page.goto("/?project=both#/story");
+  const dialog = page.getByRole("alertdialog", { name: "完成内容合并后继续写作" });
+  await dialog.getByRole("button", { name: /两个都保留/ }).click();
+  await dialog.getByRole("button", { name: "保存这项选择" }).click();
+  const finish = dialog.getByRole("button", { name: "完成合并，进入工作台" });
+  await expect(finish).toBeDisabled();
+  await dialog.getByRole("button", { name: "预览合并结果" }).click();
+  await expect(dialog.getByRole("table")).toContainText("合并后章号");
+  await expect(dialog.getByRole("table")).toContainText("赔偿案的空白证人");
+  await expect(finish).toBeEnabled();
+  await finish.click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("heading", { name: "烧焦的航海日记", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "烧焦的航海日记（远程版本）", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "烧焦的航海日记（远程版本）", exact: true })).toBeVisible();
+  const snapshot = await (await page.request.get("/api/v1/projects/both/snapshot")).json();
+  const copies = snapshot.plots.filter((p) => p.title.startsWith("烧焦的航海日记"));
+  expect(copies).toHaveLength(2);
+  expect(copies.map((p) => p.chapterNumber).sort()).toEqual([1, 2]);
+  expect(new Set(copies.map((p) => p.summary))).toEqual(new Set(["双保留本地摘要", "双保留远程摘要"]));
+});
