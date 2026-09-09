@@ -771,6 +771,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="story-fragment",
         description="通过已启动的 Story Teller 服务管理灵感碎片和剧情线",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "使用 story-fragment <command> --help 查看具体参数。\n"
+            "完整功能索引：docs/cli-reference.md"
+        ),
     )
     parser.add_argument("--project", default="", help="Project ID；通常可自动发现")
     parser.add_argument("--web-url", default="", help="Hub 工作区或 Worker 的基础 URL")

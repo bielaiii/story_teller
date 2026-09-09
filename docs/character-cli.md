@@ -1,6 +1,6 @@
 # 人物 CLI
 
-`story-teller character` 是人物领域的完整命令行入口。它要求对应 Content 的 Web Worker 已经启动，通过本地 HTTP API 复用网页的校验、事务、revision 冲突、Git 合并门禁、七日恢复、确定性导出和 RAG 同步。
+`story-teller character` 是人物领域的完整命令行入口。CLI 会通过唯一 Hub 自动启动或复用对应 Content Worker，并通过本地 HTTP API 复用网页的校验、事务、revision 冲突、Git 合并门禁、七日恢复、确定性导出和 RAG 同步；无需先打开管理页或 Web。
 
 ## 安装与定位
 

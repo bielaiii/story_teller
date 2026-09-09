@@ -50,6 +50,23 @@ class LocalApiClient(ApiClient):
         return body
 
 
+class CliHelpTests(unittest.TestCase):
+    def test_root_help_is_a_discoverable_cli_index(self):
+        help_text = build_parser().format_help()
+        for domain in ("character", "plot", "entry", "search", "merge", "timeline", "rag", "import"):
+            self.assertIn(domain, help_text)
+        self.assertIn("story-teller <命令域> <子命令> --help", help_text)
+        self.assertIn("docs/cli-reference.md", help_text)
+
+    def test_nested_help_does_not_require_a_workspace(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["timeline", "line", "--help"])
+        self.assertEqual(0, raised.exception.code)
+        self.assertIn("列出全部剧情线", output.getvalue())
+        self.assertIn("删除剧情线并转移其节点", output.getvalue())
+
+
 class CharacterCliTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -325,6 +342,25 @@ class CharacterCliTests(unittest.TestCase):
 
 
 class StoryTellerInstallerTests(unittest.TestCase):
+    def test_launcher_help_does_not_require_or_start_hub(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            project_root = workspace / "content" / "demo"
+            project_root.mkdir(parents=True)
+            (project_root / "story.db").touch()
+            completed = subprocess.run(
+                [str(ROOT / "story-teller"), "plot", "add", "--help"],
+                cwd=project_root,
+                env={**os.environ, "STORY_TELLER_HUB_ROOT": str(workspace / "missing-hub")},
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("usage: story-teller plot add", completed.stdout)
+            self.assertIn("--chapter-number", completed.stdout)
+
     def test_installer_creates_and_refreshes_global_launcher(self):
         with tempfile.TemporaryDirectory() as directory:
             environment = {"PATH": "/usr/bin:/bin", "STORY_TELLER_BIN_DIR": directory}

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectSnapshot } from "../api/types";
 import { useUiStore } from "../state/ui";
-import TimelinePage from "./TimelinePage";
+import TimelinePage, { positionTimelinePlotCard } from "./TimelinePage";
 
 const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
@@ -85,6 +85,33 @@ function renderTimeline() {
   );
 }
 
+describe("timeline plot card placement", () => {
+  it("places the card on the less crowded side near the selected node", () => {
+    expect(positionTimelinePlotCard(
+      { x: 640, y: 440 },
+      [{ x: 510, y: 360 }, { x: 540, y: 480 }, { x: 760, y: 900 }],
+      { width: 1280, height: 800 },
+      { width: 330, height: 320 },
+    )).toEqual({ left: 662, top: 280, side: "right" });
+
+    expect(positionTimelinePlotCard(
+      { x: 640, y: 440 },
+      [{ x: 760, y: 360 }, { x: 790, y: 480 }, { x: 510, y: 900 }],
+      { width: 1280, height: 800 },
+      { width: 330, height: 320 },
+    )).toEqual({ left: 288, top: 280, side: "left" });
+  });
+
+  it("uses the side that fits and keeps the card inside the viewport", () => {
+    expect(positionTimelinePlotCard(
+      { x: 1100, y: 90 },
+      [{ x: 900, y: 100 }, { x: 920, y: 180 }],
+      { width: 1280, height: 800 },
+      { width: 330, height: 320 },
+    )).toEqual({ left: 748, top: 68, side: "left" });
+  });
+});
+
 describe("TimelinePage drag interaction", () => {
   afterEach(cleanup);
   afterEach(() => vi.useRealTimers());
@@ -120,7 +147,15 @@ describe("TimelinePage drag interaction", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看剧情：第 12 章" }));
 
-    expect(document.querySelector(".timeline-plot-card")).toBeInTheDocument();
+    const card = document.querySelector(".timeline-plot-card") as HTMLElement;
+    const actions = card.querySelector(".timeline-plot-card-actions");
+    const headingCopy = card.querySelector(".timeline-plot-card-header > div:first-child")!;
+    expect(card).toBeInTheDocument();
+    expect(headingCopy.children[0]).toBe(screen.getByRole("heading", { name: "第 12 章" }));
+    expect(headingCopy.children[1]).toHaveTextContent("剧情节点 · 故事 1 · 阅读 1");
+    expect(actions).toContainElement(screen.getByRole("button", { name: "进入完整文章" }));
+    expect(actions).toContainElement(screen.getByRole("button", { name: "关闭剧情卡片" }));
+    expect(actions?.children).toHaveLength(2);
     expect(screen.getByRole("complementary", { name: "时间线图示" })).not.toHaveClass("has-plot-card");
 
     fireEvent.click(screen.getByRole("button", { name: "关闭剧情卡片" }));

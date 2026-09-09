@@ -99,7 +99,7 @@ opencode mcp add story-world -- story-world-mcp
 story-teller character list --json
 ```
 
-人物的完整字段、关系、恢复和导出说明见[《人物 CLI》](docs/character-cli.md)；正式剧情、设定/组织成员和 RAG 说明见[《剧情、设定与 RAG CLI》](docs/content-cli.md)；Markdown bundle、预览和冲突规则见[《Markdown 批量导入目录规范》](docs/markdown-import-file-structure.md)；全局搜索、逐字段 Git 合并和时间线说明见[《搜索、合并与时间线 CLI》](docs/workflow-cli.md)。
+统一入口、完整命令树、`--help`、JSON、退出码和常见工作流见[《CLI 功能索引与使用手册》](docs/cli-reference.md)。人物的完整字段、关系、恢复和导出说明见[《人物 CLI》](docs/character-cli.md)；正式剧情、设定/组织成员和 RAG 说明见[《剧情、设定与 RAG CLI》](docs/content-cli.md)；Markdown bundle、预览和冲突规则见[《Markdown 批量导入目录规范》](docs/markdown-import-file-structure.md)；全局搜索、逐字段 Git 合并和时间线说明见[《搜索、合并与时间线 CLI》](docs/workflow-cli.md)。
 
 ## 碎片命令行
 

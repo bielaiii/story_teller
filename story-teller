@@ -119,8 +119,10 @@ def main() -> int:
         )
         if default_project:
             environment.setdefault("STORY_TELLER_DEFAULT_PROJECT", default_project)
+        help_requested = any(value in {"-h", "--help"} for value in sys.argv[1:])
         direct_worker = bool(
-            environment.get("STORY_TELLER_HUB_CLIENT_ATTACHED") == "1"
+            help_requested
+            or environment.get("STORY_TELLER_HUB_CLIENT_ATTACHED") == "1"
             or environment.get("STORY_TELLER_WEB_URL")
             or environment.get("STORY_FRAGMENT_WEB_URL")
             or any(

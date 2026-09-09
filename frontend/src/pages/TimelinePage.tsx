@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Plot, TimelineLine, TimelineNode } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
@@ -179,6 +179,55 @@ const TIMELINE_TOP = 158;
 const TIMELINE_STEP = 116;
 const TIMELINE_RANK_UNIT = 10 ** 12;
 const TIMELINE_MIN_NODE_GAP = 28;
+
+interface TimelineViewportPoint {
+  x: number;
+  y: number;
+}
+
+interface TimelinePlotCardPlacement {
+  left: number;
+  top: number;
+  side: "left" | "right";
+}
+
+export function positionTimelinePlotCard(
+  selectedNode: TimelineViewportPoint,
+  otherNodes: TimelineViewportPoint[],
+  viewport: { width: number; height: number },
+  card: { width: number; height: number },
+): TimelinePlotCardPlacement {
+  const edgeGap = viewport.width <= 620 ? 12 : 18;
+  const nodeGap = 22;
+  const safeTop = viewport.width <= 620 ? 64 : 68;
+  const cardWidth = Math.min(card.width || 330, Math.max(0, viewport.width - edgeGap * 2));
+  const cardHeight = card.height || 360;
+  const verticalNeighborhood = Math.max(160, cardHeight / 2 + 48);
+  const nearbyNodes = otherNodes.filter((node) => Math.abs(node.y - selectedNode.y) <= verticalNeighborhood);
+  const leftCount = nearbyNodes.filter((node) => node.x < selectedNode.x - 1).length;
+  const rightCount = nearbyNodes.filter((node) => node.x > selectedNode.x + 1).length;
+  const leftSpace = selectedNode.x - nodeGap - edgeGap;
+  const rightSpace = viewport.width - edgeGap - selectedNode.x - nodeGap;
+  const leftFits = leftSpace >= cardWidth;
+  const rightFits = rightSpace >= cardWidth;
+
+  let side: TimelinePlotCardPlacement["side"];
+  if (leftCount !== rightCount) {
+    side = leftCount < rightCount ? "left" : "right";
+  } else {
+    side = leftSpace > rightSpace ? "left" : "right";
+  }
+  if (side === "left" && !leftFits && rightFits) side = "right";
+  if (side === "right" && !rightFits && leftFits) side = "left";
+
+  const idealLeft = side === "left"
+    ? selectedNode.x - nodeGap - cardWidth
+    : selectedNode.x + nodeGap;
+  const left = Math.max(edgeGap, Math.min(viewport.width - edgeGap - cardWidth, idealLeft));
+  const maxTop = Math.max(safeTop, viewport.height - edgeGap - cardHeight);
+  const top = Math.max(safeTop, Math.min(maxTop, selectedNode.y - cardHeight / 2));
+  return { left, top, side };
+}
 
 function numericTimelineSortKey(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
@@ -446,6 +495,7 @@ export default function TimelinePage() {
   const [canvasWidth, setCanvasWidth] = useState(1000);
   const [editorCanvasWidth, setEditorCanvasWidth] = useState(720);
   const [dragState, setDragState] = useState<TimelineDragState | null>(null);
+  const [plotCardPlacement, setPlotCardPlacement] = useState<TimelinePlotCardPlacement | null>(null);
 
   const storyKeyByPlot = useMemo(() => {
     const result = new Map<string, string>();
@@ -554,6 +604,64 @@ export default function TimelinePage() {
       window.removeEventListener("resize", schedule);
     };
   }, [geometry.height]);
+  useLayoutEffect(() => {
+    const canvas = canvasWrapRef.current;
+    const card = plotCardRef.current;
+    if (!canvas || !card || !selectedPlot || editing) {
+      setPlotCardPlacement(null);
+      return;
+    }
+    let frame = 0;
+    const trackForPlot = (plotId: string) => {
+      const nodes = snapshot.timeline.nodes.filter((node) => node.plotId === plotId);
+      const lineId = focus || (nodes.some((node) => node.lineId === snapshot.timeline.mainLineId)
+        ? snapshot.timeline.mainLineId
+        : nodes[0]?.lineId);
+      return geometry.tracks.find((track) => track.id === lineId) || geometry.tracks[0];
+    };
+    const update = () => {
+      frame = 0;
+      const selectedTrack = trackForPlot(selectedPlot);
+      const selectedY = geometry.plotY.get(selectedPlot);
+      if (!selectedTrack || selectedY == null) return;
+      const canvasBounds = canvas.getBoundingClientRect();
+      const cardBounds = card.getBoundingClientRect();
+      const selectedNode = {
+        x: canvasBounds.left + selectedTrack.x,
+        y: canvasBounds.top + selectedY,
+      };
+      const otherNodes = visiblePlots.flatMap((item) => {
+        if (item.entityId === selectedPlot) return [];
+        const track = trackForPlot(item.entityId);
+        const y = geometry.plotY.get(item.entityId);
+        return track && y != null ? [{ x: canvasBounds.left + track.x, y: canvasBounds.top + y }] : [];
+      });
+      const next = positionTimelinePlotCard(
+        selectedNode,
+        otherNodes,
+        { width: window.innerWidth, height: window.innerHeight },
+        { width: cardBounds.width, height: cardBounds.height },
+      );
+      setPlotCardPlacement((current) => (
+        current?.left === next.left && current.top === next.top && current.side === next.side ? current : next
+      ));
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(canvas);
+    observer.observe(card);
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    update();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [editing, focus, geometry, selectedPlot, snapshot.timeline.mainLineId, snapshot.timeline.nodes, visiblePlots]);
   useEffect(() => {
     if (focus && !visibleLineIds.has(focus)) setFocus(null);
   }, [focus, setFocus, visibleLineIds]);
@@ -1052,7 +1160,16 @@ export default function TimelinePage() {
           const y = geometry.plotY.get(item.entityId) || TIMELINE_TOP;
           return <button key={item.entityId} className={`timeline-node-new${selectedPlot === item.entityId ? " is-active" : ""}`} aria-label={`查看剧情：${item.title}`} aria-pressed={selectedPlot === item.entityId} title={`${item.title} · 故事 ${globalStoryOrder.get(item.entityId)} · 阅读 ${item.sequence}`} style={{ top: y, left: track?.x || 350, "--node-color": track?.color || item.accent } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setSelectedPlot(item.entityId); }}><span /></button>;
         })}
-        {plot && <aside ref={plotCardRef} className="timeline-plot-card" style={{ top: 30 }} onClick={(event) => event.stopPropagation()}><button className="icon-button" aria-label="关闭剧情卡片" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small><h2>{plot.title}</h2><RenderedMarkdown source={plotPreview} className="timeline-plot-preview" /><button className="primary-action" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}>进入完整文章</button></aside>}
+        {plot && <aside ref={plotCardRef} className="timeline-plot-card" data-side={plotCardPlacement?.side} style={{ left: plotCardPlacement?.left ?? 18, top: plotCardPlacement?.top ?? 132 }} onClick={(event) => event.stopPropagation()}>
+          <header className="timeline-plot-card-header">
+            <div><h2>{plot.title}</h2><small>剧情节点 · 故事 {globalStoryOrder.get(plot.entityId)} · 阅读 {plot.sequence}</small></div>
+            <div className="timeline-plot-card-actions">
+              <button className="primary-action timeline-open-plot" onClick={() => { useUiStore.getState().selectPlot(plot.entityId); useUiStore.getState().navigate("story"); }}><Icon name="book" />进入完整文章</button>
+              <button className="icon-button" aria-label="关闭剧情卡片" title="关闭" onClick={() => setSelectedPlot(null)}><Icon name="close" /></button>
+            </div>
+          </header>
+          <RenderedMarkdown source={plotPreview} className="timeline-plot-preview" />
+        </aside>}
       </div>
     </div>
     {editing && <div className="dialog-backdrop"><section className="timeline-editor-dialog is-structured" role="dialog" aria-modal="true" aria-label="编辑时间线"><header><div><small>Timeline Editor</small><h2>编辑时间线</h2><p>节点间可连续调距；拖过其他节点时会推动沿途节点，并同步更新剧情篇次。</p></div><button className="icon-button" aria-label="关闭" onClick={() => { finishTimelineDrag(false); setEditing(false); }}><Icon name="close" /></button></header>

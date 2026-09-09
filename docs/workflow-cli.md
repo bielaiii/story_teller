@@ -1,6 +1,6 @@
 # 搜索、合并与时间线 CLI
 
-本文说明 `story-teller search`、`story-teller merge` 和 `story-teller timeline`。命令要求对应 Content 的本地 Worker 已启动，并通过与 Web 相同的 HTTP API 读取和写入；时间线保存、Git 合并完整性校验、七日撤销、导出与 RAG 同步仍由共享 Application / Domain 层负责。
+本文说明 `story-teller search`、`story-teller merge` 和 `story-teller timeline`。CLI 会通过唯一 Hub 自动启动或复用对应 Content Worker，并通过与 Web 相同的 HTTP API 读取和写入；时间线保存、Git 合并完整性校验、七日撤销、导出与 RAG 同步仍由共享 Application / Domain 层负责。
 
 安装与全局参数见[《人物 CLI》](character-cli.md)。`--project`、`--web-url` 和 `--json` 可以放在命令中的任意位置。
 

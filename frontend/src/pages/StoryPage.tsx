@@ -5,7 +5,7 @@ import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMark
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
 import { useProjectMutation, useRuntime } from "../api/runtime";
-import type { EntityDetail, Plot } from "../api/types";
+import type { EntityDetail, Plot, TimelineLine } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { AppearancePeopleField, detectedCharacterIds, missingAppearanceNames } from "../components/AppearancePeopleField";
 import { EditorSettingsSection } from "../components/EditorSettingsSection";
@@ -44,6 +44,10 @@ const emptyDraft: PlotDraft = {
   tags: [], people: [], appearanceNames: [], entries: [], stories: [], references: [], key: false, climax: false,
   storyPositionMode: "follow_reading", storyAnchorPlotId: "", storySortKey: "",
 };
+
+export function storyFilterLines(lines: TimelineLine[], mainLineId: string): TimelineLine[] {
+  return lines.filter((line) => line.entityId !== mainLineId);
+}
 
 function draftFrom(plot: Plot): PlotDraft {
   return {
@@ -457,7 +461,7 @@ export default function StoryPage() {
   </>;
   return (
     <section className="workspace-page story-page">
-      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1>{importMessage && <small role="status">{importMessage}</small>}</div><div className="page-actions"><select aria-label="故事筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有故事</option><option value="__mainline__">主线</option>{snapshot.timeline.lines.map((item) => <option key={item.entityId} value={item.entityId}>{item.name}</option>)}</select>{writable && <>{supportsMarkdownImport && <><input ref={importInput} type="file" accept=".md,text/markdown" multiple hidden onChange={importMarkdown} /><button className="icon-button story-import-action" aria-label="导入 Markdown" title="导入 Markdown" onClick={chooseMarkdownDirectory}>导入</button></>}{supportsTitleMaintenance && <button className="icon-button" aria-label="审核旧剧情标题" title="审核旧剧情标题" onClick={() => void openTitleRepair()}><Icon name="edit" /></button>}<button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureOpen(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
+      <header className="page-header"><div><small>{snapshot.project.eyebrow || "Story Teller"}</small><h1>{snapshot.project.title}</h1>{importMessage && <small role="status">{importMessage}</small>}</div><div className="page-actions"><select aria-label="故事筛选" value={chapter} onChange={(event) => setChapter(event.target.value)}><option value="">所有故事</option><option value="__mainline__">主线</option>{storyFilterLines(snapshot.timeline.lines, snapshot.timeline.mainLineId).map((item) => <option key={item.entityId} value={item.entityId}>{item.name}</option>)}</select>{writable && <>{supportsMarkdownImport && <><input ref={importInput} type="file" accept=".md,text/markdown" multiple hidden onChange={importMarkdown} /><button className="icon-button story-import-action" aria-label="导入 Markdown" title="导入 Markdown" onClick={chooseMarkdownDirectory}>导入</button></>}{supportsTitleMaintenance && <button className="icon-button" aria-label="审核旧剧情标题" title="审核旧剧情标题" onClick={() => void openTitleRepair()}><Icon name="edit" /></button>}<button className="icon-button" aria-label="编辑篇章与阅读顺序" title="编辑篇章与阅读顺序" onClick={() => setStructureOpen(true)}><Icon name="settings" /></button><button className="icon-button is-primary" aria-label="写新剧情" title="写新剧情" onClick={() => setEditorId("new")}><Icon name="plus" /></button></>}</div></header>
       <div className="filter-panel"><FilterChips label="状态" values={statuses} selected={selectedStatuses} onChange={setSelectedStatuses} /><FilterChips label="标签" values={tags} selected={selectedTags} onChange={setSelectedTags} collapsible inlineExpanded /></div>
       <div className="plot-grid">{plots.map((plot) => <PlotCard
         key={plot.entityId}

@@ -675,6 +675,12 @@ export default function FragmentsPage() {
     enabled: Boolean(reader) && !snapshot.readonly,
   });
   const readerData = snapshot.readonly ? readerItem : readerDetail.data?.data;
+  const readerSiblings = readerItem && fragmentParentOf(readerItem)
+    ? grouped.children.get(fragmentParentOf(readerItem) as string) || []
+    : [];
+  const readerIndex = readerItem ? readerSiblings.findIndex((item) => item.entityId === readerItem.entityId) : -1;
+  const previousReaderChapter = readerIndex > 0 ? readerSiblings[readerIndex - 1] : null;
+  const nextReaderChapter = readerIndex >= 0 && readerIndex < readerSiblings.length - 1 ? readerSiblings[readerIndex + 1] : null;
   const openNew = (parentId: string | null = null) => {
     setNewParentId(parentId);
     setEditor("new");
@@ -830,6 +836,6 @@ export default function FragmentsPage() {
     {editor && <FragmentEditor entityId={editor} initialParentId={editor === "new" ? newParentId : null} onClose={() => { setEditor(null); setNewParentId(null); }} />}
     {readerItem && !snapshot.readonly && readerDetail.isPending && <div className="dialog-backdrop"><div className="reader-dialog loading-dialog">正在读取完整碎片…</div></div>}
     {readerItem && !snapshot.readonly && readerDetail.isError && <div className="dialog-backdrop"><section className="reader-dialog loading-dialog"><p>{readerDetail.error instanceof Error ? readerDetail.error.message : "读取碎片失败"}</p><button className="primary-action" onClick={() => setReader(null)}>关闭</button></section></div>}
-    {readerItem && readerData && <ReadOnlyArticle title={fragmentDisplayTitle(readerItem)} eyebrow={fragmentParentOf(readerItem) ? `剧情线 · 第 ${fragmentChapterNumberOf(readerItem) ?? "?"} 章` : "灵感碎片"} body={readerData.body || ""} onClose={() => setReader(null)} />}
+    {readerItem && readerData && <ReadOnlyArticle title={fragmentDisplayTitle(readerItem)} eyebrow={fragmentParentOf(readerItem) ? `剧情线 · 第 ${fragmentChapterNumberOf(readerItem) ?? "?"} 章` : "灵感碎片"} body={readerData.body || ""} onClose={() => setReader(null)} previousChapter={readerSiblings.length > 1 ? previousReaderChapter && { title: fragmentDisplayTitle(previousReaderChapter), onNavigate: () => setReader(previousReaderChapter.entityId) } : null} nextChapter={readerSiblings.length > 1 ? nextReaderChapter && { title: fragmentDisplayTitle(nextReaderChapter), onNavigate: () => setReader(nextReaderChapter.entityId) } : null} />}
   </section>;
 }

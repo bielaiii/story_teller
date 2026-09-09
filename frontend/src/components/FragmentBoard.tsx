@@ -133,8 +133,8 @@ function FragmentBoardReader({
     {detail.isError && <p className="fragment-board-reader-loading is-error">{detail.error instanceof Error ? detail.error.message : "读取碎片失败"}</p>}
     <section ref={proseRef} className="fragment-board-reader-prose prose" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
     {siblings.length > 1 && <footer>
-      <button type="button" disabled={!previous} onClick={() => previous && onSelect(previous.entityId)}><small>上一章</small><strong>{previous ? displayTitle(previous) : "没有上一章"}</strong></button>
-      <button type="button" disabled={!next} onClick={() => next && onSelect(next.entityId)}><small>下一章</small><strong>{next ? displayTitle(next) : "没有下一章"}</strong></button>
+      <button type="button" disabled={!previous} onClick={() => previous && onSelect(previous.entityId)}><small><Icon name="arrow" />上一章</small><strong>{previous ? displayTitle(previous) : "没有上一章"}</strong></button>
+      <button type="button" disabled={!next} onClick={() => next && onSelect(next.entityId)}><small>下一章<Icon name="arrow" /></small><strong>{next ? displayTitle(next) : "没有下一章"}</strong></button>
     </footer>}
   </aside>;
 }

@@ -776,7 +776,21 @@ def build_parser() -> argparse.ArgumentParser:
     from storyteller.import_cli import register_import_domain
     from storyteller.workflow_cli import register_workflow_domains
 
-    parser = StoryArgumentParser(prog="story-teller", description="通过已启动的 Story Teller 服务管理小说内容")
+    parser = StoryArgumentParser(
+        prog="story-teller",
+        description="通过唯一 Hub 自动复用 Content Worker，管理小说内容",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "常用帮助：\n"
+            "  story-teller <命令域> --help\n"
+            "  story-teller <命令域> <子命令> --help\n\n"
+            "示例：\n"
+            "  story-teller character list --json\n"
+            "  story-teller plot add --help\n"
+            "  story-teller import markdown --help\n\n"
+            "完整功能索引：docs/cli-reference.md"
+        ),
+    )
     parser.add_argument("--project", default="", help="Project ID；通常可自动发现")
     parser.add_argument("--web-url", default="", help="Hub 工作区或 Worker 的基础 URL")
     parser.add_argument("--json", dest="json_output", action="store_true", help="输出稳定 JSON，供自动化使用")
