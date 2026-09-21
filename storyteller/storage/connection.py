@@ -81,6 +81,7 @@ class Database:
     def read(self) -> Iterator[sqlite3.Connection]:
         connection = self.connect(readonly=True)
         try:
+            connection.execute("BEGIN")
             self.require_v3(connection)
             yield connection
         finally:
@@ -100,3 +101,16 @@ class Database:
                 raise
             finally:
                 connection.close()
+
+
+class SnapshotDatabase(Database):
+    """Read-only adapter sharing one caller-owned SQLite read transaction."""
+
+    def __init__(self, database: Database, connection: sqlite3.Connection):
+        self.project_root = database.project_root
+        self.path = database.path
+        self.connection = connection
+
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        yield self.connection

@@ -285,7 +285,7 @@ test("人物资料使用紧凑表格且正文卡片渲染 Markdown", async ({ pa
   expect(Math.max(...cardHeights)).toBeLessThanOrEqual(230);
   const compactCardStyle = await page.locator(".plot-card").first().evaluate((card) => ({
     paddingLeft: parseFloat(getComputedStyle(card).paddingLeft),
-    titleSize: parseFloat(getComputedStyle(card.querySelector("h2")).fontSize),
+    titleSize: parseFloat(getComputedStyle(card.querySelector(".plot-card-title")).fontSize),
     previewSize: parseFloat(getComputedStyle(card.querySelector(".plot-card-preview")).fontSize),
   }));
   expect(compactCardStyle.paddingLeft).toBeLessThanOrEqual(14);

@@ -61,15 +61,33 @@ class MutationExecutor:
     ) -> dict:
         response = ProjectRepository(database, project_id).mutation_delta(result)
         if result.operation_id is None:
-            response["export"] = {
-                "status": "ready",
-                "revision": result.project_revision,
-                "skipped": True,
-            }
-            response["warnings"] = []
+            with database.read() as connection:
+                state = connection.execute(
+                    "SELECT status, exported_revision FROM export_state WHERE project_id=?", (project_id,)
+                ).fetchone()
+            if state and state["status"] == "ready":
+                response["export"] = {
+                    "status": "ready", "revision": int(state["exported_revision"]), "skipped": True,
+                }
+                response["warnings"] = []
+            else:
+                with database.write() as connection:
+                    connection.execute(
+                        "UPDATE export_state SET status='pending', last_error='' WHERE project_id=? AND status='failed'",
+                        (project_id,),
+                    )
+                self._finish_exports(database, project_id, response)
             return response
 
         scheduled = self.rag_sync.schedule(project_id, result.project_revision)
+        self._finish_exports(database, project_id, response)
+        response["rag"] = {
+            "status": "scheduled" if scheduled else "request-fallback",
+            "revision": result.project_revision,
+        }
+        return response
+
+    def _finish_exports(self, database: Database, project_id: str, response: dict) -> None:
         try:
             response["export"] = self.exporter.export(database, project_id)
             response["warnings"] = []
@@ -78,8 +96,3 @@ class MutationExecutor:
             response["warnings"] = [
                 f"数据已经保存，但文本导出待修复：{error}"
             ]
-        response["rag"] = {
-            "status": "scheduled" if scheduled else "request-fallback",
-            "revision": result.project_revision,
-        }
-        return response

@@ -13,7 +13,7 @@ BACKUP="$OUTPUT.previous.$$"
 rm -rf "$STAGING" "$BACKUP"
 mkdir -p "$STAGING"
 cp -R "$ROOT/dist/." "$STAGING/"
-cp "$PROJECT_ROOT/project.snapshot.json" "$STAGING/project.snapshot.json"
+"$ROOT/scripts/python.sh" "$ROOT/scripts/materialize_static_snapshot.py" "$PROJECT_ROOT" "$STAGING/project.snapshot.json"
 
 if [ -e "$OUTPUT" ]; then
   mv "$OUTPUT" "$BACKUP"

@@ -68,7 +68,8 @@ class RecoveryImporter:
 
     def import_to(self, target_database: Path) -> dict[str, Any]:
         source_file = self.source / RECOVERY_FILE if self.source.is_dir() else self.source
-        payload = json.loads(source_file.read_text(encoding="utf-8"))
+        from storyteller.exports.incremental import load_recovery
+        payload = load_recovery(source_file)
         if payload.get("format") != "story-teller-recovery" or int(payload.get("version", 0)) != 1:
             raise ValueError("恢复快照格式不受支持")
         if int(payload.get("schemaVersion", 0)) != SCHEMA_VERSION:

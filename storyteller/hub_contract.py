@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,10 +18,16 @@ WORKER_CAPABILITIES = (
     "web-proxy-v1",
     "world-mcp-v1",
     "project-create-v1",
+    "shared-content-lock-v1",
 )
 
 
 def _git_diagnostics(root: Path) -> dict[str, Any]:
+    release = os.environ.get("STORY_TELLER_RELEASE")
+    if release:
+        component = json.loads(Path(release).read_text())["components"]["framework"]
+        return {"commit": component["commit"], "dirty": False, "runtimeIdentity": component["sourceHash"],
+                "diagnosticError": "镜像源码快照 " + component["sourceHash"][:12]}
     try:
         commit = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],

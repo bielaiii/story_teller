@@ -45,6 +45,10 @@ class MarkdownImportFile(BaseModel):
     modified_at: int | None = Field(default=None, alias="modifiedAt", ge=0)
 
 
+class ReadingCopyConfig(MutationRequest):
+    enabled: bool = Field(strict=True)
+
+
 class MarkdownImportRequest(MutationRequest):
     files: list[MarkdownImportFile]
     allow_conflicts: bool = Field(default=False, alias="allowConflicts")

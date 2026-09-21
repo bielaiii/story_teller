@@ -29,3 +29,9 @@ rag.db-shm
 *.v7-backup.db
 *.v8-backup.db
 *.tsbuildinfo
+
+.story-export.lock
+
+.story-content.lock
+content/*/markdown/
+content/*/backups/

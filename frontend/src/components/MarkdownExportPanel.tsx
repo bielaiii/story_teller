@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Character, Plot } from "../api/types";
 import { useRuntime } from "../api/runtime";
 import { Icon } from "./Icon";
+import { FileMaintenancePanel } from "./FileMaintenancePanel";
 
 type ExportMode = "single" | "range" | "all";
 type ExportKind = "plots" | "characters";
@@ -111,5 +112,6 @@ export function MarkdownExportPanel({ onMessage }: { onMessage: (value: string) 
       <ExportGroup kind="plots" onMessage={onMessage} />
       <ExportGroup kind="characters" onMessage={onMessage} />
     </div>
+    <FileMaintenancePanel />
   </section>;
 }

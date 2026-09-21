@@ -708,3 +708,27 @@
 .merge-result-preview p, .merge-result-preview li { font-size: 12px; line-height: 1.7; }
 .merge-result-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .merge-result-preview th, .merge-result-preview td { padding: 8px; text-align: left; border-bottom: 1px solid var(--line); }
+
+.export-status {
+  position: fixed; z-index: 220; bottom: 18px; left: 50%; transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px)); padding: 8px 16px; border: 1px solid var(--line);
+  border-radius: 8px; color: var(--muted); background: var(--surface-solid); box-shadow: var(--shadow-soft);
+  font-size: 13px; overflow-wrap: anywhere; pointer-events: none;
+}
+.export-status.is-error { color: var(--danger); }
+
+
+.draft-storage-warning, .draft-recovery { margin: 8px 20px; padding: 10px 14px; border-left: 3px solid #c99a3b; background: #fff; font-size: 13px; }
+.draft-recovery p { margin: 0 0 8px; }
+.draft-recovery button, .connection-warning button { color: #286653; background: white; border: 1px solid #bcdace; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+.draft-recovery small { display: block; margin-top: 6px; }
+.draft-comparison { max-height: 230px; overflow: auto; margin: 8px 0; }
+.draft-comparison-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.draft-comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; }
+.connection-warning { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 12px 18px; background: white; border: 1px solid #d7b56f; border-radius: 10px; box-shadow: 0 4px 20px #75561920; }
+.file-maintenance { padding-top: 1.5rem; margin-top: 1.5rem; border-top: 1px solid #dbe9e2; }
+.file-maintenance p { overflow-wrap: anywhere; line-height: 1.65; }
+.file-maintenance-toggle { display: flex; align-items: center; gap: .65rem; }
+.file-maintenance-toggle input { width: 1.1rem; height: 1.1rem; accent-color: #34795d; }
+.file-maintenance ul { max-height: 16rem; overflow: auto; padding-left: 1.3rem; }
+.file-maintenance li { padding: .45rem 0; overflow-wrap: anywhere; }

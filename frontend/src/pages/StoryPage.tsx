@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PickedReference } from "../editor/MarkdownEditor";
 import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
-import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
+import { BrowserDraftNotice } from "../editor/BrowserDraftNotice";
+import { browserDraftKey, clearBrowserDraft, useBrowserDraftSession } from "../editor/browserDraft";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { EntityDetail, Plot, TimelineLine } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -101,6 +102,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   const [chapterErrorPulse, setChapterErrorPulse] = useState(0);
   const [message, setMessage] = useState("");
   const draftKey = browserDraftKey(project, "plot", currentId);
+  const draftSession = useBrowserDraftSession(draftKey, draft, baseline);
   const supportsConversion = Boolean(
     meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
   );
@@ -111,15 +113,14 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
   useEffect(() => {
     if (currentId === "new") {
       const next = { ...emptyDraft, chapterNumber: String(initialChapterNumber) };
-      setDraft(restoreBrowserDraft(browserDraftKey(project, "plot", currentId), next));
+      setDraft(draftSession.restore(next, currentId === "new" ? null : detail.data!.revision));
       setBaseline(JSON.stringify(next));
     } else if (detail.data?.data) {
       const next = draftFrom(detail.data.data);
-      setDraft(restoreBrowserDraft(browserDraftKey(project, "plot", currentId), next));
+      setDraft(draftSession.restore(next, currentId === "new" ? null : detail.data!.revision));
       setBaseline(JSON.stringify(next));
     }
   }, [currentId, detail.data, initialChapterNumber, project]);
-  useBrowserDraft(draftKey, draft, baseline);
 
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const close = () => dirty ? setConfirmClose(true) : onClose();
@@ -186,13 +187,15 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
         title: savedTitle,
         shiftFollowing,
       } as unknown as Record<string, unknown>;
+      Object.assign(payload, draftSession.revisionPayload());
       payload.stories = draft.stories;
       if (!supportsAppearancePeople) delete payload.appearanceNames;
       const result = await mutation.mutateAsync({
         path: currentId === "new" ? "/plots" : `/plots/${encodeURIComponent(currentId)}`,
         method: currentId === "new" ? "POST" : "PATCH",
-        payload,
+        payload: draftSession.changedPayload(payload, value => ({ ...value, chapterNumber: Number(value.chapterNumber) })),
       });
+      draftSession.saved(result, currentId);
       clearBrowserDraft(draftKey);
       const changedPlot = result.changed.plots?.find((plot) => (
         plot.entityId === currentId
@@ -214,6 +217,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
       } else {
         queryClient.setQueryData<EntityDetail<Plot>>(["entity", project, currentId], (current) => current ? {
           ...current,
+          revision: typeof changedPlot?.revision === "number" ? changedPlot.revision : current.revision,
           data: { ...current.data, ...draftFields, people: savedDraft.people, title: savedTitle, chapterNumber },
         } : current);
       }
@@ -289,6 +293,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
             <button className="icon-button" aria-label="关闭" title="关闭" onClick={close}><Icon name="close" /></button>
           </div>
         </header>
+      <BrowserDraftNotice session={draftSession} draft={draft} />
         <EditorSettingsSection label="剧情设置">
           <label className="wide"><span>标题</span><input aria-label="剧情标题" value={draft.title} onChange={(event) => change("title", event.target.value)} placeholder="文件名或文章标题" /></label>
           <label><span>章节</span><span key={chapterErrorPulse} className={`chapter-number-field${chapterErrorPulse ? " is-invalid-pulse" : ""}`}>第 <input type="number" min="1" max="99999" step="1" aria-label="章号" aria-invalid={!chapterNumberIsValid} value={draft.chapterNumber} onChange={(event) => change("chapterNumber", event.target.value)} /> 章</span></label>
@@ -312,7 +317,7 @@ function PlotEditor({ plotId, onClose }: { plotId: string | "new"; onClose: () =
           <label className="check"><input type="checkbox" checked={draft.climax} onChange={(event) => change("climax", event.target.checked)} />高潮剧情</label>
         </EditorSettingsSection>
         <MarkdownEditor value={draft.body} onChange={(body) => change("body", body)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} autoFocus />
-        <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>@ 选择人物 · / 选择设定 · ⌘/Ctrl+S 保存</small></footer>
+        <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? draftSession.statusText : "已保存")}</span><small>@ 选择人物 · / 选择设定 · ⌘/Ctrl+S 保存</small></footer>
       </section>
       <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份剧情草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
       <ConfirmDialog open={deleteConfirm} title={`删除“${currentChapterTitle}”？`} message="剧情会进入回收站保留 7 天；原有稳定 ID 和阅读位置不会立即清除。" confirmLabel="移入回收站" danger onCancel={() => setDeleteConfirm(false)} onConfirm={remove} />

@@ -17,6 +17,9 @@ from storyteller.settings import PROJECT_PATTERN
 from storyteller.storage.connection import Database, schema_version
 from storyteller.storage.legacy import migrate_database_atomic
 from storyteller.storage.schema import initialize_schema
+from storyteller.deployment_lock import ContentDeploymentLock
+from storyteller.backups import Backups
+from storyteller import SCHEMA_VERSION
 
 
 def create_empty_project(project_root: Path, *, title: str = "") -> dict[str, Any]:
@@ -72,6 +75,11 @@ def create_empty_project(project_root: Path, *, title: str = "") -> dict[str, An
 
 
 def prepare_project(project_root: Path) -> dict[str, Any]:
+    with ContentDeploymentLock(Path(project_root).resolve().parent):
+        return _prepare_project(project_root)
+
+
+def _prepare_project(project_root: Path) -> dict[str, Any]:
     """Atomically migrate one content package and repair derived state."""
 
     root = Path(project_root).expanduser().resolve()
@@ -83,6 +91,12 @@ def prepare_project(project_root: Path) -> dict[str, Any]:
 
     with sqlite3.connect(f"file:{database_path.as_posix()}?mode=ro", uri=True) as connection:
         before_version = schema_version(connection)
+    if before_version > SCHEMA_VERSION:
+        # Preserve the existing migration error contract and never back up or
+        # mutate a database whose schema this version does not understand.
+        return migrate_database_atomic(root)
+    if before_version < SCHEMA_VERSION:
+        Backups(Database(root), root.name).create("migration")
     migration = migrate_database_atomic(root)
     database = Database(root)
     database.require_v3()

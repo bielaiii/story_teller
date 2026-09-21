@@ -9,7 +9,7 @@ from storyteller.storage.repositories import ProjectRepository
 def render_static_snapshot(database: Database, project_id: str) -> bytes:
     repository = ProjectRepository(database, project_id)
     snapshot = repository.snapshot()
-    for collection in ("characters", "plots", "entries", "fragments"):
+    for collection in ("characters", "plots", "entries", "fragments", "relationships"):
         snapshot[collection] = [
             repository.entity_detail(item["entityId"])["data"] for item in snapshot[collection]
         ]

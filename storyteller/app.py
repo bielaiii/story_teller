@@ -5,7 +5,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from storyteller import API_VERSION, SCHEMA_VERSION
@@ -30,6 +30,7 @@ from storyteller.api.models import (
     MergeFinalizeRequest,
     MutationRequest,
     MarkdownImportRequest,
+    ReadingCopyConfig,
     PlotTitleRepairApply,
     PlotTitleRepairConfirm,
     StoryMigrationApply,
@@ -53,6 +54,9 @@ from storyteller.domain.errors import (
 )
 from storyteller.domain.merge_conflicts import MergeConflictService, has_open_merge
 from storyteller.exports import ExportCoordinator
+from storyteller.exports.background import ExportScheduler
+from storyteller.exports.maintenance import ProjectMaintenance
+from storyteller.exports.reading import ReadingCopies
 from storyteller.rag.background import RagSyncScheduler
 from storyteller.rag.manager import RagManager
 from storyteller.settings import Settings
@@ -78,19 +82,27 @@ FEATURES = [
     "git-database-merge-both-v1",
     "rag-rebuild-v1",
     "rag-background-sync-v1",
+    "background-exports-v1",
+    "reading-copies-v1", "sqlite-backups-v1",
 ]
 
 def create_app(settings: Settings) -> FastAPI:
     rag_manager = RagManager(settings)
     rag_sync = RagSyncScheduler(rag_manager)
     application = StoryApplication.create(settings, rag_sync)
+    maintenance = ProjectMaintenance(application.projects)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        rag_sync.start(rag_manager.projects())
+        export_sync = ExportScheduler()
+        application.mutations.exporter = export_sync
         try:
+            rag_sync.start(rag_manager.projects())
+            maintenance.start(rag_manager.projects())
             yield
         finally:
+            maintenance.close()
+            export_sync.close()
             rag_sync.close()
 
     app = FastAPI(title="Story Teller", version="1.0.0", lifespan=lifespan)
@@ -99,6 +111,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.rag_manager = rag_manager
     app.state.rag_sync = rag_sync
     app.state.application = application
+    app.state.maintenance = maintenance
 
     def database_for(project: str):
         try:
@@ -546,6 +559,41 @@ def create_app(settings: Settings) -> FastAPI:
             ApplicationContext(project, source="web"), payload
         )
 
+    @app.get("/api/v1/projects/{project}/maintenance/files", operation_id="fileMaintenanceStatus")
+    def file_maintenance_status(project: str):
+        database_for(project)
+        return maintenance.status(project)
+
+    @app.put("/api/v1/projects/{project}/maintenance/reading", dependencies=[Depends(require_write_token)],
+             response_model=MutationOutcome, operation_id="configureReadingCopies")
+    def configure_reading_copies(project: str, payload: ReadingCopyConfig):
+        return application.mutations.execute(
+            ApplicationContext(project, source="web"),
+            lambda database: ReadingCopies(database, project).configure(payload.enabled, payload.base_revision),
+        )
+
+    @app.post("/api/v1/projects/{project}/maintenance/reading", dependencies=[Depends(require_write_token)],
+              status_code=202, operation_id="generateReadingCopies")
+    def generate_reading_copies(project: str):
+        database_for(project)
+        return maintenance.submit(project, "reading")
+
+    @app.post("/api/v1/projects/{project}/maintenance/backups", dependencies=[Depends(require_write_token)],
+              status_code=202, operation_id="createSqliteBackup")
+    def create_sqlite_backup(project: str):
+        database_for(project)
+        return maintenance.submit(project, "backup")
+
+    @app.get("/api/v1/projects/{project}/exports")
+    def export_status(project: str):
+        with database_for(project).read() as connection:
+            row = connection.execute(
+                "SELECT status, requested_revision AS requestedRevision, "
+                "exported_revision AS exportedRevision, last_error AS lastError "
+                "FROM export_state WHERE project_id=?", (project,),
+            ).fetchone()
+            return dict(row) if row else {"status": "pending"}
+
     @app.post("/api/v1/projects/{project}/exports", dependencies=[Depends(require_write_token)])
     def export_project(project: str):
         return ExportCoordinator(database_for(project), project).export()
@@ -581,8 +629,11 @@ def create_app(settings: Settings) -> FastAPI:
         @app.get("/{path:path}")
         def frontend(path: str):
             candidate = (settings.frontend_root / path).resolve()
-            if settings.frontend_root in candidate.parents and candidate.is_file():
+            if settings.frontend_root in candidate.parents and candidate.is_file() and candidate.name != "index.html":
                 return FileResponse(candidate)
-            return FileResponse(settings.frontend_root / "index.html")
+            html = (settings.frontend_root / "index.html").read_text(encoding="utf-8")
+            html = html.replace('<meta name="story-teller-mode" content="static" />',
+                                '<meta name="story-teller-mode" content="local" />')
+            return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     return app

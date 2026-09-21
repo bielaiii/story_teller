@@ -39,3 +39,14 @@ test("静态快照可以完整阅读且不会调用本地写入接口", async ({
   expect(projectRequests).toEqual([]);
   expect(writes).toEqual([]);
 });
+
+test("静态入口从增量快照恢复完整正文，不读取恢复历史或本地 API", async ({ page }) => {
+  const api = [];
+  page.on('request', request => { if (request.url().includes('/api/')) api.push(request.url()); });
+  await page.goto('/journal/?project=novel#/story');
+  await expect(page.locator('.mode-indicator')).toHaveText('只读快照');
+  await page.locator('.plot-card').first().click();
+  await expect(page.locator('.story-reader-prose')).toContainText('增量静态正文：恢复后可完整阅读。');
+  await expect(page.locator('.story-reader-page').getByRole('button', { name: /^编辑/ })).toHaveCount(0);
+  expect(api).toEqual([]);
+});

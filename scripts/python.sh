@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+if [ -n "${STORY_TELLER_PYTHON:-}" ]; then
+  exec "$STORY_TELLER_PYTHON" "$@"
+fi
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VENV="$ROOT/.venv"
 REQUIREMENTS="$ROOT/requirements.txt"

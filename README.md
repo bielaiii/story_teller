@@ -147,11 +147,12 @@ npm run contract:check
 
 - `story.db`：唯一事实来源，应随小说仓库提交到 GitHub；
 - `characters/`、`plots/`、`entries/` 等 Markdown：便于人工阅读和 Git diff 的只读导出；
-- `project.snapshot.json`：静态站点读取的完整只读快照；
-- `recovery.snapshot.json`：包含实体、引用、顺序、回收站和操作历史的完整灾难恢复快照。
+- `project.snapshot.json`：静态只读入口，支持完整快照或带版本的增量清单；
+- `recovery.snapshot.json`：包含实体、引用、顺序、回收站和操作历史的恢复入口；增量格式需要一并保留 `export-data/`。
+- `export-data/`：不可变的完整基线和后续增量；`export-index.json` 是可重建的导出缓存。
 - `world-schema.json`、`ai-manifest.json`、`AI_CONTEXT.md`：给其他 AI 读取的领域语义、机器入口和简明使用说明，均由数据库和领域注册表生成。
 
-网页写入成功后会更新导出。直接修改导出文件不会改变数据库，后续导出会覆盖这些改动。SQLite 的 `-journal`、`-wal`、`-shm` 文件不要提交。
+网页写入成功后会合并后台导出，只重新生成受影响的 Markdown；未变文件保留原有文件时间。日常快照采用完整基线加增量，最多 64 次后合并基线；显式导出和 CLI 保留独立完整快照。静态站点构建脚本会将增量合成为完整快照再打包。直接修改导出文件不会改变数据库，后续导出会覆盖这些改动。SQLite 的 `-journal`、`-wal`、`-shm` 文件不要提交。
 
 新增 SQLite 表或字段时必须同步领域注册表：
 

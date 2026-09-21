@@ -315,6 +315,11 @@ export interface components {
       "revision"?: number | null;
       "status": string;
     };
+    "ReadingCopyConfig": {
+      "baseRevision": number;
+      "enabled": boolean;
+      "entityRevision"?: number | null;
+    };
     "RelationshipCreate": {
       "baseRevision": number;
       "body"?: string;
@@ -437,6 +442,19 @@ export interface operations {
     requestBody: components["schemas"]["PlotTitleRepairConfirm"];
     response: unknown;
   };
+  "configureReadingCopies": {
+    method: "PUT";
+    path: "/api/v1/projects/{project}/maintenance/reading";
+    pathParameters: {
+      "project": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: {
+      "x-story-teller-token"?: string;
+    };
+    requestBody: components["schemas"]["ReadingCopyConfig"];
+    response: components["schemas"]["MutationOutcome"];
+  };
   "createCharacter": {
     method: "POST";
     path: "/api/v1/projects/{project}/characters";
@@ -502,6 +520,19 @@ export interface operations {
     requestBody: components["schemas"]["RelationshipCreate"];
     response: components["schemas"]["MutationOutcome"];
   };
+  "createSqliteBackup": {
+    method: "POST";
+    path: "/api/v1/projects/{project}/maintenance/backups";
+    pathParameters: {
+      "project": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: {
+      "x-story-teller-token"?: string;
+    };
+    requestBody: unknown;
+    response: unknown;
+  };
   "deleteEntity": {
     method: "DELETE";
     path: "/api/v1/projects/{project}/entities/{entity_id}";
@@ -555,6 +586,28 @@ export interface operations {
     requestBody: unknown;
     response: unknown;
   };
+  "export_status_api_v1_projects__project__exports_get": {
+    method: "GET";
+    path: "/api/v1/projects/{project}/exports";
+    pathParameters: {
+      "project": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: Record<string, never>;
+    requestBody: unknown;
+    response: unknown;
+  };
+  "fileMaintenanceStatus": {
+    method: "GET";
+    path: "/api/v1/projects/{project}/maintenance/files";
+    pathParameters: {
+      "project": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: Record<string, never>;
+    requestBody: unknown;
+    response: unknown;
+  };
   "finalize_merge_api_v1_projects__project__merge_conflicts__session_id__finalize_post": {
     method: "POST";
     path: "/api/v1/projects/{project}/merge-conflicts/{session_id}/finalize";
@@ -567,6 +620,19 @@ export interface operations {
       "x-story-teller-token"?: string;
     };
     requestBody: components["schemas"]["MergeFinalizeRequest"] | null;
+    response: unknown;
+  };
+  "generateReadingCopies": {
+    method: "POST";
+    path: "/api/v1/projects/{project}/maintenance/reading";
+    pathParameters: {
+      "project": string;
+    };
+    queryParameters: Record<string, never>;
+    headerParameters: {
+      "x-story-teller-token"?: string;
+    };
+    requestBody: unknown;
     response: unknown;
   };
   "health_api_v1_health_get": {

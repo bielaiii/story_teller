@@ -5,7 +5,8 @@ import type { Entry, EntryMember } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import type { PickedReference } from "../editor/MarkdownEditor";
 import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
-import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
+import { BrowserDraftNotice } from "../editor/BrowserDraftNotice";
+import { browserDraftKey, clearBrowserDraft, useBrowserDraftSession } from "../editor/browserDraft";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CollapsibleList } from "../components/CollapsibleList";
@@ -48,6 +49,7 @@ export function EntryEditor({ entityId, initialType = "地点", onClose }: { ent
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRename, setConfirmRename] = useState(false);
   const draftKey = browserDraftKey(project, "entry", currentId);
+  const draftSession = useBrowserDraftSession(draftKey, draft, baseline);
   useEffect(() => {
     const item = detail.data?.data;
     const next = currentId === "new" ? blankEntry(initialType) : item ? {
@@ -57,11 +59,10 @@ export function EntryEditor({ entityId, initialType = "地点", onClose }: { ent
       references: [...new Set([...(item.references || []), ...item.people])],
     } : null;
     if (next) {
-      setDraft(restoreBrowserDraft(browserDraftKey(project, "entry", currentId), next));
+      setDraft(draftSession.restore(next, currentId === "new" ? null : detail.data!.revision));
       setBaseline(JSON.stringify(next));
     }
   }, [currentId, detail.data, initialType, project]);
-  useBrowserDraft(draftKey, draft, baseline);
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const change = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const addReference = (reference: PickedReference) => setDraft((current) => ({
@@ -100,10 +101,11 @@ export function EntryEditor({ entityId, initialType = "地点", onClose }: { ent
   ]).size;
   const persist = async () => {
     try {
-      const payload = { ...draft } as unknown as Record<string, unknown>;
+      const payload = { ...draft, ...draftSession.revisionPayload() } as unknown as Record<string, unknown>;
       if (draft.type !== "组织") delete payload.members;
       if (currentId !== "new") delete payload.stableId;
-      const result = await mutation.mutateAsync({ path: currentId === "new" ? "/entries" : `/entries/${encodeURIComponent(currentId)}`, method: currentId === "new" ? "POST" : "PATCH", payload });
+      const result = await mutation.mutateAsync({ path: currentId === "new" ? "/entries" : `/entries/${encodeURIComponent(currentId)}`, method: currentId === "new" ? "POST" : "PATCH", payload: draftSession.changedPayload(payload) });
+      draftSession.saved(result, currentId);
       clearBrowserDraft(draftKey);
       if (currentId === "new") {
         const created = result.changed.entries?.find((item) => !snapshot.entries.some((existing) => existing.entityId === item.entityId));
@@ -137,6 +139,7 @@ export function EntryEditor({ entityId, initialType = "地点", onClose }: { ent
   if (entityId !== "new" && detail.isPending) return <div className="dialog-backdrop"><div className="editor-dialog loading-dialog">正在读取设定…</div></div>;
   return <div className="dialog-backdrop editor-backdrop"><section className={`editor-dialog${draft.type === "组织" ? " organization-editor-dialog" : ""}`} role="dialog" aria-modal="true" aria-label={draft.type === "组织" ? "编辑组织" : "编辑设定"}>
     <header className="dialog-header"><div><small>World Building</small><h2>{currentId === "new" ? "新建设定" : `编辑 · ${draft.name}`}</h2></div><div className="dialog-actions">{currentId !== "new" && <button className="icon-button is-danger" aria-label="删除设定" title="删除设定" onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>}<button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button></div></header>
+      <BrowserDraftNotice session={draftSession} draft={draft} />
     <EditorSettingsSection label="设定档案设置">
         <label className="wide"><span>名称</span><input value={draft.name} onChange={(event) => change("name", event.target.value)} /></label>
         <label><span>类型</span><input value={draft.type} onChange={(event) => change("type", event.target.value)} /></label>
@@ -157,7 +160,7 @@ export function EntryEditor({ entityId, initialType = "地点", onClose }: { ent
       })}</div>
     </section>}
     <MarkdownEditor label={draft.type === "组织" ? "组织简介" : "设定正文"} value={draft.body} onChange={(value) => change("body", value)} onSave={save} characters={snapshot.characters} entries={snapshot.entries} sourceEntityId={currentId === "new" ? undefined : currentId} onReference={addReference} />
-    <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>正文和结构化引用会在同一事务中保存</small></footer>
+    <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? draftSession.statusText : "已保存")}</span><small>正文和结构化引用会在同一事务中保存</small></footer>
   </section><ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份设定草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} /><ConfirmDialog open={confirmDelete} title={`删除“${draft.name}”？`} message="设定会进入统一回收站保留 7 天。" confirmLabel="移入回收站" danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} /><ConfirmDialog open={confirmRename} title={`重命名为“${draft.name}”？`} message={`设定稳定 ID 不会改变；系统会在同一事务中更新 ${referenceSourceCount} 篇带稳定引用的相关正文，整次重命名可以撤销。`} confirmLabel="确认重命名" onCancel={() => setConfirmRename(false)} onConfirm={() => { setConfirmRename(false); void persist(); }} /></div>;
 }
 

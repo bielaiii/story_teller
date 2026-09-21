@@ -12,8 +12,7 @@ from typing import Any
 
 def _lock_path(content_root: Path) -> Path:
     resolved = Path(content_root).expanduser().resolve()
-    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:24]
-    return Path(tempfile.gettempdir()) / f"story-teller-content-{digest}.lock"
+    return resolved / ".story-content.lock"
 
 
 class ContentDeploymentLock:
@@ -23,11 +22,21 @@ class ContentDeploymentLock:
         self.content_root = Path(content_root).expanduser().resolve()
         self.path = _lock_path(self.content_root)
         self._descriptor: int | None = None
+        self._inherited = False
 
     def acquire(self) -> None:
         if self._descriptor is not None:
             return
-        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        inherited = os.environ.get("STORY_TELLER_LOCK_FD", "")
+        if inherited:
+            descriptor = int(inherited)
+            actual, expected = os.fstat(descriptor), self.path.stat()
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise RuntimeError("Hub 所有权锁与 Content 不匹配")
+            self._descriptor = os.dup(descriptor)
+            self._inherited = True
+            return
+        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
@@ -60,7 +69,8 @@ class ContentDeploymentLock:
         if descriptor is None:
             return
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            if not self._inherited:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:
             os.close(descriptor)
 

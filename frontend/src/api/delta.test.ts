@@ -56,3 +56,11 @@ describe("applyDelta", () => {
     expect(next.fragments.map((item) => item.entityId)).toEqual(["fragment:2", "fragment:1"]);
   });
 });
+
+it("refuses missing intermediate changes", () => {
+  expect(() => applyDelta(snapshot, delta({ fromRevision: 4, projectRevision: 5 }))).toThrow("版本不连续");
+});
+it("ignores late and duplicate responses", () => {
+  expect(applyDelta(snapshot, delta({ fromRevision: 1, projectRevision: 2 }))).toBe(snapshot);
+  expect(applyDelta(snapshot, delta({ fromRevision: 2, projectRevision: 3 }))).toBe(snapshot);
+});

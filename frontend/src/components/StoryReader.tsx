@@ -29,7 +29,8 @@ export function StoryReader({ plot, previous, next, onBack, backLabel = "返回�
   const [progress, setProgress] = useState(0);
   const [originBackVisible, setOriginBackVisible] = useState(Boolean(originBackLabel));
   const detail = useQuery({
-    queryKey: ["entity", project, plot.entityId],
+    queryKey: ["reader-entity", project, plot.entityId, plot.revision],
+    placeholderData: (previous) => previous?.entityId === plot.entityId ? previous : undefined,
     queryFn: () => api.detail<Plot>(plot.entityId),
     enabled: !snapshot.readonly,
     staleTime: Number.POSITIVE_INFINITY,

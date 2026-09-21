@@ -8,7 +8,11 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   root: resolve(rootDir, "frontend"),
   base: "./",
-  plugins: [react()],
+  plugins: [react(), {
+    name: "local-development-mode",
+    apply: "serve",
+    transformIndexHtml: (html) => html.replace('name="story-teller-mode" content="static"', 'name="story-teller-mode" content="local"'),
+  }],
   build: {
     outDir: resolve(rootDir, "dist"),
     emptyOutDir: true,

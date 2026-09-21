@@ -39,9 +39,16 @@ class MarkdownExporter:
         self.database = database
         self.project_id = project_id
         self.repository = ProjectRepository(database, project_id)
+        self.snapshot_data = None
+        self.entity_ids = None
+        self.entity_paths: dict[str, list[str]] = {}
 
     def render(self) -> dict[str, bytes]:
-        snapshot = self.repository.snapshot()
+        snapshot = self.snapshot_data if self.snapshot_data is not None else self.repository.snapshot()
+        selected = lambda item: self.entity_ids is None or item["entityId"] in self.entity_ids
+        def entity_file(identifier, path, content):
+            self.entity_paths.setdefault(identifier, []).append(path)
+            files[path] = content
         files: dict[str, bytes] = {}
         project = snapshot["project"]
         chapters = snapshot["chapters"]
@@ -61,6 +68,8 @@ class MarkdownExporter:
 
         character_names = {item["entityId"]: item["name"] for item in snapshot["characters"]}
         for item in snapshot["characters"]:
+            if not selected(item):
+                continue
             detail = self.repository.entity_detail(item["entityId"])["data"]
             detail = hydrate_registered_fields(self.database, "character", item["entityId"], detail)
             metadata = {
@@ -77,10 +86,12 @@ class MarkdownExporter:
             for key, value in exportable_metadata("character", detail).items():
                 metadata.setdefault(key, value)
             name = safe_filename(detail["name"], detail["id"])
-            files[f"characters/{detail['id']}-{name}.md"] = markdown_document(metadata, detail["intro"]).encode("utf-8")
+            entity_file(detail["entityId"], f"characters/{detail['id']}-{name}.md", markdown_document(metadata, detail["intro"]).encode("utf-8"))
 
         line_names = {item["entityId"]: item["name"] for item in snapshot["timeline"]["lines"]}
         for item in snapshot["plots"]:
+            if not selected(item):
+                continue
             detail = self.repository.entity_detail(item["entityId"])["data"]
             detail = hydrate_registered_fields(self.database, "plot", item["entityId"], detail)
             metadata = {
@@ -94,9 +105,11 @@ class MarkdownExporter:
             for key, value in exportable_metadata("plot", detail).items():
                 metadata.setdefault(key, value)
             title = safe_filename(detail["title"], detail["id"])
-            files[f"plots/{title}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
+            entity_file(detail["entityId"], f"plots/{title}.md", markdown_document(metadata, detail["body"]).encode("utf-8"))
 
         for item in snapshot["entries"]:
+            if not selected(item):
+                continue
             detail = self.repository.entity_detail(item["entityId"])["data"]
             detail = hydrate_registered_fields(self.database, "entry", item["entityId"], detail)
             metadata = {
@@ -118,7 +131,7 @@ class MarkdownExporter:
             metadata.update(detail.get("extra", {}))
             for key, value in exportable_metadata("entry", detail).items():
                 metadata.setdefault(key, value)
-            files[f"entries/{safe_filename(detail['id'], 'entry')}.md"] = markdown_document(metadata, detail["body"]).encode("utf-8")
+            entity_file(detail["entityId"], f"entries/{safe_filename(detail['id'], 'entry')}.md", markdown_document(metadata, detail["body"]).encode("utf-8"))
 
         fragment_details = {
             item["entityId"]: hydrate_registered_fields(
@@ -127,17 +140,18 @@ class MarkdownExporter:
                 item["entityId"],
                 self.repository.entity_detail(item["entityId"])["data"],
             )
-            for item in snapshot["fragments"]
+            for item in snapshot["fragments"] if selected(item)
         }
+        fragment_parents = {item["entityId"]: item for item in snapshot["fragments"]}
         for detail in fragment_details.values():
             if detail.get("fragmentType") == "line":
                 directory = safe_filename(detail["title"], detail["id"])
-                files[f"fragments/{directory}/_story.md"] = markdown_document(
+                entity_file(detail["entityId"], f"fragments/{directory}/_story.md", markdown_document(
                     {"tags": detail["tags"], "key": detail["key"], "climax": detail["climax"]},
                     detail.get("body", ""),
-                ).encode("utf-8")
+                ).encode("utf-8"))
                 continue
-            parent = fragment_details.get(str(detail.get("parentFragmentId"))) if detail.get("parentFragmentId") else None
+            parent = fragment_parents.get(str(detail.get("parentFragmentId"))) if detail.get("parentFragmentId") else None
             metadata = {
                 "story": parent["title"] if parent else None,
                 "order": detail.get("fragmentOrder", 0),
@@ -148,9 +162,11 @@ class MarkdownExporter:
             for key, value in exportable_metadata("fragment", detail).items():
                 metadata.setdefault(key, value)
             directory = f"{safe_filename(parent['title'], parent['id'])}/" if parent else ""
-            files[f"fragments/{directory}{safe_filename(detail['title'], detail['id'])}.md"] = markdown_document(metadata, detail.get("body", "")).encode("utf-8")
+            entity_file(detail["entityId"], f"fragments/{directory}{safe_filename(detail['title'], detail['id'])}.md", markdown_document(metadata, detail.get("body", "")).encode("utf-8"))
 
         for item in snapshot["relationships"]:
+            if not selected(item):
+                continue
             detail = self.repository.entity_detail(item["entityId"])["data"]
             detail = hydrate_registered_fields(self.database, "relationship", item["entityId"], detail)
             from_id = detail["from"].removeprefix("character:")
@@ -178,7 +194,7 @@ class MarkdownExporter:
                 metadata.setdefault(key, value)
             from_name = safe_filename(character_names.get(detail["from"], from_id), from_id)
             to_name = safe_filename(character_names.get(detail["to"], to_id), to_id)
-            files[f"relationships/{from_id}-{from_name}__{to_id}-{to_name}.md"] = markdown_document(metadata, detail.get("body", "")).encode("utf-8")
+            entity_file(detail["entityId"], f"relationships/{from_id}-{from_name}__{to_id}-{to_name}.md", markdown_document(metadata, detail.get("body", "")).encode("utf-8"))
 
         timeline = snapshot["timeline"]
         timeline_meta = {
@@ -254,6 +270,8 @@ class MarkdownExporter:
             "title": project["title"],
             "sourceRevision": project["revision"],
             "sourceOfTruth": "./story.db",
+            "snapshotFormats": ["inline", "story-teller-export-journal-v1"],
+            "exportData": "./export-data/",
             "readOnlyExports": {
                 "schema": "./world-schema.json",
                 "snapshot": "./project.snapshot.json",
@@ -300,6 +318,7 @@ class MarkdownExporter:
             "读取顺序：先读 `world-schema.json` 理解实体语义，再读 `ai-manifest.json` 和 "
             "`project.snapshot.json`；本地 AI 可使用 stdio 命令 `story-world-mcp`，也可连接统一 Hub "
             "`http://127.0.0.1:4188/mcp/`。使用 Hub 时先调用 `list_world_workspaces` 选择当前仓库。\n\n"
+            "若快照 format 为 `story-teller-export-journal`，须读取 base 及按顺序排列的 patches；相关文件位于 `export-data/`，不能只复制入口 JSON。静态站点构建脚本会合成为独立完整快照。\n\n"
             "组织归属、双方印象和剧情出场等精确事实应优先使用 MCP 的结构化工具；需要联想或按语义找资料时再使用 RAG。\n\n"
             "碎片是已确定但尚未编入时间线的剧情，默认应参与检索和创作上下文，不要把它解释为废弃或非正史。\n"
         ).encode("utf-8")

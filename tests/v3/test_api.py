@@ -32,6 +32,20 @@ class V3ApiTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_frontend_explicitly_selects_local_mode_on_all_entry_paths(self):
+        frontend = Path(self.temporary.name) / "frontend"
+        frontend.mkdir()
+        source = '<html><head><meta name="story-teller-mode" content="static" /></head><body></body></html>'
+        (frontend / "index.html").write_text(source, encoding="utf-8")
+        settings = Settings.create(ROOT, content_root=self.content_root, frontend_root=frontend, default_project="demo")
+        with TestClient(create_app(settings)) as client:
+            for route in ("/", "/index.html", "/story"):
+                response = client.get(route)
+                self.assertEqual(200, response.status_code)
+                self.assertIn('name="story-teller-mode" content="local"', response.text)
+                self.assertEqual("no-store", response.headers["cache-control"])
+        self.assertEqual(source, (frontend / "index.html").read_text(encoding="utf-8"))
+
     def test_capability_snapshot_delete_preview_restore_and_undo_round_trip(self):
         self.assertEqual(SCHEMA_VERSION, self.meta["schemaVersion"])
         self.assertTrue(self.meta["routes"]["restoreEntity"])

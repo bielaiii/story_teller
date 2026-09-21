@@ -9,7 +9,8 @@ import {
 } from "../api/fragments";
 import type { PickedReference } from "../editor/MarkdownEditor";
 import { DeferredMarkdownEditor as MarkdownEditor } from "../editor/DeferredMarkdownEditor";
-import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
+import { BrowserDraftNotice } from "../editor/BrowserDraftNotice";
+import { browserDraftKey, clearBrowserDraft, useBrowserDraftSession } from "../editor/browserDraft";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FragmentBoard } from "../components/FragmentBoard";
@@ -223,6 +224,7 @@ function FragmentEditor({
   const [convertChapterNumber, setConvertChapterNumber] = useState("");
   const [convertStories, setConvertStories] = useState<string[]>([]);
   const draftKey = browserDraftKey(project, "fragment", currentId);
+  const draftSession = useBrowserDraftSession(draftKey, draft, baseline, newDraftNonce);
   const supportsConversion = Boolean(
     meta?.routes.contentConversion || meta?.features.includes("content-conversion-v1")
   );
@@ -288,11 +290,10 @@ function FragmentEditor({
         plotChapterPlan: fragmentTypeOf(item) === "line" ? fragmentPlotChapterPlanOf(item) : {},
       } : null;
     if (next) {
-      setDraft(restoreBrowserDraft(browserDraftKey(project, "fragment", currentId), next));
+      setDraft(draftSession.restore(next, currentId === "new" ? null : detail.data!.revision));
       setBaseline(JSON.stringify(next));
     }
   }, [currentId, detail.data, effectiveNewParentId, newDraftNonce, project]);
-  useBrowserDraft(draftKey, draft, baseline);
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const change = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const addReference = (reference: PickedReference) => setDraft((current) => ({
@@ -345,9 +346,11 @@ function FragmentEditor({
         delete payload.plotChapterPlan;
         delete payload.shiftFollowing;
       }
+      Object.assign(payload, draftSession.revisionPayload());
       const result = currentId === "new"
         ? await mutation.create(payload as FragmentCreateCommand)
-        : await mutation.update(currentId, payload as FragmentUpdateCommand);
+        : await mutation.update(currentId, draftSession.changedPayload(payload) as FragmentUpdateCommand);
+      draftSession.saved(result, currentId);
       clearBrowserDraft(draftKey);
       const createdPeople = (result.changed.characters || [])
         .filter((character) => draft.appearanceNames.includes(String(character.name || "")))
@@ -565,6 +568,7 @@ function FragmentEditor({
           <button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button>
         </div>
       </header>
+      <BrowserDraftNotice session={draftSession} draft={draft} />
       {lineWorkspaceActive ? <div className="fragment-line-authoring">
         <aside className="fragment-line-authoring-rail">
           <header><div><small>LINE CONTENTS</small><strong>{workspaceChapters.length} 个章节</strong></div>{workspaceLineId && <button type="button" className={`icon-button${currentId === workspaceLineId ? " is-active" : ""}`} aria-label="编辑剧情线设置" title="编辑剧情线设置" onClick={() => selectWorkspaceDocument(workspaceLineId)}><Icon name="edit" /></button>}</header>
@@ -580,7 +584,7 @@ function FragmentEditor({
         </aside>
         <div className="fragment-line-authoring-document">{settingsAndEditor}</div>
       </div> : settingsAndEditor}
-      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>可直接在当前尺寸写，也可进入沉浸模式</small></footer>
+      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? draftSession.statusText : "已保存")}</span><small>可直接在当前尺寸写，也可进入沉浸模式</small></footer>
     </section>
     <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份灵感草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.title}”？`} message={draft.fragmentType === "line" ? workspaceChapters.length ? `剧情线和线内 ${workspaceChapters.length} 个章节会作为一个整体移入回收站；恢复剧情线时会一并恢复。` : "空剧情线会进入回收站保留 7 天。" : "碎片会进入统一回收站保留 7 天。"} confirmLabel={draft.fragmentType === "line" ? "整条移入回收站" : "移入回收站"} danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
@@ -670,7 +674,8 @@ export default function FragmentsPage() {
   };
   const readerItem = snapshot.fragments.find((item) => item.entityId === reader);
   const readerDetail = useQuery({
-    queryKey: ["entity", project, reader],
+    queryKey: ["reader-entity", project, reader, readerItem?.revision],
+    placeholderData: (previous) => previous?.entityId === reader ? previous : undefined,
     queryFn: () => api.detail<Fragment>(reader as string),
     enabled: Boolean(reader) && !snapshot.readonly,
   });

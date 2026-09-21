@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { Character, Fragment, Plot, Relationship } from "../api/types";
 import { useProjectMutation, useRuntime } from "../api/runtime";
 import { useEditorSaveShortcut } from "../editor/useEditorSaveShortcut";
-import { browserDraftKey, clearBrowserDraft, restoreBrowserDraft, useBrowserDraft } from "../editor/browserDraft";
+import { BrowserDraftNotice } from "../editor/BrowserDraftNotice";
+import { browserDraftKey, clearBrowserDraft, useBrowserDraftSession } from "../editor/browserDraft";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CollapsibleList } from "../components/CollapsibleList";
 import { Icon } from "../components/Icon";
@@ -277,10 +278,11 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRename, setConfirmRename] = useState(false);
   const draftKey = browserDraftKey(project, "character", currentId);
+  const draftSession = useBrowserDraftSession(draftKey, draft, baseline);
   useEffect(() => {
     const next = currentId === "new" ? blankDraft() : detail.data?.data ? fromCharacter(detail.data.data) : null;
     if (next) {
-      const restored = restoreBrowserDraft(browserDraftKey(project, "character", currentId), next);
+      const restored = draftSession.restore(next, currentId === "new" ? null : detail.data!.revision);
       setDraft({
         ...restored,
         corePersona: normalizePersonaDraft(restored.corePersona),
@@ -289,7 +291,6 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
       setBaseline(JSON.stringify(next));
     }
   }, [currentId, detail.data, project]);
-  useBrowserDraft(draftKey, draft, baseline);
   const dirty = Boolean(baseline && JSON.stringify(draft) !== baseline);
   const change = <K extends keyof CharacterDraft>(key: K, value: CharacterDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const changeRole = (narrativeRole: CharacterDraft["narrativeRole"]) => setDraft((current) => ({
@@ -322,14 +323,20 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
       const result = await mutation.mutateAsync({
         path: currentId === "new" ? "/characters" : `/characters/${encodeURIComponent(currentId)}`,
         method: currentId === "new" ? "POST" : "PATCH",
-        payload: {
+        payload: draftSession.changedPayload({
           ...draft,
           ...classification,
+          ...draftSession.revisionPayload(),
           facts: Object.fromEntries(cleanPairs(draft.facts).map((item) => [item.key, item.value])),
           corePersona,
           supplementPersona,
-        },
+        }, value => ({
+          ...value, ...storedClassification(value.narrativeRole),
+          facts: Object.fromEntries(cleanPairs(value.facts).map(item => [item.key, item.value])),
+          corePersona: cleanPersona(value.corePersona), supplementPersona: cleanPersona(value.supplementPersona),
+        })),
       });
+      draftSession.saved(result, currentId);
       clearBrowserDraft(draftKey);
       if (currentId === "new") {
         const created = result.changed.characters?.find((item) => !snapshot.characters.some((existing) => existing.entityId === item.entityId));
@@ -364,6 +371,7 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
   return <div className="dialog-backdrop editor-backdrop">
     <section className="editor-dialog character-editor-dialog" role="dialog" aria-modal="true" aria-label="编辑人物档案">
       <header className="dialog-header"><div><small>Character Profile</small><h2>{currentId === "new" ? "新建人物" : `编辑档案 · ${draft.name}`}</h2></div><div className="dialog-actions">{currentId !== "new" && <button className="icon-button is-danger" aria-label="删除人物" title="删除人物" onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>}<button className="icon-button is-primary" aria-label="保存（⌘/Ctrl+S）" title="保存" disabled={!dirty || mutation.isPending} onClick={() => void save()}><Icon name="save" /></button><button className="icon-button" aria-label="关闭" title="关闭" onClick={() => dirty ? setConfirmClose(true) : onClose()}><Icon name="close" /></button></div></header>
+      <BrowserDraftNotice session={draftSession} draft={draft} />
       <div className="character-editor-body">
         <aside className="character-editor-settings">
           <header><span className="character-editor-avatar" style={{ background: avatarGradient(draft.color) }}>{draft.name.trim().slice(0, 1) || "人"}</span><div><small>Basic Profile</small><h3>基础资料</h3></div></header>
@@ -402,7 +410,7 @@ function CharacterEditor({ entityId, onClose }: { entityId: string | "new"; onCl
           <KeyValueSection title="人物档案" description="年龄、职业、身份、住址等客观信息。" items={draft.facts} onChange={(items) => change("facts", items)} tone="facts" />
         </main>
       </div>
-      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? "未保存修改已暂存在浏览器" : "已保存")}</span><small>保存不会关闭档案或重置当前状态</small></footer>
+      <footer className="editor-footer"><span className={dirty ? "is-dirty" : ""}>{message || (dirty ? draftSession.statusText : "已保存")}</span><small>保存不会关闭档案或重置当前状态</small></footer>
     </section>
     <ConfirmDialog open={confirmClose} title="放弃未保存修改？" message="确认放弃后，浏览器中的这份人物草稿也会被删除。" confirmLabel="放弃修改" danger onCancel={() => setConfirmClose(false)} onConfirm={discard} />
     <ConfirmDialog open={confirmDelete} title={`删除“${draft.name}”？`} message="人物会进入回收站；图谱节点和相连关系会立即从活动视图隐藏，恢复人物后有效关系会自然回来。" confirmLabel="移入回收站" danger onCancel={() => setConfirmDelete(false)} onConfirm={remove} />

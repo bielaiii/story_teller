@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from storyteller.domain.errors import ConflictError
 from storyteller.domain.uow import UnitOfWork
-from storyteller.storage.connection import Database
+from storyteller.storage.connection import Database, SnapshotDatabase
 
 
 LEGACY_PERSONA_PREFIX = re.compile(r"^人物定位\s*\d+\s*[：:]\s*")
@@ -609,6 +609,11 @@ class ProjectRepository:
 
     def changes_since(self, revision: int) -> dict[str, Any]:
         with self.database.read() as connection:
+            repository = ProjectRepository(SnapshotDatabase(self.database, connection), self.project_id)
+            return repository._changes_since(revision)
+
+    def _changes_since(self, revision: int) -> dict[str, Any]:
+        with self.database.read() as connection:
             current = int(connection.execute("SELECT revision FROM projects WHERE id=?", (self.project_id,)).fetchone()[0])
             if revision > current:
                 raise ConflictError("客户端版本高于当前项目版本，请重新读取项目快照")
@@ -698,11 +703,11 @@ class ProjectRepository:
                 changed[bucket].append(active_detail["data"])
         structural_delta: dict[str, Any] = {}
         if structures:
-            snapshot = self.snapshot()
-            if "timeline" in structures:
-                structural_delta["timeline"] = snapshot["timeline"]
-            if "graph" in structures:
-                structural_delta["graph"] = snapshot["graph"]
+            with self.database.read() as connection:
+                if "timeline" in structures:
+                    structural_delta["timeline"] = self._timeline(connection)
+                if "graph" in structures:
+                    structural_delta["graph"] = self._graph(connection)
         return {
             "fromRevision": int(revision),
             "projectRevision": current,

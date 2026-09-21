@@ -80,6 +80,25 @@ class BootstrapTests(unittest.TestCase):
             json.loads(content_index_path.read_text(encoding="utf-8"))["exportFormatVersion"],
         )
 
+    def test_startup_repairs_exports_left_pending_or_failed(self) -> None:
+        from storyteller.domain.content import ContentService
+        from storyteller.storage.connection import Database
+        prepare_project(self.project_root)
+        database = Database(self.project_root)
+        for status in ("pending", "failed"):
+            with database.read() as connection:
+                revision = connection.execute("SELECT revision FROM projects").fetchone()[0]
+            result = ContentService(database, "demo").update_plot(
+                "plot:1", revision, {"body": f"recover {status}"},
+            )
+            with database.write() as connection:
+                connection.execute("UPDATE export_state SET status=?", (status,))
+            recovered = prepare_project(self.project_root)
+            self.assertEqual("ready", recovered["export"]["status"])
+            snapshot = json.loads((self.project_root / "project.snapshot.json").read_text())
+            self.assertEqual(result.project_revision, snapshot["project"]["revision"])
+            self.assertEqual(f"recover {status}", next(p["body"] for p in snapshot["plots"] if p["entityId"] == "plot:1"))
+
     def test_create_empty_project_builds_a_current_writable_database_and_exports(self) -> None:
         root = Path(self.temporary.name) / "new-project"
         result = create_empty_project(root, title="新的故事")

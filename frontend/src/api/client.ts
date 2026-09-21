@@ -21,6 +21,13 @@ export class ApiError extends Error {
   }
 }
 
+export interface FileMaintenanceStatus {
+  reading: { enabled: boolean; directory: string; status: string; lastError: string; lastSuccessAt: number | null; intervalSeconds: number };
+  backups: { directory: string; items: Array<{ filename: string; createdAt: number; revision: number; kind: string; bytes: number }> };
+  pending: string[];
+  errors: Record<string, string>;
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") || "";
   const body = contentType.includes("json") ? await response.json() : await response.text();
@@ -53,7 +60,7 @@ export class StoryApi {
 
   async meta(): Promise<MetaResponse> {
     const value = await parseResponse<MetaResponse>(
-      await fetch(localApiUrl(`/api/v1/meta?project=${encodeURIComponent(this.project)}`), { cache: "no-store" }),
+      await fetch(localApiUrl(`/api/v1/meta?project=${encodeURIComponent(this.project)}`), { cache: "no-store", signal: AbortSignal.timeout(5_000) }),
     );
     if (!value || typeof value !== "object" || typeof value.apiVersion !== "number") {
       throw new ApiError("当前地址没有可用的本地 Story Teller API", 503, "api_unavailable");
@@ -63,8 +70,22 @@ export class StoryApi {
     return value;
   }
 
+  exportStatus(): Promise<{ status: string; lastError?: string; exportedRevision?: number }> {
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/exports`), { cache: "no-store" })
+      .then(parseResponse<{ status: string; lastError?: string; exportedRevision?: number }>);
+  }
+
+  fileMaintenance(): Promise<FileMaintenanceStatus> {
+    return fetch(localApiUrl("/api/v1/projects/" + encodeURIComponent(this.project) + "/maintenance/files"),
+      { cache: "no-store", signal: AbortSignal.timeout(5_000) }).then(parseResponse<FileMaintenanceStatus>);
+  }
+
+  generateFiles(kind: "reading" | "backups"): Promise<{ status: string }> {
+    return this.authorizedRequest("/maintenance/" + kind, "POST");
+  }
+
   snapshot(): Promise<ProjectSnapshot> {
-    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/snapshot`), { cache: "no-store" })
+    return fetch(localApiUrl(`/api/v1/projects/${encodeURIComponent(this.project)}/snapshot`), { cache: "no-store", signal: AbortSignal.timeout(15_000) })
       .then(parseResponse<ProjectSnapshot>);
   }
 
@@ -232,7 +253,7 @@ export class StoryApi {
       }
       if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
         throw new ApiError(
-          "本地服务正在重启，草稿已保存在浏览器中",
+          "本地服务暂时不可用，请保留当前页面，恢复后重试保存",
           0,
           "api_unavailable",
         );
@@ -266,10 +287,61 @@ export class StoryApi {
 
 export async function loadStaticSnapshot(): Promise<ProjectSnapshot> {
   const response = await fetch("./project.snapshot.json", { cache: "no-store" });
-  const snapshot = await parseResponse<ProjectSnapshot>(response);
+  const payload = await parseResponse<ProjectSnapshot | StaticJournal>(response);
+  if (!("format" in payload) || payload.format !== "story-teller-export-journal") {
+    return { ...payload as ProjectSnapshot, readonly: true };
+  }
+  if (payload.version !== 1 || payload.kind !== "static" || payload.patches.length > 64) {
+    throw new Error("静态快照格式不受支持，请重新导出");
+  }
+  const read = async (path: string) => {
+    if (!/^export-data\/[a-f0-9]{64}\.json$/.test(path)) throw new Error("静态快照路径无效");
+    return fetch(`./${path}`, { cache: "force-cache" }).then(parseResponse<unknown>);
+  };
+  const [base, ...patches] = await Promise.all([payload.base, ...payload.patches].map(read));
+  let snapshot = base as ProjectSnapshot;
+  for (const raw of patches) {
+    const patch = raw as StaticPatch;
+    if (patch.fromRevision !== snapshot.project.revision || patch.project !== snapshot.project.id) {
+      throw new Error("静态快照增量不连续，请重新导出");
+    }
+    const next = patch.static.summary;
+    const collections = ["characters", "plots", "entries", "fragments", "relationships", "chapters"] as const;
+    const updated = { ...next } as ProjectSnapshot;
+    for (const collection of collections) {
+      const previous = new Map(snapshot[collection].map(item => [item.entityId, item]));
+      (updated[collection] as unknown[]) = next[collection].map(item => ({
+        ...(previous.get(item.entityId) || item), ...patch.static.overrides[item.entityId], ...patch.static.details[item.entityId],
+      }));
+    }
+    snapshot = updated;
+  }
+  if (snapshot.project.id !== payload.project.id || snapshot.project.revision !== payload.project.revision) {
+    throw new Error("静态快照版本不匹配，请重新导出");
+  }
   return { ...snapshot, readonly: true };
 }
 
 export function projectFromLocation(): string {
   return new URL(window.location.href).searchParams.get("project") || "";
+}
+
+
+export function runtimeMode(): "local" | "static" {
+  return document.querySelector('meta[name="story-teller-mode"]')?.getAttribute("content") === "static"
+    ? "static" : "local";
+}
+
+interface StaticJournal {
+  format: "story-teller-export-journal";
+  version: number;
+  kind: string;
+  project: ProjectSnapshot["project"];
+  base: string;
+  patches: string[];
+}
+interface StaticPatch {
+  fromRevision: number;
+  project: string;
+  static: { summary: ProjectSnapshot; overrides: Record<string, Record<string, unknown>>; details: Record<string, Record<string, unknown>> };
 }

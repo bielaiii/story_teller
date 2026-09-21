@@ -83,7 +83,70 @@ class UnitOfWork:
         return result
 
     @staticmethod
+    def _track_rows(connection: sqlite3.Connection, tables: dict[str, TableInfo]) -> None:
+        """Capture each row's first preimage transactionally, including FK cascades.
+
+        TEMP triggers belong only to this connection. The journal participates in
+        savepoint rollback and never reads or encodes untouched rows or blobs.
+        """
+        connection.execute(
+            "CREATE TEMP TABLE mutation_preimages (table_name TEXT, key_json TEXT, "
+            "before_json TEXT, PRIMARY KEY (table_name, key_json)) WITHOUT ROWID"
+        )
+
+        def row_json(*pairs: Any) -> str:
+            return canonical_json({str(pairs[i]): encode_value(pairs[i + 1])
+                                   for i in range(0, len(pairs), 2)})
+
+        connection.create_function("mutation_row_json", -1, row_json)
+        for table, info in tables.items():
+            ignored = IGNORED_COLUMNS.get(table, set())
+
+            def expression(prefix: str, columns: tuple[str, ...]) -> str:
+                return "mutation_row_json(" + ",".join(
+                    f"'{column}',{prefix}.\"{column}\"" for column in columns
+                ) + ")"
+
+            columns = tuple(column for column in info.columns if column not in ignored)
+            old_key = expression("OLD", info.primary_keys)
+            new_key = expression("NEW", info.primary_keys)
+            old_row = expression("OLD", columns)
+
+            def remember(key: str, preimage: str) -> str:
+                # WHERE avoids evaluating a large preimage more than once and
+                # preserves it even when the outer statement uses OR REPLACE.
+                return (
+                    f"INSERT INTO mutation_preimages SELECT '{table}',{key},{preimage} "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM mutation_preimages "
+                    f"WHERE table_name='{table}' AND key_json={key});"
+                )
+
+            old = remember(old_key, old_row)
+            new = remember(new_key, "NULL")
+            for event, body in (("INSERT", new), ("DELETE", old), ("UPDATE", old + new)):
+                connection.execute(
+                    f'CREATE TEMP TRIGGER "audit_{table}_{event}" {"AFTER" if event == "INSERT" else "BEFORE"} {event} '
+                    f'ON main."{table}" BEGIN {body} END'
+                )
+        # REPLACE can delete an existing row implicitly; audit that deletion too.
+        connection.execute("PRAGMA recursive_triggers=ON")
+
+    @staticmethod
+    def _tracked_changes(connection: sqlite3.Connection, tables: dict[str, TableInfo]) -> list[dict[str, Any]]:
+        changes = []
+        for row in connection.execute(
+            "SELECT table_name, key_json, before_json FROM mutation_preimages ORDER BY table_name, key_json"
+        ):
+            table, key, before = row
+            after = UnitOfWork._current_row_json(connection, tables[table], key)
+            if before != after:
+                changes.append({"table": table, "primaryKey": key, "before": before, "after": after})
+        return changes
+
+    @staticmethod
     def _snapshot(connection: sqlite3.Connection, tables: dict[str, TableInfo]) -> dict[tuple[str, str], str]:
+        # Explicit merge planning still needs a whole-project comparison. Normal
+        # saves use the transaction-local row journal above.
         snapshot: dict[tuple[str, str], str] = {}
         for table, info in tables.items():
             ignored = IGNORED_COLUMNS.get(table, set())
@@ -175,27 +238,27 @@ class UnitOfWork:
                 if not project:
                     raise NotFoundError("项目不存在")
                 current_revision = int(project[0])
-                if int(base_revision) != current_revision:
-                    entity_is_unchanged = False
-                    if expected_entity_id is not None and expected_entity_revision is not None:
-                        entity_row = connection.execute(
-                            "SELECT revision FROM entities WHERE id=? AND project_id=? AND deleted_at IS NULL",
-                            (expected_entity_id, self.project_id),
-                        ).fetchone()
-                        entity_is_unchanged = bool(
-                            entity_row and int(entity_row[0]) == int(expected_entity_revision)
-                        )
+                entity_is_unchanged = False
+                if expected_entity_id is not None and expected_entity_revision is not None:
+                    entity_row = connection.execute(
+                        "SELECT revision FROM entities WHERE id=? AND project_id=? AND deleted_at IS NULL",
+                        (expected_entity_id, self.project_id),
+                    ).fetchone()
+                    entity_is_unchanged = bool(
+                        entity_row and int(entity_row[0]) == int(expected_entity_revision)
+                    )
                     if not entity_is_unchanged:
-                        if expected_entity_id is not None:
-                            raise ConflictError("当前内容已被修改，请合并后重试")
-                        raise ConflictError(
-                            f"内容已在别处更新；当前版本为 {current_revision}，请合并后重试"
-                        )
+                        raise ConflictError("当前内容已被修改，请合并后重试")
+                if int(base_revision) != current_revision and not entity_is_unchanged:
+                    if expected_entity_id is not None:
+                        raise ConflictError("当前内容已被修改，请合并后重试")
+                    raise ConflictError(
+                        f"内容已在别处更新；当前版本为 {current_revision}，请合并后重试"
+                    )
                 tables = self._tables(connection)
-                before = self._snapshot(connection, tables)
+                self._track_rows(connection, tables)
                 callback_result = callback(connection)
-                after = self._snapshot(connection, tables)
-                changes = self._changes(before, after)
+                changes = self._tracked_changes(connection, tables)
                 if not changes or not self._has_semantic_changes(changes):
                     # Services may optimistically touch an entity revision before
                     # the final row comparison is known. A semantic no-op must not

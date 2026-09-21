@@ -11,6 +11,10 @@ const bucketMap = {
 } as const;
 
 export function applyDelta(snapshot: ProjectSnapshot, delta: MutationDelta): ProjectSnapshot {
+  if (delta.projectRevision <= snapshot.project.revision) return snapshot;
+  if (delta.fromRevision !== snapshot.project.revision) {
+    throw new Error("项目增量版本不连续，需要重新同步");
+  }
   const next: ProjectSnapshot = {
     ...snapshot,
     project: { ...snapshot.project, revision: delta.projectRevision },
