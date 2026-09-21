@@ -5,6 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 HUB_ROOT=${STORY_TELLER_HUB_ROOT:-"$(CDPATH= cd -- "$ROOT/../.." && pwd)/story_teller_hub"}
 HUB_PORT=${STORY_WORLD_HUB_PORT:-4188}
 WEB_PORT=${STORY_TELLER_WEB_PORT:-4187}
+HUB_BIND=${STORY_WORLD_HUB_BIND:-127.0.0.1}
 CONTENT_ROOT=${STORY_TELLER_CONTENT_ROOT:-"$ROOT/content"}
 DEFAULT_PROJECT=${STORY_TELLER_DEFAULT_PROJECT:-}
 PROJECT=$DEFAULT_PROJECT
@@ -50,7 +51,7 @@ fi
 
 printf '正在注册 Content，并启动统一 Web / MCP Hub…\n'
 exec "$HUB_ROOT/run.sh" attach \
-  --bind 127.0.0.1 \
+  --bind "$HUB_BIND" \
   --port "$HUB_PORT" \
   --web-port "$WEB_PORT" \
   --repository-root "$REPOSITORY_ROOT" \
